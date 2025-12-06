@@ -1,0 +1,23 @@
+<!-- templates/chats.html -->
+{{ define "chats_content" }}
+<h2>Your Chats</h2>
+<ul class="list-group">
+    {{ range .Chats }}
+    <li class="list-group-item">
+        <a href="/chat/{{ .ID }}?user_id={{ $.UserID }}">Chat with {{ if eq $.UserID .User1ID }}{{ .User2.Username }}{{ else }}{{ .User1.Username }}{{ end }}</a>
+    </li>
+    {{ end }}
+</ul>
+<h3 class="mt-4">Create New Chat</h3>
+{{ if .error }}
+<div class="alert alert-danger">{{ .error }}</div>
+{{ end }}
+<form method="POST" action="/chats">
+    <input type="hidden" name="user_id" value="{{ .UserID }}">
+    <div class="mb-3">
+        <label for="other_username" class="form-label">Other User's Username</label>
+        <input type="text" class="form-control" id="other_username" name="other_username" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Create</button>
+</form>
+{{ end }}
