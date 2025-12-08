@@ -6,6 +6,8 @@ import (
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
+
+	"gorm.io/gorm"
 )
 
 type ChatService struct {
@@ -22,9 +24,12 @@ func (s *ChatService) CreateChat(user1ID, user2ID uint) (*models.Chat, error) {
 		return nil, errors.New("cannot create chat with self")
 	}
 
-	existingChat, _ := s.chatRepo.FindByUsers(user1ID, user2ID)
-	if existingChat != nil {
+	existingChat, err := s.chatRepo.FindByUsers(user1ID, user2ID)
+	if err == nil {
 		return existingChat, nil
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err // Propagate other errors
 	}
 
 	chat := &models.Chat{
@@ -32,22 +37,39 @@ func (s *ChatService) CreateChat(user1ID, user2ID uint) (*models.Chat, error) {
 		User2ID: user2ID,
 	}
 
-	err := s.chatRepo.Create(chat)
-	return chat, err
+	err = s.chatRepo.Create(chat)
+	if err != nil {
+		return nil, err
+	}
+	return chat, nil
 }
 
-func (s *ChatService) SendMessage(chatID, userID uint, text string) error {
+func (s *ChatService) SendMessage(chatID, userID uint, text string, replyToID uint) (*models.Message, error) {
+	var replyPtr *uint
+	if replyToID != 0 {
+		msg, err := s.messageRepo.FindByID(replyToID)
+		if err != nil || msg.ChatID != chatID {
+			return nil, errors.New("invalid reply message")
+		}
+		replyPtr = &replyToID
+	} // else replyPtr = nil
+
 	message := &models.Message{
-		ChatID: chatID,
-		UserID: userID,
-		Text:   text,
+		ChatID:    chatID,
+		UserID:    userID,
+		Text:      text,
+		ReplyToID: replyPtr,
 	}
 
-	return s.messageRepo.Create(message)
+	err := s.messageRepo.Create(message)
+	if err != nil {
+		return nil, err
+	}
+	return message, nil
 }
 
 func (s *ChatService) GetMessages(chatID uint) ([]models.Message, error) {
-	return s.chatRepo.GetMessages(chatID)
+	return s.messageRepo.GetAllByChatID(chatID)
 }
 
 func (s *ChatService) GetUserChats(userID uint) ([]models.Chat, error) {

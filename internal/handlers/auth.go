@@ -3,19 +3,21 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
+	"time"
 
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type AuthHandler struct {
 	authService *services.AuthService
+	secret      []byte
 }
 
-func NewAuthHandler(authService *services.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *services.AuthService, secret []byte) *AuthHandler {
+	return &AuthHandler{authService: authService, secret: secret}
 }
 
 func (h *AuthHandler) ShowRegister(c *gin.Context) {
@@ -26,20 +28,26 @@ func (h *AuthHandler) ShowRegister(c *gin.Context) {
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
-	username := c.PostForm("username")
-	password := c.PostForm("password")
+	var req struct {
+		Username string `form:"username" binding:"required,min=3,max=20"`
+		Password string `form:"password" binding:"required,min=6"`
+	}
 
-	if username == "" || password == "" {
-		c.HTML(http.StatusBadRequest, "register.html", gin.H{"error": "Username and password are required"})
+	if err := c.ShouldBind(&req); err != nil {
+		c.HTML(http.StatusBadRequest, "base.html", gin.H{
+			"Page":  "register",
+			"Title": "Register",
+			"error": err.Error(),
+		})
 		return
 	}
 
-	err := h.authService.Register(username, password)
+	err := h.authService.Register(req.Username, req.Password)
 	if err != nil {
 		c.HTML(http.StatusBadRequest, "base.html", gin.H{
 			"Page":  "register",
 			"Title": "Register",
-			"error": "Username and password are required",
+			"error": "Failed to register: " + err.Error(),
 		})
 		return
 	}
@@ -55,23 +63,53 @@ func (h *AuthHandler) ShowLogin(c *gin.Context) {
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
-	username := c.PostForm("username")
-	password := c.PostForm("password")
+	var req struct {
+		Username string `form:"username" binding:"required"`
+		Password string `form:"password" binding:"required"`
+	}
 
-	if username == "" || password == "" {
-		c.HTML(http.StatusBadRequest, "login.html", gin.H{"error": "Username and password are required"})
+	if err := c.ShouldBind(&req); err != nil {
+		c.HTML(http.StatusBadRequest, "base.html", gin.H{
+			"Page":  "login",
+			"Title": "Login",
+			"error": err.Error(),
+		})
 		return
 	}
 
-	user, err := h.authService.Login(username, password)
+	user, err := h.authService.Login(req.Username, req.Password)
 	if err != nil {
-		c.HTML(http.StatusUnauthorized, "login.html", gin.H{"error": "Invalid credentials"})
+		c.HTML(http.StatusUnauthorized, "base.html", gin.H{
+			"Page":  "login",
+			"Title": "Login",
+			"error": "Invalid credentials",
+		})
 		return
 	}
 
-	c.Redirect(http.StatusFound, "/chats?user_id="+strconv.Itoa(int(user.ID)))
+	// Generate JWT
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
+	tokenString, err := token.SignedString(h.secret)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "base.html", gin.H{
+			"Page":  "login",
+			"Title": "Login",
+			"error": "Failed to generate token",
+		})
+		return
+	}
+
+	// Set cookie (secure: true in prod with HTTPS)
+	secure := false // Set to true in production
+	c.SetCookie("jwt_token", tokenString, int(time.Hour*24/time.Second), "/", "", secure, true)
+
+	c.Redirect(http.StatusFound, "/")
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	c.SetCookie("jwt_token", "", -1, "/", "", false, true)
 	c.Redirect(http.StatusFound, "/login")
 }

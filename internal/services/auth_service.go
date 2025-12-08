@@ -10,11 +10,11 @@ import (
 )
 
 type AuthService struct {
-	userRepo *repositories.UserRepo
+	UserRepo *repositories.UserRepo
 }
 
 func NewAuthService(userRepo *repositories.UserRepo) *AuthService {
-	return &AuthService{userRepo: userRepo}
+	return &AuthService{UserRepo: userRepo}
 }
 
 func (s *AuthService) Register(username, password string) error {
@@ -28,11 +28,11 @@ func (s *AuthService) Register(username, password string) error {
 		Password: string(hashedPassword),
 	}
 
-	return s.userRepo.Create(user)
+	return s.UserRepo.Create(user)
 }
 
 func (s *AuthService) Login(username, password string) (*models.User, error) {
-	user, err := s.userRepo.FindByUsername(username)
+	user, err := s.UserRepo.FindByUsername(username)
 	if err != nil {
 		return nil, err
 	}

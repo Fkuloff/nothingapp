@@ -1,0 +1,58 @@
+<!-- templates/app.html -->
+{{ define "app_content" }}
+<div class="row app-container">
+    <!-- Sidebar with chats list -->
+    <div class="col-md-3 sidebar">
+        <h5>Your Chats</h5>
+        <ul class="list-unstyled">
+            {{ range .Chats }}
+            <li class="chat-list-item {{ if eq .ID $.ChatID }}active{{ end }}">
+                <a href="/?chat_id={{ .ID }}">Chat with {{ if eq $.UserID .User1ID }}{{ .User2.Username }}{{ else }}{{ .User1.Username }}{{ end }}</a>
+            </li>
+            {{ end }}
+        </ul>
+        <h5>Create New Chat</h5>
+        <form action="/chats" method="POST">
+            <input type="hidden" name="user_id" value="{{ .UserID }}">
+            <div class="mb-3">
+                <input type="text" class="form-control" name="other_username" placeholder="Other User's Username" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Create</button>
+        </form>
+    </div>
+
+    <div class="col-md-9 chat-window">
+        {{ if .ChatID }}
+        <div class="chat-header">
+            Chat with {{ .OtherUsername }}
+        </div>
+        <div id="messages">
+            {{ range .Messages }}
+            <div id="msg-{{ .ID }}" class="message {{ if eq $.UserID .UserID }}message-self{{ else }}message-other{{ end }}" data-text="{{ .Text }}">
+                {{ if .ReplyToID }}
+                <div class="reply-preview">Replying to: {{ if .ReplyTo }}{{ .ReplyTo.Text | truncate 50 }}...{{ else }}[Message {{ .ReplyToID }}]{{ end }}</div>
+                {{ end }}
+                <strong class="message-sender">{{ if eq $.UserID .UserID }}You{{ else }}{{ $.OtherUsername }}{{ end }}:</strong> {{ .Text }}
+                <div class="message-time">{{ .CreatedAt.Format "15:04" }}</div>
+                <button class="reply-btn" data-msg-id="{{ .ID }}" data-text="{{ .Text | safeJS }}">Reply</button>
+            </div>
+            {{ end }}
+        </div>
+        <form id="chat-form">
+            <div id="reply-preview"></div>
+            <div class="input-group">
+                <input type="text" id="message" class="form-control" placeholder="Type a message..." required>
+                <button type="submit" class="btn btn-primary">Send</button>
+                <button type="button" id="cancel-reply" onclick="cancelReply()" style="display: none;">Cancel Reply</button>
+            </div>
+        </form>
+        <script src="/static/js/chat.js"></script>
+        <script>
+            initChat({{ .ChatID }}, {{ .UserID }}, "{{ .OtherUsername }}");
+        </script>
+        {{ else }}
+        <h3>Select a chat to start messaging</h3>
+        {{ end }}
+    </div>
+</div>
+{{ end }}

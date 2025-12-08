@@ -44,7 +44,7 @@ func (r *ChatRepo) GetUserChats(userID uint) ([]models.Chat, error) {
 
 func (r *ChatRepo) FindByID(id uint) (*models.Chat, error) {
 	var chat models.Chat
-	err := r.db.First(&chat, id).Error
+	err := r.db.Preload("User1").Preload("User2").First(&chat, id).Error
 	if err != nil {
 		return nil, err
 	}
