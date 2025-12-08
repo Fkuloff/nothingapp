@@ -2,31 +2,43 @@
 .app-container {
     height: 80vh;
     overflow: hidden;
+    display: flex;
+    flex-wrap: wrap;
 }
+
 .sidebar {
     background-color: #f0f2f5;
     border-right: 1px solid #ddd;
     padding: 10px;
     overflow-y: auto;
+    flex: 0 0 33.333%; /* Force 1/3 on all screens */
+    max-width: 33.333%;
 }
-.chat-list-item {
-    padding: 10px;
-    border-radius: 8px;
-    cursor: pointer;
-}
-.chat-list-item.active {
-    background-color: #e1f5fe;
-}
-.chat-list-item.active a {
-    color: #000; /* Чёрный текст для активного, чтобы не сливался */
-    font-weight: bold;
-}
+
 .chat-window {
     display: flex;
     flex-direction: column;
     height: 100%;
     background-color: #fff;
+    flex: 0 0 66.667%; /* Force 2/3 on all screens */
+    max-width: 66.667%;
 }
+
+.chat-list-item {
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.chat-list-item.active {
+    background-color: #e1f5fe;
+}
+
+.chat-list-item.active a {
+    color: #000; /* Чёрный текст для активного, чтобы не сливался */
+    font-weight: bold;
+}
+
 .chat-header {
     background-color: #0088cc;
     color: white;
@@ -34,6 +46,7 @@
     font-weight: bold;
     flex: 0 0 auto; /* Фикс высоты хедера */
 }
+
 #messages {
     flex: 1;
     overflow-y: auto;
@@ -42,61 +55,48 @@
     display: flex;
     flex-direction: column;
 }
+
 .message {
     max-width: 70%;
     margin-bottom: 10px;
     padding: 8px 12px;
-    border-radius: 18px;
+    border-radius: 8px;
     position: relative;
-    animation: fadeIn 0.3s ease-in-out;
+    animation: fadeIn 0.3s ease-in;
 }
+
 .message-self {
-    align-self: flex-end;
-    background-color: #dcf8c6;
-    color: black;
-    border-bottom-right-radius: 4px;
+    background-color: #0088cc;
+    color: white;
+    margin-left: auto;
+    text-align: right;
 }
-.message-self::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    right: -8px;
-    border-width: 0 0 8px 8px;
-    border-style: solid;
-    border-color: transparent transparent transparent #dcf8c6;
-}
+
 .message-other {
-    align-self: flex-start;
-    background-color: #fff;
-    color: black;
-    border-bottom-left-radius: 4px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    background-color: white;
+    border: 1px solid #ddd;
+    margin-right: auto;
 }
-.message-other::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: -8px;
-    border-width: 0 8px 8px 0;
-    border-style: solid;
-    border-color: transparent #fff transparent transparent;
-}
+
 .message-sender {
     display: block;
     font-weight: bold;
     color: #333; /* Тёмный цвет для ника, чтобы выделялся */
     margin-bottom: 4px;
 }
+
 .message-time {
     font-size: 0.75em;
     color: #999;
     text-align: right;
     margin-top: 4px;
 }
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
 #chat-form {
     flex: 0 0 auto; /* Фикс для видимости формы */
     background: #f0f2f5;
@@ -127,4 +127,105 @@
     background-color: #f0f0f0;
     padding: 5px;
     margin-bottom: 10px;
+}
+
+.emoji-btn {
+    font-size: 1.2em;
+    border: 1px solid #ddd;
+}
+
+#picker {
+    position: absolute;
+    bottom: 100px;
+    right: 10px;
+    z-index: 1000;
+    display: none;
+}
+
+#picker.show {
+    display: block;
+}
+
+/* Фикс для navbar: logout справа на всех экранах */
+.navbar-nav {
+    justify-content: flex-end;
+}
+
+@media (max-width: 767.98px) {
+    .app-container {
+        height: 100vh !important;
+        flex-direction: row; /* Keep row for 1/3, but scroll if needed */
+        overflow: auto; /* Allow horizontal scroll on very small */
+    }
+
+    .sidebar {
+        flex: 0 0 33.333% !important; /* Force 1/3 even on mobile */
+        max-width: 33.333% !important;
+        max-height: 100vh; /* Full height on mobile, scroll inside */
+        border-right: 1px solid #ddd;
+        border-bottom: none;
+        overflow-y: auto;
+        padding: 5px;
+    }
+
+    .chat-window {
+        flex: 0 0 66.667% !important;
+        max-width: 66.667% !important;
+        min-height: 100vh;
+    }
+
+    #messages {
+        height: calc(100vh - 120px);
+        overflow-y: auto;
+    }
+
+    .input-group {
+        flex-wrap: wrap;
+    }
+
+    .emoji-btn {
+        margin-top: 5px;
+        width: auto;
+    }
+
+    #picker {
+        position: fixed;
+        bottom: 150px;
+        left: 10px;
+        right: 10px;
+        width: auto;
+    }
+}
+
+@media (max-width: 499px) {
+    .sidebar {
+        flex: 0 0 33.333% !important; /* Still 1/3 */
+        max-width: 33.333% !important;
+        padding: 2px !important;
+        font-size: 12px;
+    }
+
+    .chat-window {
+        flex: 0 0 66.667% !important;
+        max-width: 66.667% !important;
+    }
+
+    #messages {
+        height: calc(100vh - 100px) !important;
+        padding: 2px;
+    }
+
+    .input-group .form-control {
+        font-size: 12px;
+    }
+
+    .btn {
+        padding: 0.25rem 0.4rem;
+        font-size: 12px;
+    }
+
+    h5 {
+        font-size: 14px;
+        margin-bottom: 5px;
+    }
 }

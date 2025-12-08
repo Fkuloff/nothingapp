@@ -6,7 +6,14 @@ function initChat(chatID, userID, otherUsername) {
     const input = document.getElementById('message');
     const replyPreview = document.getElementById('reply-preview');
     const cancelBtn = document.getElementById('cancel-reply');
+    const emojiBtn = document.querySelector('.emoji-btn');
     let replyToID = null;
+    let picker = document.getElementById('picker');
+    if (!picker) {
+        picker = document.createElement('emoji-picker');
+        picker.id = 'picker';
+        document.body.appendChild(picker);
+    }
 
     // Event delegation для всех reply-кнопок (initial + новые)
     messagesDiv.addEventListener('click', function(e) {
@@ -18,6 +25,41 @@ function initChat(chatID, userID, otherUsername) {
             } else {
                 console.error('Invalid reply ID:', e.target.dataset.msgId);
             }
+        }
+    });
+
+    // Emoji Picker логика
+    if (emojiBtn) {
+        emojiBtn.addEventListener('click', function(e) {
+            e.stopPropagation(); // Предотвращаем bubble
+            if (picker.classList.contains('show')) {
+                picker.classList.remove('show');
+            } else {
+                picker.classList.add('show');
+            }
+        });
+    } else {
+        console.error('Emoji button not found');
+    }
+
+    if (picker) {
+        picker.addEventListener('emoji-click', function(event) {
+            try {
+                input.value += event.detail.unicode;
+                picker.classList.remove('show');
+                input.focus();
+            } catch (err) {
+                console.error('Emoji insert error:', err);
+            }
+        });
+    } else {
+        console.error('Picker not initialized');
+    }
+
+    // Закрыть picker при клике вне
+    document.addEventListener('click', function(e) {
+        if (picker && !emojiBtn?.contains(e.target) && !picker.contains(e.target)) {
+            picker.classList.remove('show');
         }
     });
 

@@ -36,7 +36,10 @@ func NewChatHandler(chatService *services.ChatService, userRepo *repositories.Us
 func (h *ChatHandler) ShowApp(c *gin.Context) {
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
-		c.Redirect(http.StatusFound, "/login")
+		c.HTML(http.StatusOK, "base.html", gin.H{
+			"Page":  "login",
+			"Title": "Login",
+		})
 		return
 	}
 	userID := userIDInterface.(uint)

@@ -1,8 +1,8 @@
 <!-- templates/app.html -->
 {{ define "app_content" }}
-<div class="row app-container">
+<div class="row app-container g-0"> <!-- g-0 for no gutters -->
     <!-- Sidebar with chats list -->
-    <div class="col-md-3 sidebar">
+    <div class="col-md-4 sidebar">
         <h5>Your Chats</h5>
         <ul class="list-unstyled">
             {{ range .Chats }}
@@ -21,7 +21,7 @@
         </form>
     </div>
 
-    <div class="col-md-9 chat-window">
+    <div class="col-md-8 chat-window">
         {{ if .ChatID }}
         <div class="chat-header">
             Chat with {{ .OtherUsername }}
@@ -42,10 +42,12 @@
             <div id="reply-preview"></div>
             <div class="input-group">
                 <input type="text" id="message" class="form-control" placeholder="Type a message..." required>
+                <button type="button" class="btn btn-outline-secondary emoji-btn" type="button" title="Add Emoji">😊</button>
                 <button type="submit" class="btn btn-primary">Send</button>
                 <button type="button" id="cancel-reply" onclick="cancelReply()" style="display: none;">Cancel Reply</button>
             </div>
         </form>
+        <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
         <script src="/static/js/chat.js"></script>
         <script>
             initChat({{ .ChatID }}, {{ .UserID }}, "{{ .OtherUsername }}");

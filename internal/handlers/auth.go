@@ -34,7 +34,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Username string `form:"username" binding:"required,min=3,max=20"`
 		Password string `form:"password" binding:"required,min=6"`
 		Name     string `form:"name" binding:"required,min=2,max=50"`
-		Phone    string `form:"phone" binding:"required"` // Валидация regex ниже
+		Phone    string `form:"phone" binding:"required"`
 	}
 
 	if err := c.ShouldBind(&req); err != nil {
@@ -71,7 +71,37 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	c.Redirect(http.StatusFound, "/login")
+	// Авто-логин после регистрации
+	user, loginErr := h.authService.Login(req.Username, req.Password)
+	if loginErr != nil {
+		c.HTML(http.StatusInternalServerError, "base.html", gin.H{
+			"Page":  "register",
+			"Title": "Register",
+			"error": "Registration successful, but login failed: " + loginErr.Error(),
+		})
+		return
+	}
+
+	// Generate JWT
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
+	tokenString, err := token.SignedString(h.secret)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "base.html", gin.H{
+			"Page":  "register",
+			"Title": "Register",
+			"error": "Failed to generate token",
+		})
+		return
+	}
+
+	// Set cookie
+	secure := false
+	c.SetCookie("jwt_token", tokenString, int(time.Hour*24/time.Second), "/", "", secure, true)
+
+	c.Redirect(http.StatusFound, "/")
 }
 
 func (h *AuthHandler) ShowLogin(c *gin.Context) {

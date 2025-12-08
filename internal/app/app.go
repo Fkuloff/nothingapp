@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"messenger/internal/config"
@@ -50,8 +51,18 @@ func Run() {
 		},
 	})
 
+	allowedOrigins := []string{"http://localhost:8080"}
+	lanOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if lanOrigins != "" {
+		allowedOrigins = append(allowedOrigins, strings.Split(lanOrigins, ",")...)
+	} else {
+		// Для быстрого dev: "*" (небезопасно в prod)
+		allowedOrigins = []string{"*"}
+		log.Println("CORS: Allowing all origins for dev (set ALLOWED_ORIGINS for specific)")
+	}
+
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080"},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
