@@ -3,6 +3,8 @@ package handlers
 
 import (
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"messenger/internal/services"
@@ -31,6 +33,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
 		Username string `form:"username" binding:"required,min=3,max=20"`
 		Password string `form:"password" binding:"required,min=6"`
+		Name     string `form:"name" binding:"required,min=2,max=50"`
+		Phone    string `form:"phone" binding:"required"` // Валидация regex ниже
 	}
 
 	if err := c.ShouldBind(&req); err != nil {
@@ -42,7 +46,22 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	err := h.authService.Register(req.Username, req.Password)
+	// Дополнительная валидация Phone (E.164 формат)
+	phoneRegex := regexp.MustCompile(`^\+?[1-9]\d{1,14}$`)
+	if !phoneRegex.MatchString(strings.TrimSpace(req.Phone)) {
+		c.HTML(http.StatusBadRequest, "base.html", gin.H{
+			"Page":  "register",
+			"Title": "Register",
+			"error": "Invalid phone format (use +7XXXXXXXXXX)",
+		})
+		return
+	}
+
+	// Trim для чистоты
+	req.Name = strings.TrimSpace(req.Name)
+	req.Phone = strings.TrimSpace(req.Phone)
+
+	err := h.authService.Register(req.Username, req.Password, req.Name, req.Phone)
 	if err != nil {
 		c.HTML(http.StatusBadRequest, "base.html", gin.H{
 			"Page":  "register",

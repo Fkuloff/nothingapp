@@ -7,7 +7,7 @@
         <ul class="list-unstyled">
             {{ range .Chats }}
             <li class="chat-list-item {{ if eq .ID $.ChatID }}active{{ end }}">
-                <a href="/?chat_id={{ .ID }}">Chat with {{ if eq $.UserID .User1ID }}{{ .User2.Username }}{{ else }}{{ .User1.Username }}{{ end }}</a>
+                <a href="/?chat_id={{ .ID }}">Chat with {{ if eq $.UserID .User1ID }}{{ if .User2.Name }}{{ .User2.Name }}{{ else }}{{ .User2.Username }}{{ end }}{{ else }}{{ if .User1.Name }}{{ .User1.Name }}{{ else }}{{ .User1.Username }}{{ end }}{{ end }}</a>
             </li>
             {{ end }}
         </ul>

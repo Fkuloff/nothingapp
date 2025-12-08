@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
@@ -17,7 +18,7 @@ func NewAuthService(userRepo *repositories.UserRepo) *AuthService {
 	return &AuthService{UserRepo: userRepo}
 }
 
-func (s *AuthService) Register(username, password string) error {
+func (s *AuthService) Register(username, password, name, phone string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -26,6 +27,8 @@ func (s *AuthService) Register(username, password string) error {
 	user := &models.User{
 		Username: username,
 		Password: string(hashedPassword),
+		Name:     strings.TrimSpace(name),
+		Phone:    strings.TrimSpace(phone),
 	}
 
 	return s.UserRepo.Create(user)

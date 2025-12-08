@@ -97,13 +97,19 @@ func (h *ChatHandler) ShowApp(c *gin.Context) {
 
 		var otherUsername string
 		if chat.User1ID == userID {
-			otherUsername = chat.User2.Username
+			otherUsername = chat.User2.Name
+			if otherUsername == "" {
+				otherUsername = chat.User2.Username
+			}
 		} else {
-			otherUsername = chat.User1.Username
+			otherUsername = chat.User1.Name
+			if otherUsername == "" {
+				otherUsername = chat.User1.Username
+			}
 		}
+		data["OtherUsername"] = otherUsername
 
 		data["Messages"] = messages
-		data["OtherUsername"] = otherUsername
 		data["ChatID"] = chatID
 	}
 
