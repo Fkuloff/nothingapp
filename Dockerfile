@@ -6,7 +6,7 @@ WORKDIR /app
 COPY . .
 RUN go mod tidy
 
-COPY go.mod go.sum ./
+
 RUN go mod download
 
 # 2. Потом весь проект
