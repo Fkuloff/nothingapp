@@ -3,11 +3,14 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /app
 
 # 1. Сначала только модули
+COPY . .
+RUN go mod tidy
+
 COPY go.mod go.sum ./
 RUN go mod download
 
 # 2. Потом весь проект
-COPY . .
+
 
 # 3. Собираем именно cmd/server
 RUN CGO_ENABLED=0 GOOS=linux go build -o messenger ./cmd/server
