@@ -9,15 +9,18 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-<nav class="navbar navbar-expand-md navbar-light bg-light"> <!-- Изменено с lg на md -->
+<nav class="navbar navbar-expand-md navbar-light bg-light">
     <div class="container-fluid">
         <a class="navbar-brand" href="/">Messenger</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
-        <div class="collapse navbar-collapse justify-content-end" id="navbarNav"> <!-- Добавлен justify-content-end для выравнивания ul справа -->
+        <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
             <ul class="navbar-nav ms-auto">
                 {{ if eq .Page "app" }}
+                <li class="nav-item">
+                    <a class="nav-link" href="/profile">Profile</a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link" href="/logout">Logout</a>
                 </li>
@@ -33,6 +36,8 @@
     {{ template "login_content" . }}
     {{ else if eq .Page "app" }}
     {{ template "app_content" . }}
+    {{ else if eq .Page "profile" }}
+    {{ template "profile_content" . }}
     {{ end }}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

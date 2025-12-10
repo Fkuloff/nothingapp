@@ -26,3 +26,12 @@ func (r *UserRepo) FindByUsername(username string) (*models.User, error) {
 	}
 	return &user, nil
 }
+
+func (r *UserRepo) FindByID(id uint) (*models.User, error) {
+	var user models.User
+	err := r.db.First(&user, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}

@@ -1,0 +1,26 @@
+<!-- templates/profile.html -->
+{{ define "profile_content" }}
+<h2>Profile</h2>
+{{ if .error }}
+<div class="alert alert-danger">{{ .error }}</div>
+{{ end }}
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title">{{ .User.Name }}</h5>
+        <p class="card-text"><strong>Username:</strong> {{ .User.Username }}</p>
+        <p class="card-text"><strong>Phone:</strong> {{ .User.Phone }}</p>
+        {{ if .IsOwn }}
+        <p class="card-text"><em>This is your profile.</em></p>
+        {{ else }}
+        {{ if .IsContact }}
+        <span class="badge bg-success">In Contacts</span>
+        {{ else }}
+        <form method="POST" action="/contacts/add/{{ .User.ID }}" style="display: inline;">
+            <button type="submit" class="btn btn-outline-primary">Add to Contacts</button>
+        </form>
+        {{ end }}
+        {{ end }}
+        <a href="/" class="btn btn-secondary">Back to Chats</a>
+    </div>
+</div>
+{{ end }}

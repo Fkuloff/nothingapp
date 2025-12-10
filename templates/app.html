@@ -24,7 +24,7 @@
     <div class="col-md-8 chat-window">
         {{ if .ChatID }}
         <div class="chat-header">
-            Chat with {{ .OtherUsername }}
+            Chat with {{ .OtherUsername }} <a href="/profile/{{ .OtherUserID }}" class="btn btn-sm btn-outline-light float-end">Profile</a>
         </div>
         <div id="messages">
             {{ range .Messages }}
