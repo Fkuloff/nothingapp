@@ -1,11 +1,40 @@
-.*/
-!.github/
+# IDE/Editor
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
+# OS
+.DS_Store
+
+# Claude
+.claude/
+
+# Documentation (keep README)
 *.md
 !README.md
 
-uploads/
+# Backend
+backend/.env
+backend/uploads/
+backend/*.exe
+backend/messenger
 
-.env
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+frontend/.env.*.local
+frontend/.env.dev*
+frontend/logs/
+frontend/*.log
+frontend/npm-debug.log*
 
+# Root level artifacts
 *.exe
+uploads/
