@@ -1,6 +1,6 @@
-# Messenger
+# nothing
 
-Современный REST API мессенджер на Go с WebSocket, JWT-аутентификацией, системой присутствия и управлением вложениями.
+Минималистичный мессенджер с React frontend и Go backend. WebSocket для real-time, JWT-аутентификация, система присутствия.
 
 ## Возможности
 
@@ -316,15 +316,141 @@ make lint
 make build
 ```
 
-## Docker
+## Docker & Deployment
+
+### Локальный запуск (docker-compose)
 
 ```bash
-# Сборка образа
-docker build -t messenger-app .
+# 1. Скопируй .env.example в .env и заполни
+cp .env.example .env
 
-# Запуск
-docker run -p 8080:8080 --env-file .env messenger-app
+# 2. Запусти все сервисы
+docker-compose up -d
+
+# Приложение будет доступно на http://localhost
 ```
+
+### Пуш образов в registry
+
+```bash
+# 1. Собери образы с тегом
+docker-compose build
+
+# 2. Залогинься в registry (пример для Docker Hub)
+docker login
+
+# 3. Тегни образы
+docker tag nothing-backend:latest yourusername/nothing-backend:v1.0.0
+docker tag nothing-frontend:latest yourusername/nothing-frontend:v1.0.0
+
+# 4. Пуш
+docker push yourusername/nothing-backend:v1.0.0
+docker push yourusername/nothing-frontend:v1.0.0
+```
+
+Или с переменными окружения:
+```bash
+REGISTRY=yourusername/ TAG=v1.0.0 docker-compose build
+REGISTRY=yourusername/ TAG=v1.0.0 docker-compose push
+```
+
+### Деплой на удалённый сервер
+
+**1. На сервере установи Docker и Docker Compose:**
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+```
+
+**2. Создай директорию и файлы:**
+```bash
+mkdir -p ~/nothing && cd ~/nothing
+
+# Создай docker-compose.prod.yml
+cat > docker-compose.yml << 'EOF'
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nothing-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-messenger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-messenger}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-messenger}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: yourusername/nothing-backend:v1.0.0
+    container_name: nothing-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: postgres://${POSTGRES_USER:-messenger}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-messenger}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 8080
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/uploads
+      STORAGE_LOCAL_URL: ${STORAGE_LOCAL_URL}
+    volumes:
+      - uploads_data:/app/uploads
+
+  frontend:
+    image: yourusername/nothing-frontend:v1.0.0
+    container_name: nothing-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  uploads_data:
+EOF
+```
+
+**3. Создай .env файл:**
+```bash
+cat > .env << 'EOF'
+POSTGRES_USER=messenger
+POSTGRES_PASSWORD=your_secure_password
+POSTGRES_DB=messenger
+JWT_SECRET=your_very_secure_jwt_secret_minimum_32_characters
+ALLOWED_ORIGINS=https://yourdomain.com
+STORAGE_LOCAL_URL=https://yourdomain.com/uploads
+EOF
+```
+
+**4. Запусти:**
+```bash
+docker-compose up -d
+```
+
+**5. Проверь логи:**
+```bash
+docker-compose logs -f
+```
+
+### Обновление на сервере
+
+```bash
+cd ~/nothing
+docker-compose pull
+docker-compose up -d
+```
+
+### HTTPS (опционально)
+
+Для HTTPS добавь Nginx reverse proxy или используй Traefik/Caddy перед контейнерами.
 
 ## Расширение функционала
 

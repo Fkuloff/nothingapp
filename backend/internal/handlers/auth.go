@@ -26,37 +26,9 @@ func NewAuthHandler(authService *services.AuthService, secret []byte) *AuthHandl
 
 // validatePasswordStrength checks if password meets security requirements
 func validatePasswordStrength(password string) error {
-	if len(password) < 8 {
-		return errors.New("password must be at least 8 characters")
+	if len(password) < 6 {
+		return errors.New("Пароль должен быть минимум 6 символов")
 	}
-
-	var (
-		hasUpper  = false
-		hasLower  = false
-		hasNumber = false
-	)
-
-	for _, char := range password {
-		switch {
-		case 'A' <= char && char <= 'Z':
-			hasUpper = true
-		case 'a' <= char && char <= 'z':
-			hasLower = true
-		case '0' <= char && char <= '9':
-			hasNumber = true
-		}
-	}
-
-	if !hasUpper {
-		return errors.New("password must contain at least one uppercase letter")
-	}
-	if !hasLower {
-		return errors.New("password must contain at least one lowercase letter")
-	}
-	if !hasNumber {
-		return errors.New("password must contain at least one number")
-	}
-
 	return nil
 }
 
@@ -93,13 +65,23 @@ func (h *AuthHandler) generateJWT(userID uint) (string, error) {
 func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required,min=3,max=20"`
-		Password string `json:"password" binding:"required,min=8"`
+		Password string `json:"password" binding:"required,min=6"`
 		Name     string `json:"name" binding:"required,min=2,max=50"`
-		Phone    string `json:"phone" binding:"required"`
+		Phone    string `json:"phone"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		sendBadRequest(c, "Invalid input: check all required fields")
+		// Parse validation errors
+		errMsg := "Проверьте введённые данные"
+		errStr := err.Error()
+		if strings.Contains(errStr, "Username") {
+			errMsg = "Username: от 3 до 20 символов"
+		} else if strings.Contains(errStr, "Password") {
+			errMsg = "Пароль: минимум 6 символов"
+		} else if strings.Contains(errStr, "Name") {
+			errMsg = "Имя: от 2 до 50 символов"
+		}
+		sendBadRequest(c, errMsg)
 		return
 	}
 
@@ -109,10 +91,10 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 		return
 	}
 
-	// Validate phone
-	phoneRegex := regexp.MustCompile(`^\+?[1-9]\d{1,14}$`)
-	if !phoneRegex.MatchString(strings.TrimSpace(req.Phone)) {
-		sendBadRequest(c, "Invalid phone format (use +7XXXXXXXXXX)")
+	// Validate username format
+	usernameRegex := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+	if !usernameRegex.MatchString(req.Username) {
+		sendBadRequest(c, "Username может содержать только буквы, цифры и _")
 		return
 	}
 
@@ -121,7 +103,11 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 
 	err := h.authService.Register(c.Request.Context(), req.Username, req.Password, req.Name, req.Phone)
 	if err != nil {
-		sendBadRequest(c, "Username or phone already exists")
+		if strings.Contains(err.Error(), "username") {
+			sendBadRequest(c, "Этот username уже занят")
+		} else {
+			sendBadRequest(c, "Ошибка регистрации")
+		}
 		return
 	}
 

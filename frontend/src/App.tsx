@@ -15,9 +15,8 @@ export default function AppLayout() {
     <div className="app-shell">
       <header className="topbar navbar navbar-expand-md navbar-dark">
         <div className="container-fluid">
-          <Link to="/" className="navbar-brand fw-bold topbar__brand">
-            <span className="logo-dot" />
-            <span>Pulse Messenger</span>
+          <Link to="/" className="navbar-brand topbar__brand">
+            <span className="brand-text">nothing</span>
           </Link>
 
           <div className="d-flex align-items-center ms-auto gap-3 topbar__actions">

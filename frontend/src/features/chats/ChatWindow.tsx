@@ -209,7 +209,7 @@ export function ChatWindow({
     () => (
       <div className="chat-window glassy empty-chat-panel">
         <div className="empty-hero">
-          <div className="empty-hero__badge">Messenger</div>
+          <div className="empty-hero__badge">nothing</div>
           <h2>Начните новый разговор</h2>
           <p className="text-muted">Выберите контакт слева или создайте чат по username.</p>
           <div className="empty-hero__cta">
