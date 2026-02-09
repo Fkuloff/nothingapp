@@ -34,10 +34,17 @@ func (s *AuthService) Register(ctx context.Context, username, password, name, ph
 		Username: username,
 		Password: string(hashedPassword),
 		Name:     strings.TrimSpace(name),
-		Phone:    strings.TrimSpace(phone),
+	}
+
+	// Phone is optional
+	if phone := strings.TrimSpace(phone); phone != "" {
+		user.Phone = &phone
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			return fmt.Errorf("username already exists")
+		}
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 

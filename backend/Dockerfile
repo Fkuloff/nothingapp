@@ -36,10 +36,6 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 # Copy binary from builder
 COPY --from=builder /app/messenger .
 
-# Copy static assets
-COPY templates/ ./templates/
-COPY static/ ./static/
-
 # Create uploads directory with proper permissions
 RUN mkdir -p ./uploads && \
     chown -R appuser:appuser /app

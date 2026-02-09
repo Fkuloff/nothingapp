@@ -30,72 +30,55 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-layout">
-      <div className="auth-panel">
-        <div className="auth-panel__header">
-          <div className="auth-logo">
-            <span className="logo-dot" />
-            <span className="logo-text">Pulse Messenger</span>
-          </div>
-          <p className="auth-subtitle">Войдите, чтобы продолжить общение и видеть все ваши диалоги.</p>
+    <div className="auth-centered">
+      <div className="auth-card">
+        <div className="auth-card__header">
+          <span className="brand-text-lg">nothing</span>
+          <p className="auth-card__subtitle">Войдите в аккаунт</p>
         </div>
 
         {error && (
-          <div className="alert alert-danger auth-alert" role="alert">
+          <div className="auth-error">
             {error}
           </div>
         )}
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="auth-label" htmlFor="username">
-            Имя пользователя
-          </label>
-          <input
-            id="username"
-            type="text"
-            className="form-control auth-input"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="Например, neo"
-            required
-            autoFocus
-          />
+        <form className="auth-card__form" onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="username">Имя пользователя</label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="username"
+              required
+              autoFocus
+              autoComplete="username"
+            />
+          </div>
 
-          <label className="auth-label" htmlFor="password">
-            Пароль
-          </label>
-          <input
-            id="password"
-            type="password"
-            className="form-control auth-input"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="••••••••"
-            required
-          />
+          <div className="form-group">
+            <label htmlFor="password">Пароль</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
+              required
+              autoComplete="current-password"
+            />
+          </div>
 
-          <button type="submit" className="btn btn-primary w-100 auth-btn" disabled={submitting}>
+          <button type="submit" className="auth-card__submit" disabled={submitting}>
             {submitting ? 'Вход...' : 'Войти'}
           </button>
         </form>
 
-        <div className="auth-footer">
+        <div className="auth-card__footer">
           <span>Нет аккаунта?</span>
-          <Link to="/register" className="link-highlight">
-            Зарегистрироваться
-          </Link>
-        </div>
-      </div>
-
-      <div className="auth-aside">
-        <div className="auth-aside__card">
-          <h3>Создано для диалогов</h3>
-          <p>Легкий интерфейс, быстрые сообщения, отправка файлов и отзывчивая вёрстка.</p>
-          <ul className="auth-highlights">
-            <li>Живые обновления через WebSocket</li>
-            <li>Темная тема, которая не режет глаз</li>
-            <li>Заботливо оформленные состояния ошибок</li>
-          </ul>
+          <Link to="/register">Создать</Link>
         </div>
       </div>
     </div>

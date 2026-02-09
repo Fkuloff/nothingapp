@@ -38,3 +38,4 @@ frontend/npm-debug.log*
 # Root level artifacts
 *.exe
 uploads/
+.env
