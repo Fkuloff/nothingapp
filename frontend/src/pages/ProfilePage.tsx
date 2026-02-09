@@ -4,10 +4,12 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { httpGet, httpPost } from '../shared/api/httpClient'
 import type { UserProfile, AvatarUploadResponse } from '../shared/api/types'
 import { endpoints } from '../shared/api/endpoints'
+import { useToast } from '../shared/components/ToastContext'
 
 export default function ProfilePage() {
   const { userId } = useParams<{ userId?: string }>()
   const { user: currentUser } = useAuthContext()
+  const { showToast } = useToast()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,12 +51,12 @@ export default function ProfilePage() {
 
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
     if (!allowedTypes.includes(file.type)) {
-      alert('Выберите изображение (JPEG, PNG, GIF или WebP)')
+      showToast('Выберите изображение (JPEG, PNG, GIF или WebP)', 'warning')
       return
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      alert('Файл слишком большой. Максимум 10MB')
+      showToast('Файл слишком большой. Максимум 10MB', 'warning')
       return
     }
 
@@ -67,10 +69,10 @@ export default function ProfilePage() {
 
       if (response.success && currentUser) {
         setProfile({ ...currentUser, avatar_url: response.avatar_url })
-        alert('Аватар обновлён')
+        showToast('Аватар обновлён', 'success')
       }
     } catch (err) {
-      alert('Ошибка загрузки аватара: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'))
+      showToast('Ошибка загрузки аватара: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'), 'error')
     } finally {
       setUploading(false)
     }
@@ -81,9 +83,9 @@ export default function ProfilePage() {
 
     try {
       await httpPost(endpoints.contacts.add(profile.id), {})
-      alert('Добавлено в контакты')
+      showToast('Добавлено в контакты', 'success')
     } catch (err) {
-      alert('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось добавить контакт'))
+      showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось добавить контакт'), 'error')
     }
   }
 
@@ -120,12 +122,9 @@ export default function ProfilePage() {
           <div className="profile-avatar">
             {isOwnProfile ? (
               <div className="avatar-upload-container">
-                <img
-                  src={displayUser.avatar_url ?? '/static/img/default-avatar.svg'}
-                  alt="Avatar"
-                  className="avatar avatar-xl"
-                  id="profile-avatar"
-                />
+                <span className="avatar avatar-xl" id="profile-avatar">
+                  <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+                </span>
                 <label htmlFor="avatar-input" className="avatar-upload-overlay" title="Загрузить аватар">
                   <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
@@ -135,17 +134,15 @@ export default function ProfilePage() {
                   type="file"
                   id="avatar-input"
                   accept="image/jpeg,image/png,image/gif,image/webp"
-                  style={{ display: 'none' }}
+                  className="hidden"
                   onChange={handleAvatarUpload}
                   disabled={uploading}
                 />
               </div>
             ) : (
-              <img
-                src={displayUser.avatar_url ?? '/static/img/default-avatar.svg'}
-                alt="Avatar"
-                className="avatar avatar-xl"
-              />
+              <span className="avatar avatar-xl">
+                <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+              </span>
             )}
           </div>
           <div className="profile-meta">

@@ -1,19 +1,16 @@
 // API Response types according to API_FULL_DOCUMENTATION.md
 
-// Auth responses
-export type AuthRegisterResponse = {
+// Auth responses - unified type for login/register
+export type AuthResponse = {
   user_id: number
   username: string
   name: string
   token: string
 }
 
-export type AuthLoginResponse = {
-  user_id: number
-  username: string
-  name: string
-  token: string
-}
+// Aliases for backwards compatibility
+export type AuthLoginResponse = AuthResponse
+export type AuthRegisterResponse = AuthResponse
 
 export type AuthMeResponse = {
   id: number
@@ -91,11 +88,6 @@ export type Attachment = {
   created_at?: string
 }
 
-export type AttachmentsUploadResponse = {
-  success: boolean
-  attachments: Attachment[]
-}
-
 // Contacts
 export type ContactsResponse = {
   contacts: Contact[]
@@ -115,34 +107,38 @@ export type AvatarUploadResponse = {
 }
 
 // Generic API responses
-export type ApiSuccess = {
-  success?: boolean
-  message?: string
-}
-
 export type ApiError = {
   error: string
 }
 
 // WebSocket message types (client → server)
+// All messages must include chat_id since we use a global WebSocket connection
 export type WSMessageSend = {
   action: 'send'
+  chat_id: number
   text: string
   reply_to_id?: number
 }
 
 export type WSMessageEdit = {
   action: 'edit'
+  chat_id: number
   message_id: number
   text: string
 }
 
 export type WSMessageDelete = {
   action: 'delete'
+  chat_id: number
   message_id: number
 }
 
-export type WSMessageAction = WSMessageSend | WSMessageEdit | WSMessageDelete
+export type WSMessageMarkRead = {
+  action: 'mark_read'
+  chat_id: number
+}
+
+export type WSMessageAction = WSMessageSend | WSMessageEdit | WSMessageDelete | WSMessageMarkRead
 
 // WebSocket events (server → client)
 export type WSEventNew = {
@@ -172,22 +168,3 @@ export type WSEventDelete = {
 }
 
 export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | ApiError
-
-// Legacy types for compatibility
-export type ContactSummary = {
-  id: number
-  username: string
-  name?: string
-}
-
-export type ChatSummary = {
-  id: number
-  created_at: string
-  updated_at: string
-  user1_id: number
-  user2_id: number
-  user1: UserProfile
-  user2: UserProfile
-  messages?: Message[]
-}
-

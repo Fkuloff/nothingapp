@@ -79,23 +79,3 @@ export function httpPost<T>(path: string, body?: unknown, init?: RequestInit) {
   })
 }
 
-export function httpDelete<T>(path: string, init?: RequestInit) {
-  return request<T>(path, {
-    ...init,
-    method: 'DELETE',
-  })
-}
-
-export function httpPostForm<T>(path: string, params: Record<string, string>, init?: RequestInit) {
-  const body = new URLSearchParams(params)
-
-  return request<T>(path, {
-    ...init,
-    method: 'POST',
-    body,
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      ...(init?.headers ?? {}),
-    },
-  })
-}
