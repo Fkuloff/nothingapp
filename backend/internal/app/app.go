@@ -162,17 +162,17 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 	router.Use(gin.Recovery())
 
 	// CORS
-	allowedOrigins := []string{"http://localhost:8080"}
+	allowedOrigins := []string{"http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173"}
 	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
 		allowedOrigins = strings.Split(origins, ",")
-		log.Info("CORS allowed origins", zap.Strings("origins", allowedOrigins))
 	}
+	log.Info("CORS allowed origins", zap.Strings("origins", allowedOrigins))
 
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: false,
+		AllowCredentials: true,
 	}))
 
 	// Rate limiting

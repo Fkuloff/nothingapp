@@ -41,12 +41,14 @@ func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction)
 	}
 
 	broadcastData := map[string]interface{}{
-		"action":    "new",
-		"chat_id":   msgData.ChatID,
-		"userID":    userID,
-		"text":      msgData.Text,
-		"replyToID": replyToIDVal,
-		"id":        message.ID,
+		"action":      "new",
+		"chat_id":     msgData.ChatID,
+		"user_id":     userID,
+		"text":        msgData.Text,
+		"reply_to_id": replyToIDVal,
+		"id":          message.ID,
+		"created_at":  message.CreatedAt,
+		"is_deleted":  false,
 	}
 	msgJSON, err := json.Marshal(broadcastData)
 	if err != nil {
@@ -118,11 +120,11 @@ func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction)
 	}
 
 	broadcastData := map[string]interface{}{
-		"action":    "edit",
-		"chat_id":   msgData.ChatID,
-		"messageID": msgData.MessageID,
-		"text":      msgData.Text,
-		"userID":    userID,
+		"action":  "edit",
+		"chat_id": msgData.ChatID,
+		"id":      msgData.MessageID,
+		"text":    msgData.Text,
+		"user_id": userID,
 	}
 	msgJSON, err := json.Marshal(broadcastData)
 	if err != nil {
@@ -165,10 +167,11 @@ func (h *WebSocketHandler) handleDeleteMessage(userID uint, msgData MessageActio
 	}
 
 	broadcastData := map[string]interface{}{
-		"action":    "delete",
-		"chat_id":   msgData.ChatID,
-		"messageID": msgData.MessageID,
-		"userID":    userID,
+		"action":     "delete",
+		"chat_id":    msgData.ChatID,
+		"id":         msgData.MessageID,
+		"user_id":    userID,
+		"is_deleted": true,
 	}
 	msgJSON, err := json.Marshal(broadcastData)
 	if err != nil {

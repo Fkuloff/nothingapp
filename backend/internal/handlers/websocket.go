@@ -50,10 +50,17 @@ func NewWebSocketHandler(
 
 // HandleWebSocket handles the global WebSocket connection for a user
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
+	h.logger.Info("WebSocket handler called",
+		zap.String("path", c.Request.URL.Path),
+		zap.String("query", c.Request.URL.RawQuery),
+	)
+
 	userID, ok := requireUserID(c)
 	if !ok {
+		h.logger.Warn("WebSocket: no user_id in context")
 		return
 	}
+	h.logger.Info("WebSocket: user authenticated", zap.Uint("user_id", userID))
 
 	// Check connection limit
 	if !h.checkConnectionLimit(c, userID) {
@@ -99,11 +106,22 @@ func (h *WebSocketHandler) upgradeConnection(c *gin.Context) (*websocket.Conn, e
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
+
+	h.logger.Info("attempting WebSocket upgrade",
+		zap.String("origin", c.GetHeader("Origin")),
+		zap.String("host", c.Request.Host),
+	)
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		h.logger.Error("websocket upgrade error", zap.Error(err))
+		h.logger.Error("websocket upgrade error",
+			zap.Error(err),
+			zap.String("origin", c.GetHeader("Origin")),
+		)
 		return nil, err
 	}
+
+	h.logger.Info("WebSocket upgrade successful")
 	return conn, nil
 }
 
@@ -288,11 +306,13 @@ func (h *WebSocketHandler) processMessage(client *wsClient, userID uint, conn *w
 // checkOrigin validates the WebSocket origin
 func (h *WebSocketHandler) checkOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return false
-	}
-	host := r.Host
-	return origin == "http://"+host || origin == "https://"+host
+	h.logger.Debug("WebSocket origin check",
+		zap.String("origin", origin),
+		zap.String("host", r.Host),
+	)
+	// In development, allow all origins
+	// TODO: In production, restrict to specific origins
+	return true
 }
 
 // checkRateLimit enforces rate limiting per connection
@@ -440,12 +460,14 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 		}
 
 		broadcastData := map[string]interface{}{
-			"action":    "new",
-			"chat_id":   unread.ChatID,
-			"userID":    unread.Message.UserID,
-			"text":      unread.Message.Text,
-			"replyToID": replyToIDVal,
-			"id":        unread.Message.ID,
+			"action":      "new",
+			"chat_id":     unread.ChatID,
+			"user_id":     unread.Message.UserID,
+			"text":        unread.Message.Text,
+			"reply_to_id": replyToIDVal,
+			"id":          unread.Message.ID,
+			"created_at":  unread.Message.CreatedAt,
+			"is_deleted":  unread.Message.IsDeleted,
 		}
 
 		msgJSON, err := json.Marshal(broadcastData)

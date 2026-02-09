@@ -19,6 +19,12 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 		"/health":            true,
 	}
 
+	// Public path prefixes (attachments and uploads are public - avatars, files)
+	publicPrefixes := []string{
+		"/api/attachments/",
+		"/uploads/",
+	}
+
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		isAPIPath := strings.HasPrefix(path, "/api")
@@ -30,9 +36,21 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		// Allow public prefixes (attachments are validated internally by chat membership)
+		for _, prefix := range publicPrefixes {
+			if strings.HasPrefix(path, prefix) {
+				c.Next()
+				return
+			}
+		}
+
 		tokenString := extractToken(c, isAPIPath || isWebsocket)
 		if tokenString == "" {
-			handleUnauthorized(c, isAPIPath || isWebsocket)
+			log.Warn("no token found",
+				zap.String("path", path),
+				zap.Bool("is_websocket", isWebsocket),
+			)
+			handleUnauthorized(c, isWebsocket)
 			return
 		}
 
@@ -43,29 +61,35 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 			return secret, nil
 		})
 		if err != nil || !token.Valid {
-			handleUnauthorized(c, isAPIPath || isWebsocket)
+			log.Warn("invalid token",
+				zap.String("path", path),
+				zap.Error(err),
+			)
+			handleUnauthorized(c, isWebsocket)
 			return
 		}
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			handleUnauthorized(c, isAPIPath || isWebsocket)
+			handleUnauthorized(c, isWebsocket)
 			return
 		}
 
 		// Validate issuer and audience
 		if iss, issOk := claims["iss"].(string); issOk && iss != "messenger-app" {
-			handleUnauthorized(c, isAPIPath || isWebsocket)
+			log.Warn("invalid issuer", zap.String("iss", iss))
+			handleUnauthorized(c, isWebsocket)
 			return
 		}
 		if aud, audOk := claims["aud"].(string); audOk && aud != "messenger-users" {
-			handleUnauthorized(c, isAPIPath || isWebsocket)
+			log.Warn("invalid audience", zap.String("aud", aud))
+			handleUnauthorized(c, isWebsocket)
 			return
 		}
 
 		userIDFloat, ok := claims["user_id"].(float64)
 		if !ok {
-			handleUnauthorized(c, isAPIPath || isWebsocket)
+			handleUnauthorized(c, isWebsocket)
 			return
 		}
 		userID := uint(userIDFloat)
