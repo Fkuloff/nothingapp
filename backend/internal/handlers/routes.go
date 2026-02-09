@@ -17,6 +17,7 @@ func SetupRoutes(
 	secret []byte,
 	fileStorage storage.Storage,
 	logger *zap.Logger,
+	uploadsPath string,
 ) error {
 	// Initialize repositories
 	userRepo := repositories.NewUserRepo(db)
@@ -50,6 +51,9 @@ func SetupRoutes(
 
 	// Health check endpoint (before JWT middleware)
 	router.GET("/health", healthHandler.GetHealth)
+
+	// Serve static uploads (before JWT middleware for public access)
+	router.Static("/uploads", uploadsPath)
 
 	// Apply JWT middleware globally
 	router.Use(JWTMiddleware(secret, logger))
