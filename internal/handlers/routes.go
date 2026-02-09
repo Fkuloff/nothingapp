@@ -46,6 +46,10 @@ func SetupRoutes(
 		logger,
 	)
 	fileHandler := NewFileHandler(fileStorage, logger)
+	healthHandler := NewHealthHandler(db)
+
+	// Health check endpoint (before JWT middleware)
+	router.GET("/health", healthHandler.GetHealth)
 
 	// Apply JWT middleware globally
 	router.Use(JWTMiddleware(secret, logger))

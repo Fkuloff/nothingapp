@@ -16,6 +16,7 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 		"/api/auth/login":    true,
 		"/api/auth/register": true,
 		"/api/auth/logout":   true,
+		"/health":            true,
 	}
 
 	return func(c *gin.Context) {
