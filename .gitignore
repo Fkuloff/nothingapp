@@ -1,0 +1,11 @@
+.*/
+!.github/
+
+*.md
+!README.md
+
+uploads/
+
+.env
+
+*.exe

@@ -1,0 +1,208 @@
+// internal/handlers/websocket_actions.go
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+
+	"messenger/internal/models"
+
+	"go.uber.org/zap"
+)
+
+// handleSendMessage processes a new message
+func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction) error {
+	if len(msgData.Text) == 0 {
+		return &wsError{message: "Message cannot be empty"}
+	}
+	if len(msgData.Text) > MaxMessageSize {
+		return &wsError{message: "Message too large (max 10KB)"}
+	}
+
+	// Check access to chat
+	chat, err := h.chatService.FindChatByIDLight(context.Background(), msgData.ChatID)
+	if err != nil || !chat.HasUser(userID) {
+		return &wsError{message: "Access denied to this chat"}
+	}
+
+	message, err := h.chatService.SendMessage(context.Background(), msgData.ChatID, userID, msgData.Text, msgData.ReplyToID)
+	if err != nil {
+		h.logger.Error("error sending message",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+		return &wsError{message: "Failed to send message: " + err.Error()}
+	}
+
+	replyToIDVal := uint(0)
+	if message.ReplyToID != nil {
+		replyToIDVal = *message.ReplyToID
+	}
+
+	broadcastData := map[string]interface{}{
+		"action":    "new",
+		"chat_id":   msgData.ChatID,
+		"userID":    userID,
+		"text":      msgData.Text,
+		"replyToID": replyToIDVal,
+		"id":        message.ID,
+	}
+	msgJSON, err := json.Marshal(broadcastData)
+	if err != nil {
+		h.logger.Error("json marshal error",
+			zap.Error(err),
+			zap.Uint("message_id", message.ID),
+		)
+		return &wsError{message: "Server error"}
+	}
+
+	// Get other user ID
+	otherUserID := chat.User1ID
+	if chat.User1ID == userID {
+		otherUserID = chat.User2ID
+	}
+
+	// If other user is offline, save to unread messages
+	if !h.presenceService.IsUserOnline(otherUserID) {
+		unreadMsg := &models.UnreadMessage{
+			UserID:    otherUserID,
+			MessageID: message.ID,
+			ChatID:    msgData.ChatID,
+		}
+		if err := h.chatService.CreateUnreadMessage(context.Background(), unreadMsg); err != nil {
+			h.logger.Error("failed to save unread message",
+				zap.Error(err),
+				zap.Uint("user_id", otherUserID),
+				zap.Uint("message_id", message.ID),
+			)
+		}
+	}
+
+	// Broadcast to all participants (online users will receive it immediately)
+	if err := h.broadcastToChat(msgData.ChatID, msgJSON); err != nil {
+		h.logger.Error("failed to broadcast message",
+			zap.Error(err),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+	}
+	return nil
+}
+
+// handleEditMessage processes a message edit
+func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction) error {
+	if msgData.MessageID == 0 {
+		return &wsError{message: "Message ID required for edit"}
+	}
+	if len(msgData.Text) == 0 {
+		return &wsError{message: "New message text cannot be empty"}
+	}
+	if len(msgData.Text) > MaxMessageSize {
+		return &wsError{message: "Message too large (max 10KB)"}
+	}
+
+	// Check access to chat
+	chat, err := h.chatService.FindChatByIDLight(context.Background(), msgData.ChatID)
+	if err != nil || !chat.HasUser(userID) {
+		return &wsError{message: "Access denied to this chat"}
+	}
+
+	err = h.chatService.EditMessage(context.Background(), msgData.MessageID, userID, msgData.Text)
+	if err != nil {
+		h.logger.Error("error editing message",
+			zap.Error(err),
+			zap.Uint("message_id", msgData.MessageID),
+			zap.Uint("user_id", userID),
+		)
+		return &wsError{message: "Failed to edit message: " + err.Error()}
+	}
+
+	broadcastData := map[string]interface{}{
+		"action":    "edit",
+		"chat_id":   msgData.ChatID,
+		"messageID": msgData.MessageID,
+		"text":      msgData.Text,
+		"userID":    userID,
+	}
+	msgJSON, err := json.Marshal(broadcastData)
+	if err != nil {
+		h.logger.Error("json marshal error",
+			zap.Error(err),
+			zap.Uint("message_id", msgData.MessageID),
+		)
+		return &wsError{message: "Server error"}
+	}
+
+	if err := h.broadcastToChat(msgData.ChatID, msgJSON); err != nil {
+		h.logger.Error("failed to broadcast edit",
+			zap.Error(err),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+	}
+	return nil
+}
+
+// handleDeleteMessage processes a message deletion
+func (h *WebSocketHandler) handleDeleteMessage(userID uint, msgData MessageAction) error {
+	if msgData.MessageID == 0 {
+		return &wsError{message: "Message ID required for delete"}
+	}
+
+	// Check access to chat
+	chat, err := h.chatService.FindChatByIDLight(context.Background(), msgData.ChatID)
+	if err != nil || !chat.HasUser(userID) {
+		return &wsError{message: "Access denied to this chat"}
+	}
+
+	err = h.chatService.DeleteMessage(context.Background(), msgData.MessageID, userID)
+	if err != nil {
+		h.logger.Error("error deleting message",
+			zap.Error(err),
+			zap.Uint("message_id", msgData.MessageID),
+			zap.Uint("user_id", userID),
+		)
+		return &wsError{message: "Failed to delete message: " + err.Error()}
+	}
+
+	broadcastData := map[string]interface{}{
+		"action":    "delete",
+		"chat_id":   msgData.ChatID,
+		"messageID": msgData.MessageID,
+		"userID":    userID,
+	}
+	msgJSON, err := json.Marshal(broadcastData)
+	if err != nil {
+		h.logger.Error("json marshal error",
+			zap.Error(err),
+			zap.Uint("message_id", msgData.MessageID),
+		)
+		return &wsError{message: "Server error"}
+	}
+
+	if err := h.broadcastToChat(msgData.ChatID, msgJSON); err != nil {
+		h.logger.Error("failed to broadcast delete",
+			zap.Error(err),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+	}
+	return nil
+}
+
+// handleMarkRead marks messages as read
+func (h *WebSocketHandler) handleMarkRead(userID uint, msgData MessageAction) error {
+	if msgData.ChatID == 0 {
+		return &wsError{message: "chat_id is required"}
+	}
+
+	// Delete all unread messages for this user in this chat
+	if err := h.chatService.MarkChatAsRead(context.Background(), userID, msgData.ChatID); err != nil {
+		h.logger.Error("failed to mark messages as read",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+		return &wsError{message: "Failed to mark messages as read"}
+	}
+
+	return nil
+}
