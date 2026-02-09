@@ -3,8 +3,9 @@ package config
 
 import (
 	"log"
-	"messenger/internal/storage"
 	"os"
+
+	"messenger/internal/storage"
 
 	"github.com/joho/godotenv"
 )

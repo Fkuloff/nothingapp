@@ -50,25 +50,30 @@ func main() {
 	}()
 
 	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
 	// Create migrations table if not exists
 	if err := createMigrationsTable(db); err != nil {
+		_ = db.Close()
 		log.Fatalf("Failed to create migrations table: %v", err)
 	}
 
 	switch *action {
 	case "up":
 		if err := runMigrationsUp(db, *steps); err != nil {
+			_ = db.Close()
 			log.Fatalf("Migration up failed: %v", err)
 		}
 	case "down":
 		if err := runMigrationsDown(db, *steps); err != nil {
+			_ = db.Close()
 			log.Fatalf("Migration down failed: %v", err)
 		}
 	case "status":
 		if err := showMigrationStatus(db); err != nil {
+			_ = db.Close()
 			log.Fatalf("Failed to show status: %v", err)
 		}
 	case "create":
@@ -79,6 +84,7 @@ func main() {
 			log.Fatalf("Failed to create migration: %v", err)
 		}
 	default:
+		_ = db.Close()
 		log.Fatalf("Unknown action: %s. Use: up, down, status, create", *action)
 	}
 }
@@ -380,11 +386,11 @@ func createMigration(name string) error {
 	upTemplate := fmt.Sprintf("-- Migration: %s\n-- Created: %s\n\n-- Add your SQL here\n", name, "")
 	downTemplate := fmt.Sprintf("-- Rollback: %s\n\n-- Add your rollback SQL here\n", name)
 
-	if err := os.WriteFile(upFile, []byte(upTemplate), 0600); err != nil {
+	if err := os.WriteFile(upFile, []byte(upTemplate), 0o600); err != nil {
 		return fmt.Errorf("failed to create up migration: %v", err)
 	}
 
-	if err := os.WriteFile(downFile, []byte(downTemplate), 0600); err != nil {
+	if err := os.WriteFile(downFile, []byte(downTemplate), 0o600); err != nil {
 		return fmt.Errorf("failed to create down migration: %v", err)
 	}
 

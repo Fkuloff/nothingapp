@@ -29,10 +29,10 @@ func NewLocalStorage(basePath, baseURL string) (*LocalStorage, error) {
 	}
 
 	// Create base directories
-	if err := os.MkdirAll(ls.filesPath, 0750); err != nil {
+	if err := os.MkdirAll(ls.filesPath, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create files directory: %w", err)
 	}
-	if err := os.MkdirAll(ls.thumbnailPath, 0750); err != nil {
+	if err := os.MkdirAll(ls.thumbnailPath, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create thumbnails directory: %w", err)
 	}
 
@@ -55,7 +55,7 @@ func (ls *LocalStorage) Save(reader io.Reader, fileName, contentType string, siz
 	)
 
 	fullDir := filepath.Join(ls.filesPath, dateDir)
-	if err := os.MkdirAll(fullDir, 0750); err != nil {
+	if err := os.MkdirAll(fullDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -141,10 +141,14 @@ func (ls *LocalStorage) SaveThumbnail(reader io.Reader, originalKey string) (*Fi
 	var dateDir string
 
 	// Try to extract date directory from original key path
-	parts := filepath.SplitList(originalKey)
-	if len(parts) >= 4 {
-		// Extract YYYY/MM/DD from the path
-		dateDir = filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Base(originalKey)))))
+	// Get the directory path and extract the last 3 components (YYYY/MM/DD)
+	dirPath := filepath.Dir(originalKey)
+	parts := filepath.SplitList(dirPath)
+
+	// Check if path has enough components
+	if len(parts) >= 3 {
+		// Take last 3 parts for YYYY/MM/DD
+		dateDir = filepath.Join(parts[len(parts)-3], parts[len(parts)-2], parts[len(parts)-1])
 	} else {
 		// Fallback to current date
 		now := time.Now()
@@ -157,7 +161,7 @@ func (ls *LocalStorage) SaveThumbnail(reader io.Reader, originalKey string) (*Fi
 
 	// Create thumbnail directory
 	fullDir := filepath.Join(ls.thumbnailPath, dateDir)
-	if err := os.MkdirAll(fullDir, 0750); err != nil {
+	if err := os.MkdirAll(fullDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create thumbnail directory: %w", err)
 	}
 

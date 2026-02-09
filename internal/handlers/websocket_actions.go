@@ -12,7 +12,7 @@ import (
 
 // handleSendMessage processes a new message
 func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction) error {
-	if len(msgData.Text) == 0 {
+	if msgData.Text == "" {
 		return &wsError{message: "Message cannot be empty"}
 	}
 	if len(msgData.Text) > MaxMessageSize {
@@ -94,7 +94,7 @@ func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction)
 	if msgData.MessageID == 0 {
 		return &wsError{message: "Message ID required for edit"}
 	}
-	if len(msgData.Text) == 0 {
+	if msgData.Text == "" {
 		return &wsError{message: "New message text cannot be empty"}
 	}
 	if len(msgData.Text) > MaxMessageSize {

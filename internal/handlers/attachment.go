@@ -3,9 +3,10 @@ package handlers
 import (
 	"fmt"
 	"io"
-	"messenger/internal/services"
 	"net/http"
 	"strconv"
+
+	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -120,7 +121,7 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 
 	// Set headers for download
 	c.Header("Content-Type", attachment.MimeType)
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, attachment.FileName))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", attachment.FileName))
 	c.Header("Content-Length", strconv.FormatInt(attachment.FileSize, 10))
 
 	// Stream file

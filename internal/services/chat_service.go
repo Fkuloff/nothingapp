@@ -13,6 +13,11 @@ import (
 	"gorm.io/gorm"
 )
 
+// Sentinel errors
+var (
+	ErrNoMessages = errors.New("no messages found")
+)
+
 type ChatService struct {
 	logger            *zap.Logger
 	chatRepo          *repositories.ChatRepo
@@ -49,7 +54,7 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 	if err == nil {
 		return existingChat, nil
 	}
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to check for existing chat: %w", err)
 	}
 
@@ -61,9 +66,9 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 	if err := s.chatRepo.Create(ctx, chat); err != nil {
 		// If unique constraint violated due to race condition, fetch existing chat
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			existingChat, fetchErr := s.chatRepo.FindByUsers(ctx, user1ID, user2ID)
+			raceChat, fetchErr := s.chatRepo.FindByUsers(ctx, user1ID, user2ID)
 			if fetchErr == nil {
-				return existingChat, nil
+				return raceChat, nil
 			}
 			return nil, fmt.Errorf("failed to fetch existing chat after race condition: %w", fetchErr)
 		}
@@ -139,7 +144,7 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 		return nil, fmt.Errorf("failed to get last message: %w", err)
 	}
 	if len(messages) == 0 {
-		return nil, nil
+		return nil, ErrNoMessages
 	}
 	return &messages[0], nil
 }
@@ -188,7 +193,7 @@ func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, n
 	}
 
 	// Validate new text
-	if len(newText) == 0 || len(newText) > 10000 {
+	if newText == "" || len(newText) > 10000 {
 		return fmt.Errorf("invalid message length")
 	}
 

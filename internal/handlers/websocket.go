@@ -55,17 +55,45 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	// Connection limit: Users are limited to MaxConnectionsPerUser (5) simultaneous connections
-	// to prevent resource abuse and ensure fair usage across all users
+	// Check connection limit
+	if !h.checkConnectionLimit(c, userID) {
+		return
+	}
+
+	// Upgrade to WebSocket
+	conn, err := h.upgradeConnection(c)
+	if err != nil {
+		return
+	}
+
+	// Setup connection and client
+	client := h.setupConnection(conn, userID)
+
+	// Start background tasks
+	done := h.startBackgroundTasks(client, userID)
+
+	// Cleanup on exit
+	defer h.cleanup(done, client, userID, conn)
+
+	// Handle incoming messages
+	h.handleReadLoop(client, userID, conn)
+}
+
+// checkConnectionLimit verifies the user hasn't exceeded connection limits
+func (h *WebSocketHandler) checkConnectionLimit(c *gin.Context, userID uint) bool {
 	h.mu.RLock()
 	userConns := len(h.clients[userID])
 	h.mu.RUnlock()
 
 	if userConns >= MaxConnectionsPerUser {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many connections"})
-		return
+		return false
 	}
+	return true
+}
 
+// upgradeConnection upgrades HTTP connection to WebSocket
+func (h *WebSocketHandler) upgradeConnection(c *gin.Context) (*websocket.Conn, error) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin:     h.checkOrigin,
 		ReadBufferSize:  1024,
@@ -74,9 +102,13 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		h.logger.Error("websocket upgrade error", zap.Error(err))
-		return
+		return nil, err
 	}
+	return conn, nil
+}
 
+// setupConnection configures the WebSocket connection and creates client
+func (h *WebSocketHandler) setupConnection(conn *websocket.Conn, userID uint) *wsClient {
 	// Configure connection limits
 	conn.SetReadLimit(MaxMessageSize)
 	if err := conn.SetReadDeadline(time.Now().Add(PongWait)); err != nil {
@@ -86,7 +118,6 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		if err := conn.SetReadDeadline(time.Now().Add(PongWait)); err != nil {
 			h.logger.Warn("failed to set read deadline in pong handler", zap.Error(err))
 		}
-		// Update activity in presence service
 		h.presenceService.UpdateActivity(userID)
 		return nil
 	})
@@ -106,18 +137,21 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	// Mark user as online
 	h.presenceService.UserConnected(userID)
 
+	return client
+}
+
+// startBackgroundTasks starts write pump and pending message delivery
+func (h *WebSocketHandler) startBackgroundTasks(client *wsClient, userID uint) chan struct{} {
 	// Send pending unread messages
 	go h.sendPendingMessages(client, userID)
 
 	// Start ping ticker
 	ticker := time.NewTicker(PingPeriod)
-	defer ticker.Stop()
-
-	// Channel for graceful shutdown
 	done := make(chan struct{})
 
 	// Start write pump (ping sender)
 	go func() {
+		defer ticker.Stop()
 		defer func() {
 			if r := recover(); r != nil {
 				h.logger.Error("panic in write pump",
@@ -126,50 +160,60 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 				)
 			}
 		}()
-		for {
-			select {
-			case <-ticker.C:
-				if err := conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
-					h.logger.Warn("failed to set write deadline for ping", zap.Error(err))
-					return
-				}
-				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-					return
-				}
-			case <-done:
+		h.writePump(client.conn, ticker, done)
+	}()
+
+	return done
+}
+
+// writePump sends periodic ping messages to keep connection alive
+func (h *WebSocketHandler) writePump(conn *websocket.Conn, ticker *time.Ticker, done chan struct{}) {
+	for {
+		select {
+		case <-ticker.C:
+			if err := conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+				h.logger.Warn("failed to set write deadline for ping", zap.Error(err))
 				return
 			}
-		}
-	}()
-
-	defer func() {
-		close(done)
-		h.removeClient(userID, client)
-		h.presenceService.UserDisconnected(userID)
-		if closeErr := conn.Close(); closeErr != nil {
-			h.logger.Warn("failed to close websocket connection", zap.Error(closeErr), zap.Uint("user_id", userID))
-		}
-	}()
-
-	// Helper function to send error to client
-	sendError := func(errorMsg string) {
-		errData := map[string]interface{}{
-			"error": errorMsg,
-		}
-		errJSON, err := json.Marshal(errData)
-		if err != nil {
-			h.logger.Error("failed to marshal error message", zap.Error(err))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		case <-done:
 			return
 		}
-		if err := conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
-			h.logger.Warn("failed to set write deadline for error message", zap.Error(err))
-		}
-		if err := conn.WriteMessage(websocket.TextMessage, errJSON); err != nil {
-			h.logger.Error("failed to send error message", zap.Error(err))
-		}
 	}
+}
 
-	// Main read loop with panic recovery
+// cleanup performs cleanup when connection closes
+func (h *WebSocketHandler) cleanup(done chan struct{}, client *wsClient, userID uint, conn *websocket.Conn) {
+	close(done)
+	h.removeClient(userID, client)
+	h.presenceService.UserDisconnected(userID)
+	if closeErr := conn.Close(); closeErr != nil {
+		h.logger.Warn("failed to close websocket connection", zap.Error(closeErr), zap.Uint("user_id", userID))
+	}
+}
+
+// sendError sends error message to WebSocket client
+func (h *WebSocketHandler) sendError(conn *websocket.Conn, errorMsg string) {
+	errData := map[string]interface{}{
+		"error": errorMsg,
+	}
+	errJSON, err := json.Marshal(errData)
+	if err != nil {
+		h.logger.Error("failed to marshal error message", zap.Error(err))
+		return
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+		h.logger.Warn("failed to set write deadline for error message", zap.Error(err))
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, errJSON); err != nil {
+		h.logger.Error("failed to send error message", zap.Error(err))
+	}
+}
+
+// handleReadLoop processes incoming WebSocket messages
+func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *websocket.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			h.logger.Error("panic in websocket handler",
@@ -196,57 +240,48 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 
 		// Rate limiting check
 		if !h.checkRateLimit(client) {
-			h.logger.Warn("rate limit exceeded",
-				zap.Uint("user_id", userID),
-			)
-			sendError("Rate limit exceeded. Please slow down.")
+			h.logger.Warn("rate limit exceeded", zap.Uint("user_id", userID))
+			h.sendError(conn, "Rate limit exceeded. Please slow down.")
 			continue
 		}
 
-		var msgData struct {
-			Action    string `json:"action"`
-			Text      string `json:"text"`
-			ChatID    uint   `json:"chat_id"`
-			ReplyToID uint   `json:"reply_to_id"`
-			MessageID uint   `json:"message_id"`
+		// Parse and handle message
+		if err := h.processMessage(client, userID, conn, msg); err != nil {
+			h.sendError(conn, err.Error())
 		}
-		if err := json.Unmarshal(msg, &msgData); err != nil {
-			h.logger.Error("invalid message format",
-				zap.Error(err),
-				zap.Uint("user_id", userID),
-			)
-			sendError("Invalid message format")
-			continue
-		}
+	}
+}
 
-		// Validate chat_id is provided
-		if msgData.ChatID == 0 && msgData.Action != "mark_read" {
-			sendError("chat_id is required")
-			continue
-		}
+// processMessage parses and routes a WebSocket message to appropriate handler
+func (h *WebSocketHandler) processMessage(client *wsClient, userID uint, conn *websocket.Conn, msg []byte) error {
+	var msgData MessageAction
+	if err := json.Unmarshal(msg, &msgData); err != nil {
+		h.logger.Error("invalid message format", zap.Error(err), zap.Uint("user_id", userID))
+		return &wsError{message: "Invalid message format"}
+	}
 
-		// Default action is "send" for backward compatibility
-		if msgData.Action == "" {
-			msgData.Action = "send"
-		}
+	// Validate chat_id is provided
+	if msgData.ChatID == 0 && msgData.Action != "mark_read" {
+		return &wsError{message: "chat_id is required"}
+	}
 
-		var handlerErr error
-		switch msgData.Action {
-		case "send":
-			handlerErr = h.handleSendMessage(userID, msgData)
-		case "edit":
-			handlerErr = h.handleEditMessage(userID, msgData)
-		case "delete":
-			handlerErr = h.handleDeleteMessage(userID, msgData)
-		case "mark_read":
-			handlerErr = h.handleMarkRead(userID, msgData)
-		default:
-			handlerErr = &wsError{message: "Unknown action: " + msgData.Action}
-		}
+	// Default action is "send" for backward compatibility
+	if msgData.Action == "" {
+		msgData.Action = "send"
+	}
 
-		if handlerErr != nil {
-			sendError(handlerErr.Error())
-		}
+	// Route to appropriate handler
+	switch msgData.Action {
+	case "send":
+		return h.handleSendMessage(userID, msgData)
+	case "edit":
+		return h.handleEditMessage(userID, msgData)
+	case "delete":
+		return h.handleDeleteMessage(userID, msgData)
+	case "mark_read":
+		return h.handleMarkRead(userID, msgData)
+	default:
+		return &wsError{message: "Unknown action: " + msgData.Action}
 	}
 }
 

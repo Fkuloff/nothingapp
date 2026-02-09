@@ -2,12 +2,14 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type ContactService struct {
@@ -47,7 +49,10 @@ func (s *ContactService) AddContact(ctx context.Context, userID, contactUserID u
 func (s *ContactService) IsContact(ctx context.Context, userID, contactUserID uint) (bool, error) {
 	_, err := s.contactRepo.FindByUsers(ctx, userID, contactUserID)
 	if err != nil {
-		return false, nil
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check contact: %w", err)
 	}
 	return true, nil
 }

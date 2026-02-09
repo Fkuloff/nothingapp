@@ -63,7 +63,6 @@ func (r *UnreadMessageRepo) GetUnreadCounts(ctx context.Context, userID uint) (m
 		Where("user_id = ?", userID).
 		Group("chat_id").
 		Scan(&results).Error
-
 	if err != nil {
 		return nil, err
 	}

@@ -3,11 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
+	"mime/multipart"
+	"strings"
+
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 	"messenger/internal/storage"
-	"mime/multipart"
-	"strings"
 
 	"go.uber.org/zap"
 )
