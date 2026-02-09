@@ -25,7 +25,7 @@ export default function AppLayout() {
               <>
                 <Link to="/profile" className="nav-link topbar__link">
                   <span className="avatar avatar-sm me-2">
-                    <img src={user.avatar_url ?? '/static/img/default-avatar.svg'} alt="avatar" />
+                    <img src={user.avatar_url || '/img/default-avatar.svg'} alt="avatar" />
                   </span>
                   <span>{user.name || user.username}</span>
                 </Link>

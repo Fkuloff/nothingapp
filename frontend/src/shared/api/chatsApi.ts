@@ -1,4 +1,4 @@
-import type { ChatListResponse, ChatItem, MessagesResponse, Message, WSEvent } from './types'
+import type { ChatListResponse, ChatItem, MessagesResponse, Message } from './types'
 import { httpGet, httpPost } from './httpClient'
 import { endpoints } from './endpoints'
 
@@ -26,41 +26,5 @@ export async function getChatMessages(chatId: number): Promise<Message[]> {
   } catch (error) {
     console.error('Failed to load messages:', error)
     return []
-  }
-}
-
-// Convert a WebSocket event to a partial Message structure
-export function wsEventToMessage(event: WSEvent): Partial<Message> | null {
-  if ('error' in event) {
-    console.error('WebSocket error:', event.error)
-    return null
-  }
-
-  switch (event.action) {
-    case 'new':
-      return {
-        id: event.id,
-        chat_id: event.chat_id,
-        user_id: event.user_id,
-        text: event.text,
-        reply_to_id: event.reply_to_id,
-        edited_at: event.edited_at,
-        is_deleted: event.is_deleted,
-        created_at: event.created_at,
-        attachments: [],
-      }
-    case 'edit':
-      return {
-        id: event.id,
-        text: event.text,
-        edited_at: event.edited_at || new Date().toISOString(),
-      }
-    case 'delete':
-      return {
-        id: event.id,
-        is_deleted: event.is_deleted,
-      }
-    default:
-      return null
   }
 }

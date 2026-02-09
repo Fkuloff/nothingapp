@@ -97,11 +97,9 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
                   onClick={() => onSelect(chat.id)}
                   tabIndex={0}
                 >
-                  <img
-                    src={chat.avatar_url ?? '/static/img/default-avatar.svg'}
-                    alt="Avatar"
-                    className="avatar avatar-md"
-                  />
+                  <span className="avatar avatar-md">
+                    <img src={chat.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+                  </span>
                   <div className="chat-list-item-content">
                     <div className="chat-list-item__top">
                       <span className="chat-list-item__name">Чат с {chat.other_user_name}</span>

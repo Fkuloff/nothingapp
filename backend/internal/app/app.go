@@ -53,7 +53,7 @@ func Run() error {
 	router := setupRouter(log)
 
 	// Setup routes with dependencies
-	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log); err != nil {
+	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg.Storage.LocalBasePath); err != nil {
 		return fmt.Errorf("setup routes: %w", err)
 	}
 

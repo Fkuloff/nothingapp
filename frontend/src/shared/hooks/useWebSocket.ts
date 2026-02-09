@@ -70,7 +70,8 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
       const wsBaseUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin
       const token = getAuthToken()
       const query = token ? `?token=${encodeURIComponent(token)}` : ''
-      const wsUrl = `${wsBaseUrl.replace(/^http/, 'ws')}${endpoints.ws.chat(chatIdRef.current)}${query}`
+      // Use global WebSocket endpoint instead of per-chat endpoint
+      const wsUrl = `${wsBaseUrl.replace(/^http/, 'ws')}${endpoints.ws.global}${query}`
 
       console.log('Connecting to WebSocket:', wsUrl)
       const ws = new WebSocket(wsUrl)
@@ -90,7 +91,13 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as WSEvent
-          onMessageRef.current(data)
+          // Only process messages for the current chat
+          if ('chat_id' in data && data.chat_id === chatIdRef.current) {
+            onMessageRef.current(data)
+          } else if ('error' in data) {
+            // Always process error messages
+            onMessageRef.current(data)
+          }
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err)
         }
@@ -146,7 +153,7 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
 
       setIsConnected(false)
     }
-  }, [enabled, chatId])
+  }, [enabled])
 
   const send = (data: WSMessageAction) => {
     const ws = wsRef.current
@@ -176,6 +183,5 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
     return false
   }
 
-  return { isConnected, send, reconnectAttempts: reconnectAttemptsRef.current }
+  return { isConnected, send }
 }
-

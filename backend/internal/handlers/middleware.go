@@ -19,10 +19,9 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 		"/health":            true,
 	}
 
-	// Public path prefixes (attachments and uploads are public - avatars, files)
+	// Public path prefixes (attachments are public - validated internally by chat membership)
 	publicPrefixes := []string{
 		"/api/attachments/",
-		"/uploads/",
 	}
 
 	return func(c *gin.Context) {
