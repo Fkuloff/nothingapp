@@ -8,13 +8,13 @@ import (
 
 // FileMetadata contains metadata about a stored file
 type FileMetadata struct {
-	UploadedAt   time.Time
 	Key          string
 	FileName     string
 	ContentType  string
 	URL          string
 	ThumbnailURL string
 	Size         int64
+	UploadedAt   time.Time
 }
 
 // Storage defines the interface for file storage operations

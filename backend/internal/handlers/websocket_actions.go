@@ -11,7 +11,7 @@ import (
 )
 
 // handleSendMessage processes a new message
-func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction) error {
+func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, msgData MessageAction) error {
 	if msgData.Text == "" {
 		return &wsError{message: "Message cannot be empty"}
 	}
@@ -20,12 +20,12 @@ func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction)
 	}
 
 	// Check access to chat
-	chat, err := h.chatService.FindChatByIDLight(context.Background(), msgData.ChatID)
+	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
 	if err != nil || !chat.HasUser(userID) {
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	message, err := h.chatService.SendMessage(context.Background(), msgData.ChatID, userID, msgData.Text, msgData.ReplyToID)
+	message, err := h.chatService.SendMessage(ctx, msgData.ChatID, userID, msgData.Text, msgData.ReplyToID)
 	if err != nil {
 		h.logger.Error("error sending message",
 			zap.Error(err),
@@ -72,7 +72,7 @@ func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction)
 			MessageID: message.ID,
 			ChatID:    msgData.ChatID,
 		}
-		if err := h.chatService.CreateUnreadMessage(context.Background(), unreadMsg); err != nil {
+		if err := h.chatService.CreateUnreadMessage(ctx, unreadMsg); err != nil {
 			h.logger.Error("failed to save unread message",
 				zap.Error(err),
 				zap.Uint("user_id", otherUserID),
@@ -82,7 +82,7 @@ func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction)
 	}
 
 	// Broadcast to all participants (online users will receive it immediately)
-	if err := h.broadcastToChat(msgData.ChatID, msgJSON); err != nil {
+	if err := h.broadcastToChat(ctx, msgData.ChatID, msgJSON); err != nil {
 		h.logger.Error("failed to broadcast message",
 			zap.Error(err),
 			zap.Uint("chat_id", msgData.ChatID),
@@ -92,7 +92,7 @@ func (h *WebSocketHandler) handleSendMessage(userID uint, msgData MessageAction)
 }
 
 // handleEditMessage processes a message edit
-func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction) error {
+func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, msgData MessageAction) error {
 	if msgData.MessageID == 0 {
 		return &wsError{message: "Message ID required for edit"}
 	}
@@ -104,12 +104,12 @@ func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction)
 	}
 
 	// Check access to chat
-	chat, err := h.chatService.FindChatByIDLight(context.Background(), msgData.ChatID)
+	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
 	if err != nil || !chat.HasUser(userID) {
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	err = h.chatService.EditMessage(context.Background(), msgData.MessageID, userID, msgData.Text)
+	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text)
 	if err != nil {
 		h.logger.Error("error editing message",
 			zap.Error(err),
@@ -135,7 +135,7 @@ func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction)
 		return &wsError{message: "Server error"}
 	}
 
-	if err := h.broadcastToChat(msgData.ChatID, msgJSON); err != nil {
+	if err := h.broadcastToChat(ctx, msgData.ChatID, msgJSON); err != nil {
 		h.logger.Error("failed to broadcast edit",
 			zap.Error(err),
 			zap.Uint("chat_id", msgData.ChatID),
@@ -145,18 +145,18 @@ func (h *WebSocketHandler) handleEditMessage(userID uint, msgData MessageAction)
 }
 
 // handleDeleteMessage processes a message deletion
-func (h *WebSocketHandler) handleDeleteMessage(userID uint, msgData MessageAction) error {
+func (h *WebSocketHandler) handleDeleteMessage(ctx context.Context, userID uint, msgData MessageAction) error {
 	if msgData.MessageID == 0 {
 		return &wsError{message: "Message ID required for delete"}
 	}
 
 	// Check access to chat
-	chat, err := h.chatService.FindChatByIDLight(context.Background(), msgData.ChatID)
+	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
 	if err != nil || !chat.HasUser(userID) {
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	err = h.chatService.DeleteMessage(context.Background(), msgData.MessageID, userID)
+	err = h.chatService.DeleteMessage(ctx, msgData.MessageID, userID)
 	if err != nil {
 		h.logger.Error("error deleting message",
 			zap.Error(err),
@@ -182,7 +182,7 @@ func (h *WebSocketHandler) handleDeleteMessage(userID uint, msgData MessageActio
 		return &wsError{message: "Server error"}
 	}
 
-	if err := h.broadcastToChat(msgData.ChatID, msgJSON); err != nil {
+	if err := h.broadcastToChat(ctx, msgData.ChatID, msgJSON); err != nil {
 		h.logger.Error("failed to broadcast delete",
 			zap.Error(err),
 			zap.Uint("chat_id", msgData.ChatID),
@@ -192,13 +192,13 @@ func (h *WebSocketHandler) handleDeleteMessage(userID uint, msgData MessageActio
 }
 
 // handleMarkRead marks messages as read
-func (h *WebSocketHandler) handleMarkRead(userID uint, msgData MessageAction) error {
+func (h *WebSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgData MessageAction) error {
 	if msgData.ChatID == 0 {
 		return &wsError{message: "chat_id is required"}
 	}
 
 	// Delete all unread messages for this user in this chat
-	if err := h.chatService.MarkChatAsRead(context.Background(), userID, msgData.ChatID); err != nil {
+	if err := h.chatService.MarkChatAsRead(ctx, userID, msgData.ChatID); err != nil {
 		h.logger.Error("failed to mark messages as read",
 			zap.Error(err),
 			zap.Uint("user_id", userID),

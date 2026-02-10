@@ -13,19 +13,19 @@ type MessageAction struct {
 
 // UserListItem represents a user in a list (contacts, search results)
 type UserListItem struct {
-	AvatarURL *string `json:"avatar_url"`
+	ID        uint    `json:"id"`
 	Username  string  `json:"username"`
 	Name      string  `json:"name"`
-	ID        uint    `json:"id"`
+	AvatarURL *string `json:"avatar_url"`
 }
 
 // ChatListItem represents a chat in the chat list
 type ChatListItem struct {
-	UpdatedAt     time.Time `json:"updated_at"`
-	AvatarURL     *string   `json:"avatar_url"`
-	OtherUserName string    `json:"other_user_name"`
-	LastMessage   string    `json:"last_message"`
 	ID            uint      `json:"id"`
 	OtherUserID   uint      `json:"other_user_id"`
+	OtherUserName string    `json:"other_user_name"`
+	LastMessage   string    `json:"last_message"`
 	UnreadCount   int       `json:"unread_count"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	AvatarURL     *string   `json:"avatar_url"`
 }

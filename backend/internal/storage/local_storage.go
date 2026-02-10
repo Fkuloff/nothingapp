@@ -19,6 +19,9 @@ type LocalStorage struct {
 	thumbnailPath string // Directory for thumbnails (basePath/thumbnails)
 }
 
+// Verify interface compliance at compile time.
+var _ Storage = (*LocalStorage)(nil)
+
 // NewLocalStorage creates a new LocalStorage instance
 func NewLocalStorage(basePath, baseURL string) (*LocalStorage, error) {
 	ls := &LocalStorage{

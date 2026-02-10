@@ -23,50 +23,6 @@ func NewProfileHandler(userService *services.UserService, contactSvc *services.C
 	}
 }
 
-// GetProfile returns user profile data as JSON
-func (h *ProfileHandler) GetProfile(c *gin.Context) {
-	currentUserID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-
-	profileUserIDStr := c.Param("user_id")
-	var profileUserID uint
-	if profileUserIDStr == "" {
-		profileUserID = currentUserID
-	} else {
-		var err error
-		profileUserID, err = parseUintParam(c, "user_id")
-		if err != nil {
-			sendBadRequest(c, "Invalid user ID")
-			return
-		}
-	}
-
-	user, err := h.userService.GetUserByID(c.Request.Context(), profileUserID)
-	if err != nil {
-		h.logger.Error("failed to fetch user", zap.Error(err), zap.Uint("user_id", profileUserID))
-		sendNotFound(c, "User not found")
-		return
-	}
-
-	isOwn := profileUserID == currentUserID
-	isContact, err := h.contactSvc.IsContact(c.Request.Context(), currentUserID, profileUserID)
-	if err != nil {
-		h.logger.Warn("failed to check contact status", zap.Error(err), zap.Uint("current_user", currentUserID), zap.Uint("target_user", profileUserID))
-		isContact = false
-	}
-
-	sendSuccess(c, gin.H{
-		"id":         user.ID,
-		"username":   user.Username,
-		"name":       user.Name,
-		"avatar_url": user.AvatarURL,
-		"is_own":     isOwn,
-		"is_contact": isContact,
-	})
-}
-
 // GetContacts returns user's contact list as JSON
 func (h *ProfileHandler) GetContacts(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)

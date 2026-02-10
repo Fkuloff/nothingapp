@@ -49,7 +49,7 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 				zap.String("path", path),
 				zap.Bool("is_websocket", isWebsocket),
 			)
-			handleUnauthorized(c, isWebsocket)
+			handleUnauthorized(c)
 			return
 		}
 
@@ -64,31 +64,31 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 				zap.String("path", path),
 				zap.Error(err),
 			)
-			handleUnauthorized(c, isWebsocket)
+			handleUnauthorized(c)
 			return
 		}
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			handleUnauthorized(c, isWebsocket)
+			handleUnauthorized(c)
 			return
 		}
 
 		// Validate issuer and audience
 		if iss, issOk := claims["iss"].(string); issOk && iss != "messenger-app" {
 			log.Warn("invalid issuer", zap.String("iss", iss))
-			handleUnauthorized(c, isWebsocket)
+			handleUnauthorized(c)
 			return
 		}
 		if aud, audOk := claims["aud"].(string); audOk && aud != "messenger-users" {
 			log.Warn("invalid audience", zap.String("aud", aud))
-			handleUnauthorized(c, isWebsocket)
+			handleUnauthorized(c)
 			return
 		}
 
 		userIDFloat, ok := claims["user_id"].(float64)
 		if !ok {
-			handleUnauthorized(c, isWebsocket)
+			handleUnauthorized(c)
 			return
 		}
 		userID := uint(userIDFloat)
@@ -99,7 +99,7 @@ func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 }
 
 // handleUnauthorized responds with JSON
-func handleUnauthorized(c *gin.Context, _respondJSON bool) {
+func handleUnauthorized(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 }
 

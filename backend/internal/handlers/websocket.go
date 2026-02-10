@@ -18,6 +18,8 @@ import (
 // WebSocket constants are now defined in constants.go
 
 type wsClient struct {
+	ctx          context.Context
+	cancel       context.CancelFunc
 	lastMessage  time.Time
 	conn         *websocket.Conn
 	userID       uint
@@ -73,8 +75,11 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
+	// Create context that will be canceled when connection closes
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// Setup connection and client
-	client := h.setupConnection(conn, userID)
+	client := h.setupConnection(ctx, cancel, conn, userID)
 
 	// Start background tasks
 	done := h.startBackgroundTasks(client, userID)
@@ -126,7 +131,7 @@ func (h *WebSocketHandler) upgradeConnection(c *gin.Context) (*websocket.Conn, e
 }
 
 // setupConnection configures the WebSocket connection and creates client
-func (h *WebSocketHandler) setupConnection(conn *websocket.Conn, userID uint) *wsClient {
+func (h *WebSocketHandler) setupConnection(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, userID uint) *wsClient {
 	// Configure connection limits
 	conn.SetReadLimit(MaxMessageSize)
 	if err := conn.SetReadDeadline(time.Now().Add(PongWait)); err != nil {
@@ -141,10 +146,11 @@ func (h *WebSocketHandler) setupConnection(conn *websocket.Conn, userID uint) *w
 	})
 
 	client := &wsClient{
-		conn:         conn,
-		userID:       userID,
-		lastMessage:  time.Now(),
-		messageCount: 0,
+		ctx:         ctx,
+		cancel:      cancel,
+		conn:        conn,
+		userID:      userID,
+		lastMessage: time.Now(),
 	}
 
 	// Add client to map
@@ -205,6 +211,7 @@ func (h *WebSocketHandler) writePump(conn *websocket.Conn, ticker *time.Ticker, 
 // cleanup performs cleanup when connection closes
 func (h *WebSocketHandler) cleanup(done chan struct{}, client *wsClient, userID uint, conn *websocket.Conn) {
 	close(done)
+	client.cancel() // Cancel context to stop any pending operations
 	h.removeClient(userID, client)
 	h.presenceService.UserDisconnected(userID)
 	if closeErr := conn.Close(); closeErr != nil {
@@ -264,14 +271,14 @@ func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *w
 		}
 
 		// Parse and handle message
-		if err := h.processMessage(client, userID, conn, msg); err != nil {
+		if err := h.processMessage(client.ctx, userID, conn, msg); err != nil {
 			h.sendError(conn, err.Error())
 		}
 	}
 }
 
 // processMessage parses and routes a WebSocket message to appropriate handler
-func (h *WebSocketHandler) processMessage(client *wsClient, userID uint, conn *websocket.Conn, msg []byte) error {
+func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, conn *websocket.Conn, msg []byte) error {
 	var msgData MessageAction
 	if err := json.Unmarshal(msg, &msgData); err != nil {
 		h.logger.Error("invalid message format", zap.Error(err), zap.Uint("user_id", userID))
@@ -291,13 +298,13 @@ func (h *WebSocketHandler) processMessage(client *wsClient, userID uint, conn *w
 	// Route to appropriate handler
 	switch msgData.Action {
 	case "send":
-		return h.handleSendMessage(userID, msgData)
+		return h.handleSendMessage(ctx, userID, msgData)
 	case "edit":
-		return h.handleEditMessage(userID, msgData)
+		return h.handleEditMessage(ctx, userID, msgData)
 	case "delete":
-		return h.handleDeleteMessage(userID, msgData)
+		return h.handleDeleteMessage(ctx, userID, msgData)
 	case "mark_read":
-		return h.handleMarkRead(userID, msgData)
+		return h.handleMarkRead(ctx, userID, msgData)
 	default:
 		return &wsError{message: "Unknown action: " + msgData.Action}
 	}
@@ -387,9 +394,9 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 }
 
 // broadcastToChat sends a message to all participants in a chat
-func (h *WebSocketHandler) broadcastToChat(chatID uint, msgJSON []byte, excludeUserID ...uint) error {
+func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msgJSON []byte, excludeUserID ...uint) error {
 	// Get chat participants
-	chat, err := h.chatService.FindChatByIDLight(context.Background(), chatID)
+	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
 	if err != nil {
 		return err
 	}
@@ -427,7 +434,7 @@ func (h *WebSocketHandler) broadcastToChat(chatID uint, msgJSON []byte, excludeU
 
 // sendPendingMessages sends all unread messages to a newly connected user
 func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
-	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(context.Background(), userID)
+	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(client.ctx, userID)
 	if err != nil {
 		h.logger.Error("failed to get pending messages",
 			zap.Error(err),
@@ -502,6 +509,9 @@ type wsError struct {
 	message string
 }
 
+// Verify interface compliance at compile time.
+var _ error = (*wsError)(nil) //nolint:errcheck // compile-time interface check
+
 func (e *wsError) Error() string {
 	return e.message
 }
@@ -513,7 +523,7 @@ func (h *WebSocketHandler) GetUnreadMessagesAPI(c *gin.Context) {
 		return
 	}
 
-	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(context.Background(), userID)
+	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(c.Request.Context(), userID)
 	if err != nil {
 		h.logger.Error("failed to get unread messages",
 			zap.Error(err),
@@ -535,7 +545,7 @@ func (h *WebSocketHandler) GetUnreadCountsAPI(c *gin.Context) {
 		return
 	}
 
-	counts, err := h.chatService.GetUnreadCounts(context.Background(), userID)
+	counts, err := h.chatService.GetUnreadCounts(c.Request.Context(), userID)
 	if err != nil {
 		h.logger.Error("failed to get unread counts",
 			zap.Error(err),
