@@ -13,9 +13,10 @@
 # Claude
 .claude/
 
-# Documentation (keep README)
+# Documentation (keep README and deployment docs)
 *.md
 !README.md
+!DEPLOYMENT.md
 
 # Backend
 backend/.env
@@ -39,3 +40,9 @@ frontend/npm-debug.log*
 *.exe
 uploads/
 .env
+.env.production
+
+# Backups
+backups/
+*.sql
+*.tar.gz
