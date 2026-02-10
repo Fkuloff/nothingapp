@@ -3,12 +3,13 @@ package models
 import "gorm.io/gorm"
 
 type Chat struct {
-	User1 User `gorm:"foreignKey:User1ID"`
-	User2 User `gorm:"foreignKey:User2ID"`
 	gorm.Model
+	User1ID uint `gorm:"index:idx_chat_users,unique;index:idx_user1"`
+	User2ID uint `gorm:"index:idx_chat_users,unique;index:idx_user2"`
+
+	User1    User      `gorm:"foreignKey:User1ID"`
+	User2    User      `gorm:"foreignKey:User2ID"`
 	Messages []Message `gorm:"foreignKey:ChatID"`
-	User1ID  uint      `gorm:"index:idx_chat_users,unique;index:idx_user1"`
-	User2ID  uint      `gorm:"index:idx_chat_users,unique;index:idx_user2"`
 }
 
 // BeforeCreate normalizes user IDs to prevent duplicate chats

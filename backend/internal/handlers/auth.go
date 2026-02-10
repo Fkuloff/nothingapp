@@ -71,14 +71,14 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// Parse validation errors
-		errMsg := "Проверьте введённые данные"
+		errMsg := "Invalid input data"
 		errStr := err.Error()
 		if strings.Contains(errStr, "Username") {
-			errMsg = "Username: от 3 до 20 символов"
+			errMsg = "Username must be 3-20 characters"
 		} else if strings.Contains(errStr, "Password") {
-			errMsg = "Пароль: минимум 6 символов"
+			errMsg = "Password must be at least 6 characters"
 		} else if strings.Contains(errStr, "Name") {
-			errMsg = "Имя: от 2 до 50 символов"
+			errMsg = "Name must be 2-50 characters"
 		}
 		sendBadRequest(c, errMsg)
 		return
@@ -93,7 +93,7 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 	// Validate username format
 	usernameRegex := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 	if !usernameRegex.MatchString(req.Username) {
-		sendBadRequest(c, "Username может содержать только буквы, цифры и _")
+		sendBadRequest(c, "Username can only contain letters, numbers and underscore")
 		return
 	}
 
@@ -102,9 +102,9 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 	err := h.authService.Register(c.Request.Context(), req.Username, req.Password, req.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "username") {
-			sendBadRequest(c, "Этот username уже занят")
+			sendBadRequest(c, "Username already taken")
 		} else {
-			sendBadRequest(c, "Ошибка регистрации")
+			sendBadRequest(c, "Registration failed")
 		}
 		return
 	}
@@ -122,7 +122,7 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 		return
 	}
 
-	sendSuccess(c, gin.H{
+	sendCreated(c, gin.H{
 		"user_id":  user.ID,
 		"username": user.Username,
 		"name":     user.Name,

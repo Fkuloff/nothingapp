@@ -151,14 +151,18 @@ export default function ChatsPage() {
   useEffect(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
-      // Clear unread count when selecting chat
+      // Clear unread count locally and notify server
       setChats((prevChats) =>
         prevChats.map((chat) =>
           chat.id === activeChatId ? { ...chat, unread_count: 0 } : chat
         )
       )
+      // Mark messages as read on server
+      if (isConnected) {
+        send({ action: 'mark_read', chat_id: activeChatId })
+      }
     }
-  }, [activeChatId, loadMessages])
+  }, [activeChatId, loadMessages, isConnected, send])
 
   const handleChatCreated = () => {
     loadChats()

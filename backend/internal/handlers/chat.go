@@ -28,15 +28,15 @@ func NewChatHandler(
 }
 
 type messageResponse struct {
-	CreatedAt   time.Time           `json:"created_at"`
-	ReplyToID   *uint               `json:"reply_to_id"`
-	EditedAt    *time.Time          `json:"edited_at"`
-	Text        string              `json:"text"`
-	Attachments []models.Attachment `json:"attachments"`
 	ID          uint                `json:"id"`
 	ChatID      uint                `json:"chat_id"`
 	UserID      uint                `json:"user_id"`
+	Text        string              `json:"text"`
 	IsDeleted   bool                `json:"is_deleted"`
+	CreatedAt   time.Time           `json:"created_at"`
+	ReplyToID   *uint               `json:"reply_to_id"`
+	EditedAt    *time.Time          `json:"edited_at"`
+	Attachments []models.Attachment `json:"attachments"`
 }
 
 // chatListItem is now defined in types.go as ChatListItem
@@ -112,6 +112,13 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		return
 	}
 
+	// Get unread counts for all chats
+	unreadCounts, err := h.chatService.GetUnreadCounts(c.Request.Context(), userID)
+	if err != nil {
+		// Log error but continue - unread counts are not critical
+		unreadCounts = make(map[uint]int64)
+	}
+
 	items := make([]chatListItem, 0, len(chats))
 	for _, chat := range chats {
 		otherUser, otherUserID := chat.GetOtherUser(userID)
@@ -135,7 +142,7 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 			OtherUserName: otherUser.GetDisplayName(),
 			AvatarURL:     otherUser.AvatarURL,
 			LastMessage:   lastMessageText,
-			UnreadCount:   0,
+			UnreadCount:   int(unreadCounts[chat.ID]),
 			UpdatedAt:     chat.UpdatedAt,
 		})
 	}
@@ -194,7 +201,7 @@ func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
 		return
 	}
 
-	sendSuccess(c, gin.H{
+	sendCreated(c, gin.H{
 		"id":         chat.ID,
 		"user1_id":   chat.User1ID,
 		"user2_id":   chat.User2ID,

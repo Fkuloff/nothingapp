@@ -13,8 +13,8 @@ export const endpoints = {
   },
   contacts: {
     list: '/api/contacts',
-    add: (userId: number | string) => `/api/contacts/add/${userId}`,
-    remove: (userId: number | string) => `/api/contacts/remove/${userId}`,
+    add: (userId: number | string) => `/api/contacts/${userId}`,
+    remove: (userId: number | string) => `/api/contacts/${userId}`,
   },
   attachments: {
     upload: (chatId: number | string, messageId: number | string) =>

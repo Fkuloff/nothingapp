@@ -11,10 +11,10 @@ import (
 
 // UserStatus represents online status of a user
 type UserStatus struct {
-	LastSeen  time.Time
 	UserID    uint
 	ConnCount int
 	IsOnline  bool
+	LastSeen  time.Time
 }
 
 // PresenceService manages user online/offline status

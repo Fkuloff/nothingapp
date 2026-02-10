@@ -26,7 +26,10 @@ import (
 )
 
 func Run() error {
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
 	// Initialize logger
 	log := logger.MustNew(os.Getenv("DEBUG") == "true")

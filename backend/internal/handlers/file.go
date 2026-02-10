@@ -12,6 +12,32 @@ import (
 	"go.uber.org/zap"
 )
 
+// contentTypesByExtension maps file extensions to MIME types.
+// Package-level for efficiency (avoid recreating on each call).
+var contentTypesByExtension = map[string]string{
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".svg":  "image/svg+xml",
+	".pdf":  "application/pdf",
+	".doc":  "application/msword",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xls":  "application/vnd.ms-excel",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".ppt":  "application/vnd.ms-powerpoint",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".txt":  "text/plain",
+	".mp4":  "video/mp4",
+	".mov":  "video/quicktime",
+	".avi":  "video/x-msvideo",
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".zip":  "application/zip",
+	".rar":  "application/x-rar-compressed",
+}
+
 // FileHandler handles file serving with authorization
 type FileHandler struct {
 	storage storage.Storage
@@ -103,33 +129,8 @@ func validateFilename(filename string) error {
 
 // getContentTypeFromExtension returns MIME type for file extension
 func getContentTypeFromExtension(ext string) string {
-	contentTypes := map[string]string{
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
-		".png":  "image/png",
-		".gif":  "image/gif",
-		".webp": "image/webp",
-		".svg":  "image/svg+xml",
-		".pdf":  "application/pdf",
-		".doc":  "application/msword",
-		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".xls":  "application/vnd.ms-excel",
-		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		".ppt":  "application/vnd.ms-powerpoint",
-		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		".txt":  "text/plain",
-		".mp4":  "video/mp4",
-		".mov":  "video/quicktime",
-		".avi":  "video/x-msvideo",
-		".mp3":  "audio/mpeg",
-		".wav":  "audio/wav",
-		".zip":  "application/zip",
-		".rar":  "application/x-rar-compressed",
-	}
-
-	if contentType, ok := contentTypes[ext]; ok {
+	if contentType, ok := contentTypesByExtension[ext]; ok {
 		return contentType
 	}
-
 	return "application/octet-stream"
 }

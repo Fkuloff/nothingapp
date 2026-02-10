@@ -77,7 +77,7 @@ func registerChatRoutes(api *gin.RouterGroup, chatHandler *ChatHandler, attachme
 	chats.POST("", chatHandler.CreateChatAPI)
 	chats.GET("/:id", chatHandler.GetChatData)
 	chats.GET("/:id/messages", chatHandler.GetChatMessagesAPI)
-	chats.POST("/:chatId/messages/:messageId/attachments", attachmentHandler.UploadAttachments)
+	chats.POST("/:chat_id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
 
 	attachments := api.Group("/attachments")
 	attachments.GET("/:id", attachmentHandler.DownloadAttachment)
@@ -92,8 +92,8 @@ func registerProfileRoutes(api *gin.RouterGroup, h *ProfileHandler) {
 
 	contacts := api.Group("/contacts")
 	contacts.GET("", h.GetContacts)
-	contacts.POST("/add/:user_id", h.AddContactAPI)
-	contacts.POST("/remove/:user_id", h.RemoveContactAPI)
+	contacts.POST("/:user_id", h.AddContactAPI)
+	contacts.DELETE("/:user_id", h.RemoveContactAPI)
 
 	api.GET("/users/search", h.SearchUsers)
 }

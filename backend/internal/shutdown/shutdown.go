@@ -22,7 +22,6 @@ func New(logger *zap.Logger, timeout time.Duration) *GracefulShutdown {
 	return &GracefulShutdown{
 		logger:  logger,
 		timeout: timeout,
-		stopFns: make([]func(context.Context) error, 0),
 	}
 }
 

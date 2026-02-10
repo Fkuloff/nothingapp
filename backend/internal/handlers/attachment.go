@@ -35,13 +35,13 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
-	chatID, err := parseUintParam(c, "chatId")
+	chatID, err := parseUintParam(c, "chat_id")
 	if err != nil {
 		sendBadRequest(c, "Invalid chat ID")
 		return
 	}
 
-	messageID, err := parseUintParam(c, "messageId")
+	messageID, err := parseUintParam(c, "message_id")
 	if err != nil {
 		sendBadRequest(c, "Invalid message ID")
 		return
