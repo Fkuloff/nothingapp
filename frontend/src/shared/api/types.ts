@@ -16,7 +16,6 @@ export type AuthMeResponse = {
   id: number
   username: string
   name: string
-  phone: string
   avatar_url?: string
 }
 
@@ -25,7 +24,6 @@ export type UserProfile = {
   id: number
   username: string
   name: string
-  phone: string
   avatar_url?: string
   is_own?: boolean
   is_contact?: boolean
@@ -157,6 +155,7 @@ export type WSEventNew = {
 export type WSEventEdit = {
   action: 'edit'
   id: number
+  chat_id: number
   text: string
   edited_at?: string
 }
@@ -164,6 +163,7 @@ export type WSEventEdit = {
 export type WSEventDelete = {
   action: 'delete'
   id: number
+  chat_id: number
   is_deleted: boolean
 }
 

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Message, WSEvent } from '../../shared/api/types'
-import { useWebSocket } from '../../shared/hooks/useWebSocket'
+import { useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { Message, WSMessageAction } from '../../shared/api/types'
 import { httpPost } from '../../shared/api/httpClient'
 import { endpoints } from '../../shared/api/endpoints'
 import { MessageList } from './MessageList'
@@ -10,129 +10,42 @@ import { useToast } from '../../shared/components/ToastContext'
 type Props = {
   chatId?: number
   messages: Message[]
+  otherUserId?: number
   otherUsername?: string
   otherAvatar?: string | null
   currentUserId?: number
   loading?: boolean
   error?: string | null
   onMessagesUpdate?: () => void
-  onRefreshChats?: () => void
+  isConnected: boolean
+  send: (data: WSMessageAction) => boolean
   isMobile?: boolean
   onBackToList?: () => void
 }
 
 export function ChatWindow({
   chatId,
-  messages: initialMessages,
+  messages,
+  otherUserId,
   otherUsername,
   otherAvatar,
   currentUserId,
   loading,
   error,
   onMessagesUpdate,
-  onRefreshChats,
+  isConnected,
+  send,
   isMobile,
   onBackToList,
 }: Props) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [messageText, setMessageText] = useState('')
   const [replyToId, setReplyToId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
 
   const { showToast } = useToast()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    setMessages(initialMessages)
-  }, [initialMessages])
-
-  const handleWebSocketMessage = useCallback(
-    (event: WSEvent) => {
-      if ('error' in event) {
-        console.error('WebSocket error:', event.error)
-        return
-      }
-
-      if (event.action === 'new') {
-        const newMessage: Message = {
-          id: event.id,
-          chat_id: event.chat_id,
-          user_id: event.user_id,
-          text: event.text,
-          reply_to_id: event.reply_to_id ?? null,
-          edited_at: event.edited_at ?? null,
-          is_deleted: event.is_deleted,
-          created_at: event.created_at,
-          attachments: [],
-        }
-
-        setMessages((prev) => [...prev, newMessage])
-
-        if (event.user_id === currentUserId) {
-          setMessageText('')
-          setReplyToId(null)
-          setEditingMessageId(null)
-
-          const filesToUpload = selectedFiles
-          if (filesToUpload.length > 0 && chatId) {
-            setUploading(true)
-            const formData = new FormData()
-            filesToUpload.forEach((file) => formData.append('attachments', file))
-
-            httpPost(endpoints.attachments.upload(chatId, event.id), formData)
-              .then(() => {
-                setSelectedFiles([])
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = ''
-                }
-                onMessagesUpdate?.()
-              })
-              .catch((uploadError) => {
-                console.error('Ошибка загрузки вложений:', uploadError)
-                showToast('Не удалось загрузить вложения', 'error')
-              })
-              .finally(() => {
-                setUploading(false)
-              })
-          }
-        }
-
-        onMessagesUpdate?.()
-        onRefreshChats?.()
-        return
-      }
-
-      if (event.action === 'edit') {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === event.id ? { ...msg, text: event.text, edited_at: event.edited_at ?? new Date().toISOString() } : msg
-          )
-        )
-        if (editingMessageId === event.id) {
-          setMessageText('')
-          setEditingMessageId(null)
-        }
-        onMessagesUpdate?.()
-        return
-      }
-
-      if (event.action === 'delete') {
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
-        )
-        onMessagesUpdate?.()
-      }
-    },
-    [chatId, currentUserId, editingMessageId, onMessagesUpdate, onRefreshChats, selectedFiles, showToast]
-  )
-
-  const { isConnected, send } = useWebSocket({
-    chatId: chatId ?? 0,
-    onMessage: handleWebSocketMessage,
-    enabled: Boolean(chatId),
-  })
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -155,10 +68,18 @@ export function ChatWindow({
 
     if (editingMessageId) {
       const success = send({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
-      if (!success) {
+      if (success) {
+        setMessageText('')
+        setEditingMessageId(null)
+      } else {
         showToast('Не удалось отправить изменение, повторите.', 'error')
       }
       return
+    }
+
+    // Store files for upload after message is created
+    if (selectedFiles.length > 0) {
+      pendingUploadRef.current = { chatId, files: [...selectedFiles] }
     }
 
     const success = send({
@@ -168,8 +89,39 @@ export function ChatWindow({
       reply_to_id: replyToId ?? undefined,
     })
 
-    if (!success) {
+    if (success) {
+      setMessageText('')
+      setReplyToId(null)
+
+      // Handle file uploads - need to get message ID from the new message
+      if (pendingUploadRef.current) {
+        const { chatId: uploadChatId, files } = pendingUploadRef.current
+        pendingUploadRef.current = null
+        setSelectedFiles([])
+
+        // Wait a bit for the message to be created, then get the last message ID
+        setTimeout(async () => {
+          const lastMessage = messages[messages.length - 1]
+          if (lastMessage && files.length > 0) {
+            setUploading(true)
+            const formData = new FormData()
+            files.forEach((file) => formData.append('attachments', file))
+
+            try {
+              await httpPost(endpoints.attachments.upload(uploadChatId, lastMessage.id + 1), formData)
+              onMessagesUpdate?.()
+            } catch (err) {
+              console.error('Ошибка загрузки вложений:', err)
+              showToast('Не удалось загрузить вложения', 'error')
+            } finally {
+              setUploading(false)
+            }
+          }
+        }, 500)
+      }
+    } else {
       showToast('Не удалось отправить сообщение, повторите.', 'error')
+      pendingUploadRef.current = null
     }
   }
 
@@ -209,7 +161,7 @@ export function ChatWindow({
     () => (
       <div className="chat-window glassy empty-chat-panel">
         <div className="empty-hero">
-          <div className="empty-hero__badge">nothing</div>
+          <div className="empty-hero__badge">Nothing</div>
           <h2>Начните новый разговор</h2>
           <p className="text-muted">Выберите контакт слева или создайте чат по username.</p>
           <div className="empty-hero__cta">
@@ -235,23 +187,24 @@ export function ChatWindow({
               ←
             </button>
           )}
-          <span className="avatar avatar-sm">
-            <img src={otherAvatar || '/img/default-avatar.svg'} alt="avatar" />
-          </span>
-          <div className="chat-header__info">
-            <span className="chat-peer">{otherUsername}</span>
-            <div className="chat-header__meta">
-              <span className="dot online" />
-              <span className="chat-subtitle">{isConnected ? 'В сети' : 'Переподключаемся...'}</span>
+          <Link to={`/profile/${otherUserId}`} className="chat-header__link">
+            <span className="avatar avatar-sm">
+              <img src={otherAvatar || '/img/default-avatar.svg'} alt="avatar" />
+            </span>
+            <div className="chat-header__info">
+              <span className="chat-peer">{otherUsername}</span>
+              <div className="chat-header__meta">
+                <span className="dot online" />
+                <span className="chat-subtitle">{isConnected ? 'В сети' : 'Переподключаемся...'}</span>
+              </div>
             </div>
+          </Link>
+        </div>
+        {!isConnected && (
+          <div className="chat-header__actions">
+            <span className="badge bg-warning text-dark">Reconnecting</span>
           </div>
-        </div>
-        <div className="chat-header__actions">
-          {!isConnected && <span className="badge bg-warning text-dark">Reconnecting</span>}
-          <button className="btn btn-outline-light btn-sm" onClick={onRefreshChats}>
-            Обновить список
-          </button>
-        </div>
+        )}
       </div>
 
       <MessageList

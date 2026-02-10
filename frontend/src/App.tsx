@@ -16,7 +16,7 @@ export default function AppLayout() {
       <header className="topbar navbar navbar-expand-md navbar-dark">
         <div className="container-fluid">
           <Link to="/" className="navbar-brand topbar__brand">
-            <span className="brand-text">nothing</span>
+            <span className="brand-text">Nothing</span>
           </Link>
 
           <div className="d-flex align-items-center ms-auto gap-3 topbar__actions">

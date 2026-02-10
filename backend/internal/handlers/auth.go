@@ -27,7 +27,7 @@ func NewAuthHandler(authService *services.AuthService, secret []byte) *AuthHandl
 // validatePasswordStrength checks if password meets security requirements
 func validatePasswordStrength(password string) error {
 	if len(password) < 6 {
-		return errors.New("Пароль должен быть минимум 6 символов")
+		return errors.New("password must be at least 6 characters")
 	}
 	return nil
 }
@@ -67,7 +67,6 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 		Username string `json:"username" binding:"required,min=3,max=20"`
 		Password string `json:"password" binding:"required,min=6"`
 		Name     string `json:"name" binding:"required,min=2,max=50"`
-		Phone    string `json:"phone"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -99,9 +98,8 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
-	req.Phone = strings.TrimSpace(req.Phone)
 
-	err := h.authService.Register(c.Request.Context(), req.Username, req.Password, req.Name, req.Phone)
+	err := h.authService.Register(c.Request.Context(), req.Username, req.Password, req.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "username") {
 			sendBadRequest(c, "Этот username уже занят")
@@ -188,7 +186,6 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		"id":         user.ID,
 		"username":   user.Username,
 		"name":       user.Name,
-		"phone":      user.Phone,
 		"avatar_url": user.AvatarURL,
 	})
 }

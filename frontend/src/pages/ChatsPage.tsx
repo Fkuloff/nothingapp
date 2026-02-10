@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
-import type { ChatItem, Message } from '../shared/api/types'
+import type { ChatItem, Message, WSEvent } from '../shared/api/types'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { getCurrentUserChats, getChatMessages } from '../shared/api/chatsApi'
+import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 
 export default function ChatsPage() {
   const { user } = useAuthContext()
@@ -28,6 +29,87 @@ export default function ChatsPage() {
     return () => window.removeEventListener('resize', computeIsMobile)
   }, [])
 
+  // Handle WebSocket messages globally
+  const handleWebSocketMessage = useCallback(
+    (event: WSEvent) => {
+      if ('error' in event) {
+        console.error('WebSocket error:', event.error)
+        return
+      }
+
+      const chatId = event.chat_id
+
+      if (event.action === 'new') {
+        // Update chat list reactively
+        setChats((prevChats) => {
+          const chatIndex = prevChats.findIndex((c) => c.id === chatId)
+          if (chatIndex === -1) {
+            // New chat - reload full list
+            getCurrentUserChats().then(setChats).catch(console.error)
+            return prevChats
+          }
+
+          const updatedChats = [...prevChats]
+          const chat = { ...updatedChats[chatIndex] }
+
+          // Update last message preview
+          chat.last_message = event.text || '[Вложение]'
+          chat.updated_at = event.created_at
+
+          // Increment unread count if not active chat and not own message
+          if (chatId !== activeChatId && event.user_id !== user?.id) {
+            chat.unread_count = (chat.unread_count || 0) + 1
+          }
+
+          updatedChats[chatIndex] = chat
+
+          // Sort by updated_at (most recent first)
+          return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        })
+
+        // Add message to active chat
+        if (chatId === activeChatId) {
+          const newMessage: Message = {
+            id: event.id,
+            chat_id: event.chat_id,
+            user_id: event.user_id,
+            text: event.text,
+            reply_to_id: event.reply_to_id ?? null,
+            edited_at: event.edited_at ?? null,
+            is_deleted: event.is_deleted,
+            created_at: event.created_at,
+            attachments: [],
+          }
+          setMessages((prev) => [...prev, newMessage])
+        }
+        return
+      }
+
+      if (event.action === 'edit' && chatId === activeChatId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === event.id
+              ? { ...msg, text: event.text, edited_at: event.edited_at ?? new Date().toISOString() }
+              : msg
+          )
+        )
+        return
+      }
+
+      if (event.action === 'delete' && chatId === activeChatId) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
+        )
+      }
+    },
+    [activeChatId, user?.id]
+  )
+
+  const { isConnected, send } = useGlobalWebSocket({
+    onMessage: handleWebSocketMessage,
+    enabled: Boolean(user),
+  })
+
   const loadChats = useCallback(async () => {
     try {
       setChatsError(null)
@@ -35,7 +117,6 @@ export default function ChatsPage() {
       const data = await getCurrentUserChats()
       setChats(data)
 
-      // Если текущий активный чат исчез, сбрасываем выбор
       if (activeChatId && !data.find((c) => c.id === activeChatId)) {
         setActiveChatId(null)
         setMessages([])
@@ -70,6 +151,12 @@ export default function ChatsPage() {
   useEffect(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
+      // Clear unread count when selecting chat
+      setChats((prevChats) =>
+        prevChats.map((chat) =>
+          chat.id === activeChatId ? { ...chat, unread_count: 0 } : chat
+        )
+      )
     }
   }, [activeChatId, loadMessages])
 
@@ -77,15 +164,21 @@ export default function ChatsPage() {
     loadChats()
   }
 
-  const handleMessagesUpdate = () => {
+  const handleMessagesUpdate = useCallback(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
     }
-  }
+  }, [activeChatId, loadMessages])
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId),
     [activeChatId, chats]
+  )
+
+  // Calculate total unread count
+  const totalUnread = useMemo(
+    () => chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0),
+    [chats]
   )
 
   return (
@@ -98,6 +191,7 @@ export default function ChatsPage() {
           onChatCreated={handleChatCreated}
           loading={loadingChats}
           error={chatsError}
+          totalUnread={totalUnread}
         />
       </div>
 
@@ -105,13 +199,15 @@ export default function ChatsPage() {
         <ChatWindow
           chatId={activeChatId ?? undefined}
           messages={messages}
+          otherUserId={activeChat?.other_user_id}
           otherUsername={activeChat?.other_user_name}
           otherAvatar={activeChat?.avatar_url}
           currentUserId={user?.id}
           loading={loadingMessages}
           error={messagesError}
           onMessagesUpdate={handleMessagesUpdate}
-          onRefreshChats={loadChats}
+          isConnected={isConnected}
+          send={send}
           isMobile={isMobile}
           onBackToList={() => setActiveChatId(null)}
         />

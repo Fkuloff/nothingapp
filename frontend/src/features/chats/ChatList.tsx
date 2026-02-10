@@ -9,9 +9,10 @@ type Props = {
   onChatCreated?: () => void
   loading?: boolean
   error?: string | null
+  totalUnread?: number
 }
 
-export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading, error }: Props) {
+export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading, error, totalUnread }: Props) {
   const [newChatUsername, setNewChatUsername] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -46,7 +47,12 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
           <p className="eyebrow">Диалоги</p>
           <h3>Ваши чаты</h3>
         </div>
-        <div className="chat-list__badge">{chats.length}</div>
+        <div className="chat-list__badges">
+          <span className="chat-list__badge">{chats.length}</span>
+          {totalUnread !== undefined && totalUnread > 0 && (
+            <span className="chat-list__unread">{totalUnread} новых</span>
+          )}
+        </div>
       </div>
 
       <div className="chat-list__new">
@@ -88,11 +94,12 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
           <ul className="list-unstyled mb-0 chat-list__ul">
             {sortedChats.map((chat) => {
               const isActive = chat.id === activeChatId
+              const hasUnread = chat.unread_count > 0
 
               return (
                 <li
                   key={chat.id}
-                  className={`chat-list-item${isActive ? ' active' : ''}`}
+                  className={`chat-list-item${isActive ? ' active' : ''}${hasUnread ? ' has-unread' : ''}`}
                   role="button"
                   onClick={() => onSelect(chat.id)}
                   tabIndex={0}
@@ -102,7 +109,7 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
                   </span>
                   <div className="chat-list-item-content">
                     <div className="chat-list-item__top">
-                      <span className="chat-list-item__name">Чат с {chat.other_user_name}</span>
+                      <span className="chat-list-item__name">{chat.other_user_name}</span>
                       <span className="chat-list-item__time">
                         {new Date(chat.updated_at).toLocaleTimeString('ru-RU', {
                           hour: '2-digit',
@@ -111,11 +118,11 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
                       </span>
                     </div>
                     <div className="chat-list-item__preview">
-                      <small className="text-muted text-truncate">
-                        {chat.last_message ? chat.last_message : 'Нет сообщений'}
-                      </small>
-                      {chat.unread_count > 0 && (
-                        <span className="badge bg-primary ms-2">{chat.unread_count}</span>
+                      <span className="text-muted text-truncate">
+                        {chat.last_message || 'Нет сообщений'}
+                      </span>
+                      {hasUnread && (
+                        <span className="unread-badge">{chat.unread_count}</span>
                       )}
                     </div>
                   </div>

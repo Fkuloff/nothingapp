@@ -1,3 +1,4 @@
+import { useState, useCallback, useEffect } from 'react'
 import type { Message, Attachment } from '../../shared/api/types'
 import { endpoints } from '../../shared/api/endpoints'
 import { formatMessageTime, formatFileSize } from '../../shared/utils'
@@ -12,8 +13,13 @@ type Props = {
   onDelete: (msgId: number) => void
 }
 
+type ContextMenuState = {
+  visible: boolean
+  x: number
+  y: number
+}
+
 function AttachmentView({ att }: { att: Attachment }) {
-  // Skip rendering if attachment has no valid id
   if (!att.id) return null
 
   if (att.file_type === 'image') {
@@ -52,72 +58,152 @@ export function MessageItem({
   onEdit,
   onDelete,
 }: Props) {
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+  })
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (message.is_deleted) return
+    e.preventDefault()
+
+    const menuWidth = 150
+    const menuHeight = 160
+    const padding = 8
+
+    let x = e.clientX
+    let y = e.clientY
+
+    // Prevent menu from going off-screen right
+    if (x + menuWidth + padding > window.innerWidth) {
+      x = window.innerWidth - menuWidth - padding
+    }
+
+    // Prevent menu from going off-screen bottom
+    if (y + menuHeight + padding > window.innerHeight) {
+      y = window.innerHeight - menuHeight - padding
+    }
+
+    setContextMenu({ visible: true, x, y })
+  }, [message.is_deleted])
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => ({ ...prev, visible: false }))
+  }, [])
+
+  const handleReply = useCallback(() => {
+    onReply(message.id)
+    closeContextMenu()
+  }, [message.id, onReply, closeContextMenu])
+
+  const handleEdit = useCallback(() => {
+    onEdit(message.id, message.text)
+    closeContextMenu()
+  }, [message.id, message.text, onEdit, closeContextMenu])
+
+  const handleDelete = useCallback(() => {
+    onDelete(message.id)
+    closeContextMenu()
+  }, [message.id, onDelete, closeContextMenu])
+
+  const handleCopyText = useCallback(() => {
+    navigator.clipboard.writeText(message.text)
+    closeContextMenu()
+  }, [message.text, closeContextMenu])
+
+  // Close context menu on click outside or scroll
+  useEffect(() => {
+    if (!contextMenu.visible) return
+
+    const handleClickOutside = () => closeContextMenu()
+    const handleScroll = () => closeContextMenu()
+
+    document.addEventListener('click', handleClickOutside)
+    document.addEventListener('scroll', handleScroll, true)
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+      document.removeEventListener('scroll', handleScroll, true)
+    }
+  }, [contextMenu.visible, closeContextMenu])
+
   return (
-    <div
-      className={`message ${isOwn ? 'message-self' : 'message-other'} ${message.is_deleted ? 'deleted' : ''}`}
-      data-msg-id={message.id}
-      data-user-id={message.user_id}
-    >
-      {replyToMessage && (
-        <div className="reply-preview">
-          <span className="reply-tag">Ответ на:</span>{' '}
-          {replyToMessage.is_deleted ? (
-            <i>Сообщение удалено</i>
+    <>
+      <div
+        className={`message ${isOwn ? 'message-self' : 'message-other'} ${message.is_deleted ? 'deleted' : ''}`}
+        data-msg-id={message.id}
+        data-user-id={message.user_id}
+        onContextMenu={handleContextMenu}
+      >
+        {replyToMessage && (
+          <div className="reply-preview">
+            <span className="reply-tag">↩</span>{' '}
+            {replyToMessage.is_deleted ? (
+              <i>Сообщение удалено</i>
+            ) : (
+              (replyToMessage.text || '[Пустое сообщение]').substring(0, 64)
+            )}
+          </div>
+        )}
+
+        <div className="message__header">
+          <span className="message-sender">{senderName}</span>
+          <span className="message-time">{formatMessageTime(message.created_at)}</span>
+        </div>
+
+        <div className="message__content">
+          {message.is_deleted ? (
+            <span className="message-text text-muted">
+              <i>Сообщение удалено</i>
+            </span>
           ) : (
-            (replyToMessage.text || '[Пустое сообщение]').substring(0, 64)
+            <>
+              <span className="message-text">
+                {message.text || '[Пустое сообщение]'}
+                {message.edited_at && <span className="edited-indicator"> (ред.)</span>}
+              </span>
+
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="message-attachments">
+                  {message.attachments
+                    .filter((att) => att.id)
+                    .map((att) => (
+                      <div key={att.id} className="attachment-item">
+                        <AttachmentView att={att} />
+                      </div>
+                    ))}
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
-
-      <div className="message__header">
-        <span className="message-sender">{senderName}</span>
-        <span className="message-time">{formatMessageTime(message.created_at)}</span>
       </div>
 
-      <div className="message__content">
-        {message.is_deleted ? (
-          <span className="message-text text-muted">
-            <i>Сообщение удалено</i>
-          </span>
-        ) : (
-          <>
-            <span className="message-text">
-              {message.text || '[Пустое сообщение]'}
-              {message.edited_at && <span className="edited-indicator"> (ред.)</span>}
-            </span>
-
-            {message.attachments && message.attachments.length > 0 && (
-              <div className="message-attachments">
-                {message.attachments
-                  .filter((att) => att.id)
-                  .map((att) => (
-                    <div key={att.id} className="attachment-item">
-                      <AttachmentView att={att} />
-                    </div>
-                  ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {!message.is_deleted && (
-        <div className="message__actions">
-          <button className="message-action" type="button" onClick={() => onReply(message.id)}>
-            Ответить
-          </button>
+      {contextMenu.visible && (
+        <div
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-menu-item" onClick={handleReply}>
+            ↩ Ответить
+          </div>
+          <div className="context-menu-item" onClick={handleCopyText}>
+            📋 Копировать
+          </div>
           {isOwn && (
             <>
-              <button className="message-action" type="button" onClick={() => onEdit(message.id, message.text)}>
-                Редактировать
-              </button>
-              <button className="message-action danger" type="button" onClick={() => onDelete(message.id)}>
-                Удалить
-              </button>
+              <div className="context-menu-item" onClick={handleEdit}>
+                ✏️ Редактировать
+              </div>
+              <div className="context-menu-item danger" onClick={handleDelete}>
+                🗑 Удалить
+              </div>
             </>
           )}
         </div>
       )}
-    </div>
+    </>
   )
 }

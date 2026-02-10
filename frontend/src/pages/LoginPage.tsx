@@ -33,7 +33,7 @@ export default function LoginPage() {
     <div className="auth-centered">
       <div className="auth-card">
         <div className="auth-card__header">
-          <span className="brand-text-lg">nothing</span>
+          <span className="brand-text-lg">Nothing</span>
           <p className="auth-card__subtitle">Войдите в аккаунт</p>
         </div>
 
