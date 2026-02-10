@@ -2,8 +2,6 @@
 
 Минималистичный real-time мессенджер с React frontend и Go backend.
 
-![CI/CD](https://github.com/your-username/messenger/workflows/CI/CD/badge.svg)
-
 ## Возможности
 
 - 💬 Личные чаты в реальном времени (WebSocket)
