@@ -126,9 +126,7 @@ export default function ProfilePage() {
                   <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
                 </span>
                 <label htmlFor="avatar-input" className="avatar-upload-overlay" title="Загрузить аватар">
-                  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-                  </svg>
+                  📷
                 </label>
                 <input
                   type="file"
@@ -146,14 +144,11 @@ export default function ProfilePage() {
             )}
           </div>
           <div className="profile-meta">
-            <p className="eyebrow">Профиль</p>
             <h1 className="profile-name">{displayUser.name}</h1>
             <p className="profile-username">@{displayUser.username}</p>
-            <p className="profile-phone">{displayUser.phone}</p>
           </div>
         </div>
         <div className="profile-hero__right">
-          <div className="chip">{isOwnProfile ? 'Это ваш аккаунт' : 'Пользователь'}</div>
           <div className="profile-actions">
             {!isOwnProfile && (
               <button onClick={handleAddContact} className="btn btn-outline-light">
@@ -164,25 +159,6 @@ export default function ProfilePage() {
               Назад к чатам
             </Link>
           </div>
-        </div>
-      </div>
-
-      <div className="profile-grid">
-        <div className="profile-tile glassy">
-          <p className="eyebrow">Основное</p>
-          <div className="meta-row">
-            <span className="meta-label">Имя пользователя</span>
-            <span className="meta-value">@{displayUser.username}</span>
-          </div>
-          <div className="meta-row">
-            <span className="meta-label">Телефон</span>
-            <span className="meta-value">{displayUser.phone}</span>
-          </div>
-        </div>
-
-        <div className="profile-tile glassy">
-          <p className="eyebrow">Состояние</p>
-          <p className="text-muted mb-0">Все настройки аккаунта пока в разработке.</p>
         </div>
       </div>
     </div>

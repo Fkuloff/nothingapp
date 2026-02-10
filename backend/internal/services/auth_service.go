@@ -24,7 +24,7 @@ func NewAuthService(logger *zap.Logger, userRepo *repositories.UserRepo) *AuthSe
 	}
 }
 
-func (s *AuthService) Register(ctx context.Context, username, password, name, phone string) error {
+func (s *AuthService) Register(ctx context.Context, username, password, name string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
@@ -34,11 +34,6 @@ func (s *AuthService) Register(ctx context.Context, username, password, name, ph
 		Username: username,
 		Password: string(hashedPassword),
 		Name:     strings.TrimSpace(name),
-	}
-
-	// Phone is optional
-	if phone := strings.TrimSpace(phone); phone != "" {
-		user.Phone = &phone
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
