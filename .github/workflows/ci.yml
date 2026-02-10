@@ -248,3 +248,24 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: [docker-backend, docker-frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 176.108.243.65
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            export BACKEND_IMAGE=ghcr.io/${{ github.repository }}-backend:sha-${{ github.sha }}
+            export FRONTEND_IMAGE=ghcr.io/${{ github.repository }}-frontend:sha-${{ github.sha }}
+            docker compose pull
+            docker compose up -d --remove-orphans
