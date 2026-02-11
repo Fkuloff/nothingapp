@@ -18,6 +18,11 @@ func NewMessageRepo(db *gorm.DB) *MessageRepo {
 	return &MessageRepo{db: db}
 }
 
+// WithTx creates a new MessageRepo with the given transaction
+func (r *MessageRepo) WithTx(tx *gorm.DB) *MessageRepo {
+	return &MessageRepo{db: tx}
+}
+
 func (r *MessageRepo) Create(ctx context.Context, message *models.Message) error {
 	return r.db.WithContext(ctx).Create(message).Error
 }
@@ -27,6 +32,7 @@ func (r *MessageRepo) GetAllByChatID(ctx context.Context, chatID uint) ([]models
 	err := r.db.WithContext(ctx).Where("chat_id = ?", chatID).
 		Order("created_at asc").
 		Preload("ReplyTo").
+		Preload("ReplyTo.Attachments"). // Nested preload to avoid N+1 for reply attachments
 		Preload("Attachments").
 		Find(&messages).Error
 	return messages, err
@@ -39,6 +45,7 @@ func (r *MessageRepo) GetRecentByChatID(ctx context.Context, chatID uint, limit 
 		Order("created_at desc").
 		Limit(limit).
 		Preload("ReplyTo").
+		Preload("ReplyTo.Attachments"). // Nested preload to avoid N+1 for reply attachments
 		Preload("Attachments").
 		Find(&messages).Error
 

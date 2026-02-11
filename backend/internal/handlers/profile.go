@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"strings"
 
 	"messenger/internal/services"
@@ -37,7 +38,7 @@ func (h *ProfileHandler) GetContacts(c *gin.Context) {
 		return
 	}
 
-	var response []UserListItem
+	response := make([]UserListItem, 0, len(contacts))
 	for _, contact := range contacts {
 		if contact.ContactUser == nil {
 			continue
@@ -68,7 +69,15 @@ func (h *ProfileHandler) AddContactAPI(c *gin.Context) {
 
 	err = h.contactSvc.AddContact(c.Request.Context(), currentUserID, contactUserID)
 	if err != nil {
-		sendBadRequest(c, err.Error())
+		switch {
+		case errors.Is(err, services.ErrCannotAddSelf):
+			sendBadRequest(c, "Cannot add yourself to contacts")
+		case errors.Is(err, services.ErrAlreadyInContacts):
+			sendBadRequest(c, "User is already in your contacts")
+		default:
+			h.logger.Error("failed to add contact", zap.Error(err), zap.Uint("user_id", currentUserID), zap.Uint("contact_user_id", contactUserID))
+			sendInternalError(c, "Failed to add contact")
+		}
 		return
 	}
 
@@ -90,7 +99,13 @@ func (h *ProfileHandler) RemoveContactAPI(c *gin.Context) {
 
 	err = h.contactSvc.RemoveContact(c.Request.Context(), currentUserID, contactUserID)
 	if err != nil {
-		sendBadRequest(c, err.Error())
+		switch {
+		case errors.Is(err, services.ErrContactNotFound):
+			sendNotFound(c, "Contact not found")
+		default:
+			h.logger.Error("failed to remove contact", zap.Error(err), zap.Uint("user_id", currentUserID), zap.Uint("contact_user_id", contactUserID))
+			sendInternalError(c, "Failed to remove contact")
+		}
 		return
 	}
 
@@ -117,7 +132,7 @@ func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	var response []UserListItem
+	response := make([]UserListItem, 0, len(users))
 	for _, user := range users {
 		response = append(response, UserListItem{
 			ID:        user.ID,

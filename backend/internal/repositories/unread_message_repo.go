@@ -18,6 +18,11 @@ func NewUnreadMessageRepo(db *gorm.DB) *UnreadMessageRepo {
 	return &UnreadMessageRepo{db: db}
 }
 
+// WithTx creates a new UnreadMessageRepo with the given transaction
+func (r *UnreadMessageRepo) WithTx(tx *gorm.DB) *UnreadMessageRepo {
+	return &UnreadMessageRepo{db: tx}
+}
+
 // Create stores a new unread message record
 func (r *UnreadMessageRepo) Create(ctx context.Context, unreadMsg *models.UnreadMessage) error {
 	return r.db.WithContext(ctx).Create(unreadMsg).Error

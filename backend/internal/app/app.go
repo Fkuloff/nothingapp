@@ -56,7 +56,7 @@ func Run() error {
 	router := setupRouter(log)
 
 	// Setup routes with dependencies
-	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg.Storage.LocalBasePath); err != nil {
+	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log); err != nil {
 		return fmt.Errorf("setup routes: %w", err)
 	}
 
@@ -127,8 +127,9 @@ func initDatabase(dbURL string, log *zap.Logger) (*gorm.DB, error) {
 		return nil, fmt.Errorf("get database instance: %w", err)
 	}
 
-	sqlDB.SetMaxIdleConns(25)
-	sqlDB.SetMaxOpenConns(100)
+	// Increased connection pool for better performance under load
+	sqlDB.SetMaxIdleConns(50)  // 25 → 50
+	sqlDB.SetMaxOpenConns(200) // 100 → 200
 	sqlDB.SetConnMaxLifetime(time.Hour)
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 

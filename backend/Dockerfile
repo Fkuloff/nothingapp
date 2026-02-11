@@ -36,9 +36,8 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 # Copy binary from builder
 COPY --from=builder /app/messenger .
 
-# Create uploads directory with proper permissions
-RUN mkdir -p ./uploads && \
-    chown -R appuser:appuser /app
+# Set proper permissions
+RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser

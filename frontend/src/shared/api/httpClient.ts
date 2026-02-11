@@ -79,3 +79,10 @@ export function httpPost<T>(path: string, body?: unknown, init?: RequestInit) {
   })
 }
 
+export function httpDelete<T>(path: string, init?: RequestInit) {
+  return request<T>(path, {
+    ...init,
+    method: 'DELETE',
+  })
+}
+

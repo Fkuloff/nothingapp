@@ -5,6 +5,7 @@ import { httpGet, httpPost } from '../shared/api/httpClient'
 import type { UserProfile, AvatarUploadResponse } from '../shared/api/types'
 import { endpoints } from '../shared/api/endpoints'
 import { useToast } from '../shared/components/ToastContext'
+import { addContact } from '../shared/api/contactsApi'
 
 export default function ProfilePage() {
   const { userId } = useParams<{ userId?: string }>()
@@ -82,8 +83,11 @@ export default function ProfilePage() {
     if (!profile?.id) return
 
     try {
-      await httpPost(endpoints.contacts.add(profile.id), {})
+      await addContact(profile.id)
       showToast('Добавлено в контакты', 'success')
+
+      // Update local state to reflect contact status
+      setProfile((prev) => (prev ? { ...prev, is_contact: true } : prev))
     } catch (err) {
       showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось добавить контакт'), 'error')
     }
@@ -151,8 +155,12 @@ export default function ProfilePage() {
         <div className="profile-hero__right">
           <div className="profile-actions">
             {!isOwnProfile && (
-              <button onClick={handleAddContact} className="btn btn-outline-light">
-                Добавить в контакты
+              <button
+                onClick={handleAddContact}
+                className="btn btn-outline-light"
+                disabled={profile?.is_contact}
+              >
+                {profile?.is_contact ? 'Уже в контактах' : 'Добавить в контакты'}
               </button>
             )}
             <Link to="/" className="btn btn-primary">
