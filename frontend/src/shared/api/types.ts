@@ -185,4 +185,10 @@ export type WSEventDelete = {
   is_deleted: boolean
 }
 
-export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | ApiError
+export type WSEventPresenceChanged = {
+  action: 'presence_changed'
+  user_id: number
+  is_online: boolean
+}
+
+export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | WSEventPresenceChanged | ApiError

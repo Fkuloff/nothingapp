@@ -17,7 +17,6 @@ func SetupRoutes(
 	secret []byte,
 	fileStorage storage.Storage,
 	logger *zap.Logger,
-	uploadsPath string,
 ) error {
 	// Initialize repositories
 	userRepo := repositories.NewUserRepo(db)
@@ -29,7 +28,7 @@ func SetupRoutes(
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
-	chatService := services.NewChatService(logger, chatRepo, messageRepo, unreadMessageRepo)
+	chatService := services.NewChatService(db, logger, chatRepo, messageRepo, unreadMessageRepo)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(logger, attachmentRepo, messageRepo, fileStorage)
 	userService := services.NewUserService(logger, userRepo, fileStorage)
@@ -45,16 +44,27 @@ func SetupRoutes(
 	fileHandler := NewFileHandler(fileStorage, logger)
 	healthHandler := NewHealthHandler(db)
 
-	// Public endpoints (before JWT middleware)
+	// Configure presence service to broadcast status changes via WebSocket
+	presenceService.SetOnChangeCallback(wsHandler.broadcastPresenceChange)
+
+	// Public endpoints (no JWT middleware)
 	router.GET("/health", healthHandler.GetHealth)
-	router.Static("/uploads", uploadsPath)
+	router.POST("/api/auth/register", authHandler.RegisterAPI)
+	router.POST("/api/auth/login", authHandler.LoginAPI)
 
-	// Apply JWT middleware globally
-	router.Use(JWTMiddleware(secret, logger))
-	router.GET("/ws", wsHandler.HandleWebSocket)
+	// Public attachment endpoints (GET - no JWT, files are publicly accessible)
+	router.GET("/api/attachments/:id", attachmentHandler.DownloadAttachment)
+	router.GET("/api/attachments/:id/thumbnail", attachmentHandler.GetThumbnail)
 
-	// API routes
+	// WebSocket endpoint with JWT middleware
+	router.GET("/ws", JWTMiddleware(secret, logger), wsHandler.HandleWebSocket)
+
+	// Protected attachment endpoint (DELETE requires JWT)
+	router.DELETE("/api/attachments/:id", JWTMiddleware(secret, logger), attachmentHandler.DeleteAttachment)
+
+	// Protected API routes (JWT required)
 	api := router.Group("/api")
+	api.Use(JWTMiddleware(secret, logger))
 	registerAuthRoutes(api, authHandler)
 	registerChatRoutes(api, chatHandler, attachmentHandler)
 	registerProfileRoutes(api, profileHandler)
@@ -65,8 +75,7 @@ func SetupRoutes(
 
 func registerAuthRoutes(api *gin.RouterGroup, h *AuthHandler) {
 	auth := api.Group("/auth")
-	auth.POST("/register", h.RegisterAPI)
-	auth.POST("/login", h.LoginAPI)
+	// register and login are public (registered before JWT middleware)
 	auth.POST("/logout", h.LogoutAPI)
 	auth.GET("/me", h.GetCurrentUser)
 }
@@ -78,11 +87,6 @@ func registerChatRoutes(api *gin.RouterGroup, chatHandler *ChatHandler, attachme
 	chats.GET("/:id", chatHandler.GetChatData)
 	chats.GET("/:id/messages", chatHandler.GetChatMessagesAPI)
 	chats.POST("/:chat_id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
-
-	attachments := api.Group("/attachments")
-	attachments.GET("/:id", attachmentHandler.DownloadAttachment)
-	attachments.GET("/:id/thumbnail", attachmentHandler.GetThumbnail)
-	attachments.DELETE("/:id", attachmentHandler.DeleteAttachment)
 }
 
 func registerProfileRoutes(api *gin.RouterGroup, h *ProfileHandler) {

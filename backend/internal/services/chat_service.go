@@ -19,6 +19,7 @@ var (
 )
 
 type ChatService struct {
+	db                *gorm.DB
 	logger            *zap.Logger
 	chatRepo          *repositories.ChatRepo
 	messageRepo       *repositories.MessageRepo
@@ -26,12 +27,14 @@ type ChatService struct {
 }
 
 func NewChatService(
+	db *gorm.DB,
 	logger *zap.Logger,
 	chatRepo *repositories.ChatRepo,
 	messageRepo *repositories.MessageRepo,
 	unreadMessageRepo *repositories.UnreadMessageRepo,
 ) *ChatService {
 	return &ChatService{
+		db:                db,
 		logger:            logger,
 		chatRepo:          chatRepo,
 		messageRepo:       messageRepo,
@@ -111,6 +114,107 @@ func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text
 	return message, nil
 }
 
+// SendMessageAtomic sends a message and creates unread record atomically within a transaction
+// This prevents TOCTOU race conditions where a user could come online between the presence check and unread save
+func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+	var message *models.Message
+
+	// Wrap message creation + unread save in a single transaction
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Use transaction-aware repositories
+		chatRepo := s.chatRepo.WithTx(tx)
+		messageRepo := s.messageRepo.WithTx(tx)
+		unreadRepo := s.unreadMessageRepo.WithTx(tx)
+
+		// Verify user access
+		if err := s.validateUserAccess(ctx, chatRepo, chatID, userID); err != nil {
+			return err
+		}
+
+		// Validate reply message if specified
+		replyPtr, err := s.validateReplyMessage(ctx, messageRepo, replyToID, chatID)
+		if err != nil {
+			return err
+		}
+
+		// Create the message
+		message = &models.Message{
+			ChatID:    chatID,
+			UserID:    userID,
+			Text:      text,
+			ReplyToID: replyPtr,
+		}
+
+		if err := messageRepo.Create(ctx, message); err != nil {
+			return fmt.Errorf("failed to create message: %w", err)
+		}
+
+		// Create unread record if recipient is offline
+		if err := s.createUnreadIfNeeded(ctx, unreadRepo, isRecipientOffline, recipientID, message.ID, chatID); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return message, nil
+}
+
+// validateUserAccess checks if user is a participant in the chat
+func (s *ChatService) validateUserAccess(ctx context.Context, chatRepo *repositories.ChatRepo, chatID, userID uint) error {
+	chat, err := chatRepo.FindByIDLight(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("chat not found")
+	}
+
+	if !chat.HasUser(userID) {
+		return fmt.Errorf("unauthorized: user is not a participant in this chat")
+	}
+
+	return nil
+}
+
+// validateReplyMessage validates reply message exists and belongs to the same chat
+func (s *ChatService) validateReplyMessage(ctx context.Context, messageRepo *repositories.MessageRepo, replyToID, chatID uint) (*uint, error) {
+	if replyToID == 0 {
+		return nil, nil //nolint:nilnil // nil pointer and nil error is valid when no reply message specified
+	}
+
+	msg, err := messageRepo.FindByID(ctx, replyToID)
+	if err != nil || msg.ChatID != chatID {
+		return nil, fmt.Errorf("invalid reply message")
+	}
+
+	return &replyToID, nil
+}
+
+// createUnreadIfNeeded creates an unread message record if recipient is offline
+func (s *ChatService) createUnreadIfNeeded(ctx context.Context, unreadRepo *repositories.UnreadMessageRepo, isRecipientOffline bool, recipientID, messageID, chatID uint) error {
+	if !isRecipientOffline {
+		return nil
+	}
+
+	unreadMsg := &models.UnreadMessage{
+		UserID:    recipientID,
+		MessageID: messageID,
+		ChatID:    chatID,
+	}
+
+	if err := unreadRepo.Create(ctx, unreadMsg); err != nil {
+		// If unique constraint violated (duplicate), ignore the error
+		// This can happen if the same message is marked unread twice (race condition)
+		if !errors.Is(err, gorm.ErrDuplicatedKey) {
+			return fmt.Errorf("failed to create unread message: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetMessageByID returns a message by its ID
 func (s *ChatService) GetMessageByID(ctx context.Context, messageID uint) (*models.Message, error) {
 	message, err := s.messageRepo.FindByID(ctx, messageID)
@@ -149,8 +253,10 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 	return &messages[0], nil
 }
 
-func (s *ChatService) GetUserChats(ctx context.Context, userID uint) ([]models.Chat, error) {
-	chats, err := s.chatRepo.GetUserChats(ctx, userID)
+// GetUserChats retrieves all chats for a user
+// preloadUsers: if true, preloads User1 and User2 (use for display); if false, only loads IDs (use for presence/routing)
+func (s *ChatService) GetUserChats(ctx context.Context, userID uint, preloadUsers bool) ([]models.Chat, error) {
+	chats, err := s.chatRepo.GetUserChats(ctx, userID, preloadUsers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user chats: %w", err)
 	}

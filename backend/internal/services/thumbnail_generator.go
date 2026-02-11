@@ -44,20 +44,8 @@ func (tg *ThumbnailGenerator) Generate(storageKey string, width, height int) (*s
 		return nil, err
 	}
 
-	// Save thumbnail using LocalStorage's SaveThumbnail method
-	localStorage, ok := tg.storage.(*storage.LocalStorage)
-	if !ok {
-		// For non-local storage, save as regular file
-		metadata, saveErr := tg.storage.Save(
-			bytes.NewReader(buf.Bytes()),
-			"thumbnail.jpg",
-			"image/jpeg",
-			int64(buf.Len()),
-		)
-		return metadata, saveErr
-	}
-
-	// Use LocalStorage's specialized method
-	metadata, saveErr := localStorage.SaveThumbnail(bytes.NewReader(buf.Bytes()), storageKey)
+	// Save thumbnail using storage's SaveThumbnail method
+	// Works for any Storage implementation (Local or S3)
+	metadata, saveErr := tg.storage.SaveThumbnail(bytes.NewReader(buf.Bytes()), storageKey)
 	return metadata, saveErr
 }

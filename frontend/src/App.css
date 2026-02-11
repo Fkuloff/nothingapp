@@ -859,6 +859,11 @@ textarea::placeholder,
   box-shadow: 0 0 0 4px rgba(63, 185, 80, 0.15);
 }
 
+.dot.offline {
+  background: var(--text-tertiary);
+  opacity: 0.5;
+}
+
 .chat-body {
   flex: 1;
   overflow-y: auto;

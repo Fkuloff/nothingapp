@@ -25,6 +25,7 @@ type wsClient struct {
 	userID       uint
 	messageCount int
 	mu           sync.Mutex
+	writeMu      sync.Mutex // Protects all writes to conn (Gorilla WebSocket not thread-safe)
 }
 
 // WebSocketHandler manages global WebSocket connections
@@ -34,6 +35,7 @@ type WebSocketHandler struct {
 	logger          *zap.Logger
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
+	broadcastPool   *WorkerPool // Limits concurrent broadcast goroutines
 }
 
 // NewWebSocketHandler creates a new global WebSocket handler
@@ -47,6 +49,7 @@ func NewWebSocketHandler(
 		presenceService: presenceService,
 		logger:          logger,
 		clients:         make(map[uint][]*wsClient),
+		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency
 	}
 }
 
@@ -184,24 +187,29 @@ func (h *WebSocketHandler) startBackgroundTasks(client *wsClient, userID uint) c
 				)
 			}
 		}()
-		h.writePump(client.conn, ticker, done)
+		h.writePump(client, ticker, done)
 	}()
 
 	return done
 }
 
 // writePump sends periodic ping messages to keep connection alive
-func (h *WebSocketHandler) writePump(conn *websocket.Conn, ticker *time.Ticker, done chan struct{}) {
+func (h *WebSocketHandler) writePump(client *wsClient, ticker *time.Ticker, done chan struct{}) {
 	for {
 		select {
 		case <-ticker.C:
-			if err := conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+			// Protect writes with mutex (Gorilla WebSocket not thread-safe)
+			client.writeMu.Lock()
+			if err := client.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
 				h.logger.Warn("failed to set write deadline for ping", zap.Error(err))
+				client.writeMu.Unlock()
 				return
 			}
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				client.writeMu.Unlock()
 				return
 			}
+			client.writeMu.Unlock()
 		case <-done:
 			return
 		}
@@ -220,7 +228,7 @@ func (h *WebSocketHandler) cleanup(done chan struct{}, client *wsClient, userID 
 }
 
 // sendError sends error message to WebSocket client
-func (h *WebSocketHandler) sendError(conn *websocket.Conn, errorMsg string) {
+func (h *WebSocketHandler) sendError(client *wsClient, errorMsg string) {
 	errData := map[string]interface{}{
 		"error": errorMsg,
 	}
@@ -229,10 +237,15 @@ func (h *WebSocketHandler) sendError(conn *websocket.Conn, errorMsg string) {
 		h.logger.Error("failed to marshal error message", zap.Error(err))
 		return
 	}
-	if err := conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+
+	// Protect writes with mutex (Gorilla WebSocket not thread-safe)
+	client.writeMu.Lock()
+	defer client.writeMu.Unlock()
+
+	if err := client.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
 		h.logger.Warn("failed to set write deadline for error message", zap.Error(err))
 	}
-	if err := conn.WriteMessage(websocket.TextMessage, errJSON); err != nil {
+	if err := client.conn.WriteMessage(websocket.TextMessage, errJSON); err != nil {
 		h.logger.Error("failed to send error message", zap.Error(err))
 	}
 }
@@ -266,13 +279,13 @@ func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *w
 		// Rate limiting check
 		if !h.checkRateLimit(client) {
 			h.logger.Warn("rate limit exceeded", zap.Uint("user_id", userID))
-			h.sendError(conn, "Rate limit exceeded. Please slow down.")
+			h.sendError(client, "Rate limit exceeded. Please slow down.")
 			continue
 		}
 
 		// Parse and handle message
 		if err := h.processMessage(client.ctx, userID, conn, msg); err != nil {
-			h.sendError(conn, err.Error())
+			h.sendError(client, err.Error())
 		}
 	}
 }
@@ -366,7 +379,8 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 	h.mu.RUnlock()
 
 	for _, client := range clientsToSend {
-		go func(c *wsClient) {
+		c := client // Capture for closure
+		h.broadcastPool.Submit(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					h.logger.Error("panic in broadcast",
@@ -375,6 +389,10 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 					)
 				}
 			}()
+
+			// Protect writes with mutex (Gorilla WebSocket not thread-safe)
+			c.writeMu.Lock()
+			defer c.writeMu.Unlock()
 
 			if err := c.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
 				h.logger.Warn("failed to set write deadline",
@@ -389,7 +407,7 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 					zap.Uint("user_id", userID),
 				)
 			}
-		}(client)
+		})
 	}
 }
 
@@ -430,6 +448,62 @@ func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msg
 	}
 
 	return nil
+}
+
+// broadcastPresenceChange notifies all chat participants about a user's online status change
+func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
+	ctx := context.Background()
+
+	// Get all chats for this user (no need to preload users, only need IDs)
+	chats, err := h.chatService.GetUserChats(ctx, userID, false)
+	if err != nil {
+		h.logger.Error("failed to get chats for presence broadcast",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+		)
+		return
+	}
+
+	// Create presence event
+	presenceData := map[string]interface{}{
+		"action":    "presence_changed",
+		"user_id":   userID,
+		"is_online": isOnline,
+	}
+	msgJSON, err := json.Marshal(presenceData)
+	if err != nil {
+		h.logger.Error("failed to marshal presence event",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+		)
+		return
+	}
+
+	// Send to all chat participants (except the user themselves)
+	notifiedUsers := make(map[uint]bool)
+	for _, chat := range chats {
+		otherUserID := chat.User1ID
+		if chat.User1ID == userID {
+			otherUserID = chat.User2ID
+		}
+
+		// Avoid sending duplicate notifications to the same user
+		if notifiedUsers[otherUserID] {
+			continue
+		}
+		notifiedUsers[otherUserID] = true
+
+		// Only send to online users
+		if h.presenceService.IsUserOnline(otherUserID) {
+			h.broadcastToUser(otherUserID, msgJSON)
+		}
+	}
+
+	h.logger.Info("broadcasted presence change",
+		zap.Uint("user_id", userID),
+		zap.Bool("is_online", isOnline),
+		zap.Int("notified_users", len(notifiedUsers)),
+	)
 }
 
 // sendPendingMessages sends all unread messages to a newly connected user
@@ -486,11 +560,14 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			continue
 		}
 
+		// Protect writes with mutex (Gorilla WebSocket not thread-safe)
+		client.writeMu.Lock()
 		if err := client.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
 			h.logger.Warn("failed to set write deadline for pending message",
 				zap.Error(err),
 				zap.Uint("user_id", userID),
 			)
+			client.writeMu.Unlock()
 			continue
 		}
 		if err := client.conn.WriteMessage(websocket.TextMessage, msgJSON); err != nil {
@@ -501,6 +578,7 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			)
 			// Don't return on error, try to send remaining messages
 		}
+		client.writeMu.Unlock()
 	}
 }
 
@@ -580,4 +658,42 @@ func (h *WebSocketHandler) GetUserPresenceAPI(c *gin.Context) {
 		"is_online": status.IsOnline,
 		"last_seen": status.LastSeen,
 	})
+}
+
+// WorkerPool manages a pool of workers to limit concurrent goroutines
+type WorkerPool struct {
+	workers  int
+	jobQueue chan func()
+}
+
+// NewWorkerPool creates a new worker pool with the specified number of workers
+func NewWorkerPool(workers int) *WorkerPool {
+	pool := &WorkerPool{
+		workers:  workers,
+		jobQueue: make(chan func(), 1000), // Buffer for 1000 pending jobs
+	}
+
+	// Start worker goroutines
+	for i := 0; i < workers; i++ {
+		go pool.worker()
+	}
+
+	return pool
+}
+
+// worker processes jobs from the queue
+func (p *WorkerPool) worker() {
+	for job := range p.jobQueue {
+		job()
+	}
+}
+
+// Submit adds a job to the worker pool
+func (p *WorkerPool) Submit(job func()) {
+	p.jobQueue <- job
+}
+
+// Close shuts down the worker pool (optional, for cleanup)
+func (p *WorkerPool) Close() {
+	close(p.jobQueue)
 }
