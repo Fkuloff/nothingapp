@@ -41,6 +41,7 @@ frontend/npm-debug.log*
 uploads/
 .env
 .env.production
+.env.production.example
 
 # Backups
 backups/
