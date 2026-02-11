@@ -4,65 +4,76 @@ package storage
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
-// StorageType defines the type of storage backend
-type StorageType string
-
-const (
-	StorageTypeLocal StorageType = "local"
-	StorageTypeS3    StorageType = "s3"
-)
-
-// StorageConfig holds configuration for storage backend
+// StorageConfig holds configuration for S3-compatible storage backend
 type StorageConfig struct {
-	Type StorageType
-
-	// Local storage config
-	LocalBasePath string
-	LocalBaseURL  string
-
-	// S3 storage config (for future use)
-	S3Bucket     string
-	S3Region     string
-	S3CloudFront string
+	S3Endpoint        string // Internal endpoint for backend (e.g., http://minio:9000)
+	S3PublicEndpoint  string // Public endpoint for presigned URLs (e.g., http://localhost:9000)
+	S3Bucket          string
+	S3Region          string
+	S3AccessKey       string
+	S3SecretKey       string
+	S3UseSSL          bool
+	S3PresignedExpiry int // Presigned URL expiry in seconds
 }
 
-// NewStorage creates a new Storage instance based on configuration
+// NewStorage creates a new Storage instance (S3-compatible only)
 func NewStorage(config *StorageConfig) (Storage, error) {
-	switch config.Type {
-	case StorageTypeLocal:
-		return NewLocalStorage(config.LocalBasePath, config.LocalBaseURL)
-	case StorageTypeS3:
-		// TODO: Implement S3Storage when needed
-		return nil, fmt.Errorf("S3 storage not yet implemented")
-	default:
-		return nil, fmt.Errorf("unknown storage type: %s", config.Type)
+	// Validate required S3 config
+	if config.S3Bucket == "" {
+		return nil, fmt.Errorf("STORAGE_S3_BUCKET is required")
 	}
+	if config.S3AccessKey == "" {
+		return nil, fmt.Errorf("STORAGE_S3_ACCESS_KEY is required")
+	}
+	if config.S3SecretKey == "" {
+		return nil, fmt.Errorf("STORAGE_S3_SECRET_KEY is required")
+	}
+
+	return NewS3Storage(config)
 }
 
-// LoadStorageConfig loads storage configuration from environment variables
+// LoadStorageConfig loads S3 storage configuration from environment variables
 func LoadStorageConfig() *StorageConfig {
-	storageType := os.Getenv("STORAGE_TYPE")
-	if storageType == "" {
-		storageType = "local" // Default to local
+	// Parse presigned URL expiry (default: 1 hour)
+	presignedExpiry := 3600
+	if expiryStr := os.Getenv("STORAGE_S3_PRESIGNED_EXPIRY"); expiryStr != "" {
+		if parsed, err := strconv.Atoi(expiryStr); err == nil && parsed > 0 {
+			presignedExpiry = parsed
+		}
+	}
+
+	// Parse SSL flag (accepts: 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False)
+	useSSL := false
+	if sslStr := os.Getenv("STORAGE_S3_USE_SSL"); sslStr != "" {
+		if parsed, err := strconv.ParseBool(sslStr); err == nil {
+			useSSL = parsed
+		}
+	}
+
+	// Default region if not specified
+	region := os.Getenv("STORAGE_S3_REGION")
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	endpoint := os.Getenv("STORAGE_S3_ENDPOINT")
+	publicEndpoint := os.Getenv("STORAGE_S3_PUBLIC_ENDPOINT")
+	// If public endpoint not set, use the same as internal endpoint
+	if publicEndpoint == "" {
+		publicEndpoint = endpoint
 	}
 
 	return &StorageConfig{
-		Type:          StorageType(storageType),
-		LocalBasePath: getEnv("STORAGE_LOCAL_PATH", "./uploads"),
-		LocalBaseURL:  getEnv("STORAGE_LOCAL_URL", "http://localhost:8080/uploads"),
-		S3Bucket:      os.Getenv("STORAGE_S3_BUCKET"),
-		S3Region:      os.Getenv("STORAGE_S3_REGION"),
-		S3CloudFront:  os.Getenv("STORAGE_S3_CLOUDFRONT"),
+		S3Endpoint:        endpoint,
+		S3PublicEndpoint:  publicEndpoint,
+		S3Bucket:          os.Getenv("STORAGE_S3_BUCKET"),
+		S3Region:          region,
+		S3AccessKey:       os.Getenv("STORAGE_S3_ACCESS_KEY"),
+		S3SecretKey:       os.Getenv("STORAGE_S3_SECRET_KEY"),
+		S3UseSSL:          useSSL,
+		S3PresignedExpiry: presignedExpiry,
 	}
-}
-
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
 }

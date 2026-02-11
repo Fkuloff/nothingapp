@@ -16,6 +16,42 @@ services:
       timeout: 5s
       retries: 5
 
+  # MinIO S3-Compatible Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: nothing-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_CONSOLE_URL:-http://localhost:9001}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Init - creates bucket automatically
+  minio-init:
+    image: minio/mc:latest
+    container_name: nothing-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin123};
+      mc mb local/$${MINIO_BUCKET_NAME:-messenger-uploads} --ignore-existing;
+      mc anonymous set download local/$${MINIO_BUCKET_NAME:-messenger-uploads};
+      exit 0;
+      "
+
   # Go Backend API
   backend:
     build:
@@ -27,16 +63,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       DB_URL: postgres://${POSTGRES_USER:-messenger}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-messenger}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (min 32 chars)}
       PORT: 8080
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost}
-      STORAGE_TYPE: local
-      STORAGE_LOCAL_PATH: /app/uploads
-      STORAGE_LOCAL_URL: ${STORAGE_LOCAL_URL:-http://localhost/uploads}
-    volumes:
-      - uploads_data:/app/uploads
+      # S3/MinIO configuration
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-http://minio:9000}
+      STORAGE_S3_PUBLIC_ENDPOINT: ${STORAGE_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET:-messenger-uploads}
+      STORAGE_S3_REGION: ${STORAGE_S3_REGION:-us-east-1}
+      STORAGE_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      STORAGE_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      STORAGE_S3_USE_SSL: ${STORAGE_S3_USE_SSL:-false}
+      STORAGE_S3_PRESIGNED_EXPIRY: ${STORAGE_S3_PRESIGNED_EXPIRY:-3600}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -76,5 +118,5 @@ services:
 
 volumes:
   postgres_data:
-  uploads_data:
   pgadmin_data:
+  minio_data:

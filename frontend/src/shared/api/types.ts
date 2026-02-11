@@ -98,6 +98,24 @@ export type Contact = {
   created_at: string
 }
 
+// User list item (used in contacts list, search results)
+export type UserListItem = {
+  id: number
+  username: string
+  name: string
+  avatar_url?: string
+}
+
+// User search response
+export type UserSearchResponse = {
+  users: UserListItem[]
+}
+
+// Enriched contacts response (backend returns UserListItem array)
+export type EnrichedContactsResponse = {
+  contacts: UserListItem[]
+}
+
 // Avatar
 export type AvatarUploadResponse = {
   success: boolean
@@ -167,4 +185,10 @@ export type WSEventDelete = {
   is_deleted: boolean
 }
 
-export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | ApiError
+export type WSEventPresenceChanged = {
+  action: 'presence_changed'
+  user_id: number
+  is_online: boolean
+}
+
+export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | WSEventPresenceChanged | ApiError

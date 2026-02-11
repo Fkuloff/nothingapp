@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"messenger/internal/models"
-
 	"go.uber.org/zap"
 )
 
@@ -19,13 +17,24 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
 
-	// Check access to chat
+	// Check access to chat and get recipient ID
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
 	if err != nil || !chat.HasUser(userID) {
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	message, err := h.chatService.SendMessage(ctx, msgData.ChatID, userID, msgData.Text, msgData.ReplyToID)
+	// Get other user ID (recipient)
+	otherUserID := chat.User1ID
+	if chat.User1ID == userID {
+		otherUserID = chat.User2ID
+	}
+
+	// Check if recipient is offline BEFORE transaction to minimize lock time
+	isRecipientOffline := !h.presenceService.IsUserOnline(otherUserID)
+
+	// ATOMIC: Send message and create unread record in single transaction
+	// This prevents TOCTOU race where user comes online between presence check and unread save
+	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
 	if err != nil {
 		h.logger.Error("error sending message",
 			zap.Error(err),
@@ -57,28 +66,6 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 			zap.Uint("message_id", message.ID),
 		)
 		return &wsError{message: "Server error"}
-	}
-
-	// Get other user ID
-	otherUserID := chat.User1ID
-	if chat.User1ID == userID {
-		otherUserID = chat.User2ID
-	}
-
-	// If other user is offline, save to unread messages
-	if !h.presenceService.IsUserOnline(otherUserID) {
-		unreadMsg := &models.UnreadMessage{
-			UserID:    otherUserID,
-			MessageID: message.ID,
-			ChatID:    msgData.ChatID,
-		}
-		if err := h.chatService.CreateUnreadMessage(ctx, unreadMsg); err != nil {
-			h.logger.Error("failed to save unread message",
-				zap.Error(err),
-				zap.Uint("user_id", otherUserID),
-				zap.Uint("message_id", message.ID),
-			)
-		}
 	}
 
 	// Broadcast to all participants (online users will receive it immediately)

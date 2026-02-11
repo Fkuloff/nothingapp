@@ -12,6 +12,17 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	// ErrCannotAddSelf is returned when attempting to add yourself as a contact
+	ErrCannotAddSelf = errors.New("cannot add self to contacts")
+
+	// ErrAlreadyInContacts is returned when the contact relationship already exists
+	ErrAlreadyInContacts = errors.New("already in contacts")
+
+	// ErrContactNotFound is returned when the requested contact does not exist
+	ErrContactNotFound = errors.New("contact not found")
+)
+
 type ContactService struct {
 	logger      *zap.Logger
 	contactRepo *repositories.ContactRepo
@@ -26,12 +37,12 @@ func NewContactService(logger *zap.Logger, contactRepo *repositories.ContactRepo
 
 func (s *ContactService) AddContact(ctx context.Context, userID, contactUserID uint) error {
 	if userID == contactUserID {
-		return fmt.Errorf("cannot add self to contacts")
+		return ErrCannotAddSelf
 	}
 
 	_, err := s.contactRepo.FindByUsers(ctx, userID, contactUserID)
 	if err == nil {
-		return fmt.Errorf("already in contacts")
+		return ErrAlreadyInContacts
 	}
 
 	contact := &models.Contact{
@@ -70,7 +81,10 @@ func (s *ContactService) GetUserContacts(ctx context.Context, userID uint) ([]mo
 func (s *ContactService) RemoveContact(ctx context.Context, userID, contactUserID uint) error {
 	contact, err := s.contactRepo.FindByUsers(ctx, userID, contactUserID)
 	if err != nil {
-		return fmt.Errorf("contact not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrContactNotFound
+		}
+		return fmt.Errorf("failed to find contact: %w", err)
 	}
 
 	if err := s.contactRepo.Delete(ctx, contact); err != nil {

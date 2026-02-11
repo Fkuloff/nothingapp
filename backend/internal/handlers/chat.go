@@ -106,7 +106,8 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		return
 	}
 
-	chats, err := h.chatService.GetUserChats(c.Request.Context(), userID)
+	// Preload users for display (names, avatars)
+	chats, err := h.chatService.GetUserChats(c.Request.Context(), userID, true)
 	if err != nil {
 		sendInternalError(c, "Failed to load chats")
 		return

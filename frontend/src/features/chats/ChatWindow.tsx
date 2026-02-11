@@ -18,6 +18,7 @@ type Props = {
   error?: string | null
   onMessagesUpdate?: () => void
   isConnected: boolean
+  isOtherUserOnline?: boolean
   send: (data: WSMessageAction) => boolean
   isMobile?: boolean
   onBackToList?: () => void
@@ -34,6 +35,7 @@ export function ChatWindow({
   error,
   onMessagesUpdate,
   isConnected,
+  isOtherUserOnline = false,
   send,
   isMobile,
   onBackToList,
@@ -194,8 +196,8 @@ export function ChatWindow({
             <div className="chat-header__info">
               <span className="chat-peer">{otherUsername}</span>
               <div className="chat-header__meta">
-                <span className="dot online" />
-                <span className="chat-subtitle">{isConnected ? 'В сети' : 'Переподключаемся...'}</span>
+                <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
+                <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
               </div>
             </div>
           </Link>

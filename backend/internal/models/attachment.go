@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 )
 
@@ -16,7 +18,11 @@ const (
 
 // Attachment represents a file attached to a message
 type Attachment struct {
-	gorm.Model
+	ID        uint           `gorm:"primarykey" json:"id"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+
 	MessageID  uint           `gorm:"index:idx_message_attachments;not null" json:"message_id"`
 	FileType   AttachmentType `gorm:"type:varchar(20);not null;index:idx_file_type" json:"file_type"`
 	StorageKey string         `gorm:"type:varchar(500);not null;unique" json:"storage_key"`

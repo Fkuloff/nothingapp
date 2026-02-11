@@ -21,7 +21,7 @@ CLAUDE.md
 *~
 
 # Build artifacts
-messenger
+# messenger - removed to allow local binary deployment
 messenger.exe
 *.exe
 *.dll

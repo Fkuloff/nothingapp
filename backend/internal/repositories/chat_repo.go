@@ -17,6 +17,11 @@ func NewChatRepo(db *gorm.DB) *ChatRepo {
 	return &ChatRepo{db: db}
 }
 
+// WithTx creates a new ChatRepo with the given transaction
+func (r *ChatRepo) WithTx(tx *gorm.DB) *ChatRepo {
+	return &ChatRepo{db: tx}
+}
+
 func (r *ChatRepo) Create(ctx context.Context, chat *models.Chat) error {
 	return r.db.WithContext(ctx).Create(chat).Error
 }
@@ -36,11 +41,17 @@ func (r *ChatRepo) GetMessages(ctx context.Context, chatID uint) ([]models.Messa
 	return messages, err
 }
 
-func (r *ChatRepo) GetUserChats(ctx context.Context, userID uint) ([]models.Chat, error) {
+// GetUserChats retrieves all chats for a user
+// preloadUsers: if true, preloads User1 and User2 (use for display); if false, only loads IDs (use for presence/routing)
+func (r *ChatRepo) GetUserChats(ctx context.Context, userID uint, preloadUsers bool) ([]models.Chat, error) {
 	var chats []models.Chat
-	err := r.db.WithContext(ctx).Where("user1_id = ? OR user2_id = ?", userID, userID).
-		Preload("User1").Preload("User2").
-		Find(&chats).Error
+	query := r.db.WithContext(ctx).Where("user1_id = ? OR user2_id = ?", userID, userID)
+
+	if preloadUsers {
+		query = query.Preload("User1").Preload("User2")
+	}
+
+	err := query.Find(&chats).Error
 	return chats, err
 }
 

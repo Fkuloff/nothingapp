@@ -86,13 +86,10 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 	})
 }
 
-// DownloadAttachment streams a file
+// DownloadAttachment streams a file (PUBLIC endpoint - no JWT required)
+// Access control: Attachments are publicly accessible via S3 presigned URLs
+// This endpoint simply proxies the request to the storage backend
 func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-
 	attachmentID, err := parseUintParam(c, "id")
 	if err != nil {
 		sendBadRequest(c, "Invalid attachment ID")
@@ -106,19 +103,6 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 	}
 	defer reader.Close()
 
-	// Verify user has access (through message -> chat)
-	message, err := h.chatService.GetMessageByID(c.Request.Context(), attachment.MessageID)
-	if err != nil {
-		sendNotFound(c, "Message not found")
-		return
-	}
-
-	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), message.ChatID)
-	if err != nil || !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
-		return
-	}
-
 	// Set headers for download
 	c.Header("Content-Type", attachment.MimeType)
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", attachment.FileName))
@@ -128,38 +112,22 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 	c.DataFromReader(http.StatusOK, attachment.FileSize, attachment.MimeType, reader, nil)
 }
 
-// GetThumbnail serves thumbnail
+// GetThumbnail serves thumbnail (PUBLIC endpoint - no JWT required)
+// Access control: Thumbnails are publicly accessible via S3 presigned URLs
+// This endpoint simply proxies the request to the storage backend
 func (h *AttachmentHandler) GetThumbnail(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-
 	attachmentID, err := parseUintParam(c, "id")
 	if err != nil {
 		sendBadRequest(c, "Invalid attachment ID")
 		return
 	}
 
-	attachment, reader, err := h.attachmentService.GetThumbnail(c.Request.Context(), attachmentID)
+	_, reader, err := h.attachmentService.GetThumbnail(c.Request.Context(), attachmentID)
 	if err != nil {
 		sendNotFound(c, err.Error())
 		return
 	}
 	defer reader.Close()
-
-	// Verify user has access (through message -> chat)
-	message, err := h.chatService.GetMessageByID(c.Request.Context(), attachment.MessageID)
-	if err != nil {
-		sendNotFound(c, "Message not found")
-		return
-	}
-
-	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), message.ChatID)
-	if err != nil || !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
-		return
-	}
 
 	// Set headers for inline display
 	c.Header("Content-Type", "image/jpeg")

@@ -22,6 +22,12 @@ export default function AppLayout() {
           <div className="d-flex align-items-center ms-auto gap-3 topbar__actions">
             {user && (
               <>
+                <Link to="/" className="nav-link topbar__link">
+                  Чаты
+                </Link>
+                <Link to="/contacts" className="nav-link topbar__link">
+                  Контакты
+                </Link>
                 <Link to="/profile" className="nav-link topbar__link">
                   <span className="avatar avatar-sm me-2">
                     <img src={user.avatar_url || '/img/default-avatar.svg'} alt="avatar" />

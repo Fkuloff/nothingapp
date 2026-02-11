@@ -4,6 +4,7 @@ import { ChatWindow } from '../features/chats/ChatWindow'
 import type { ChatItem, Message, WSEvent } from '../shared/api/types'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { getCurrentUserChats, getChatMessages } from '../shared/api/chatsApi'
+import { getUserPresence } from '../shared/api/presenceApi'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 
 export default function ChatsPage() {
@@ -16,6 +17,7 @@ export default function ChatsPage() {
   const [chatsError, setChatsError] = useState<string | null>(null)
   const [messagesError, setMessagesError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
+  const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     const computeIsMobile = () => {
@@ -34,6 +36,20 @@ export default function ChatsPage() {
     (event: WSEvent) => {
       if ('error' in event) {
         console.error('WebSocket error:', event.error)
+        return
+      }
+
+      // Handle presence changes
+      if (event.action === 'presence_changed') {
+        setOnlineUsers((prev) => {
+          const next = new Set(prev)
+          if (event.is_online) {
+            next.add(event.user_id)
+          } else {
+            next.delete(event.user_id)
+          }
+          return next
+        })
         return
       }
 
@@ -179,6 +195,32 @@ export default function ChatsPage() {
     [activeChatId, chats]
   )
 
+  // Load presence status when active chat changes
+  useEffect(() => {
+    if (activeChat?.other_user_id) {
+      getUserPresence(activeChat.other_user_id)
+        .then((presence) => {
+          setOnlineUsers((prev) => {
+            const next = new Set(prev)
+            if (presence.is_online) {
+              next.add(presence.user_id)
+            } else {
+              next.delete(presence.user_id)
+            }
+            return next
+          })
+        })
+        .catch((err) => {
+          console.error('Failed to load user presence:', err)
+        })
+    }
+  }, [activeChat?.other_user_id])
+
+  const isOtherUserOnline = useMemo(
+    () => (activeChat ? onlineUsers.has(activeChat.other_user_id) : false),
+    [activeChat, onlineUsers]
+  )
+
   // Calculate total unread count
   const totalUnread = useMemo(
     () => chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0),
@@ -211,6 +253,7 @@ export default function ChatsPage() {
           error={messagesError}
           onMessagesUpdate={handleMessagesUpdate}
           isConnected={isConnected}
+          isOtherUserOnline={isOtherUserOnline}
           send={send}
           isMobile={isMobile}
           onBackToList={() => setActiveChatId(null)}

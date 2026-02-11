@@ -6,6 +6,7 @@ import { ProtectedRoute } from '../features/auth/ProtectedRoute'
 const LoginPage = lazy(() => import('../pages/LoginPage'))
 const RegisterPage = lazy(() => import('../pages/RegisterPage'))
 const ChatsPage = lazy(() => import('../pages/ChatsPage'))
+const ContactsPage = lazy(() => import('../pages/ContactsPage'))
 const ProfilePage = lazy(() => import('../pages/ProfilePage'))
 
 const withSuspense = (Component: ComponentType) => (
@@ -24,6 +25,10 @@ const router = createBrowserRouter([
           {
             path: '/',
             element: withSuspense(ChatsPage),
+          },
+          {
+            path: '/contacts',
+            element: withSuspense(ContactsPage),
           },
           {
             path: '/profile/:userId?',
