@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthContext } from '../auth/AuthContext'
 import { useTheme } from '../../shared/hooks/useTheme'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { ProfileModal } from '../profile/ProfileModal'
 import { ContactsModal } from '../contacts/ContactsModal'
 import { SettingsModal } from '../settings/SettingsModal'
@@ -18,42 +19,10 @@ export function SlideMenu({ isOpen, onClose }: Props) {
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
-  const menuRef = useRef<HTMLDivElement>(null)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [contactsModalOpen, setContactsModalOpen] = useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
-
-  // Close on backdrop click
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
-
-  // Close on Escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-    }
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onClose])
-
-  // Prevent body scroll when menu is open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isOpen])
+  const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   const handleLogout = async () => {
     await logout()
@@ -118,7 +87,6 @@ export function SlideMenu({ isOpen, onClose }: Props) {
 
       {/* Menu Panel */}
       <div
-        ref={menuRef}
         className={`slide-menu ${isOpen ? 'open' : ''}`}
         role="dialog"
         aria-modal="true"

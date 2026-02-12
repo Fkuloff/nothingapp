@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useAuthContext } from '../auth/AuthContext'
 import { httpPost, httpPut } from '../../shared/api/httpClient'
 import { endpoints } from '../../shared/api/endpoints'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import type { AvatarUploadResponse } from '../../shared/api/types'
 
 type Props = {
@@ -11,11 +12,11 @@ type Props = {
 
 export function ProfileModal({ isOpen, onClose }: Props) {
   const { user, refreshProfile } = useAuthContext()
-  const modalRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
+  const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   useEffect(() => {
     if (user) {
@@ -24,34 +25,10 @@ export function ProfileModal({ isOpen, onClose }: Props) {
   }, [user])
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-    }
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onClose])
-
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!isOpen) {
       setIsEditing(false)
     }
-    return () => {
-      document.body.style.overflow = ''
-    }
   }, [isOpen])
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
 
   const handleAvatarClick = () => {
     fileInputRef.current?.click()
@@ -95,7 +72,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
 
   return (
     <div className="profile-modal-backdrop" onClick={handleBackdropClick}>
-      <div ref={modalRef} className="profile-modal" role="dialog" aria-modal="true">
+      <div className="profile-modal" role="dialog" aria-modal="true">
         <div className="profile-modal__header-actions">
           <button
             className="profile-modal__action-btn"

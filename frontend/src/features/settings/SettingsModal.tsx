@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
 import { useTheme } from '../../shared/hooks/useTheme'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
   isOpen: boolean
@@ -7,43 +7,14 @@ type Props = {
 }
 
 export function SettingsModal({ isOpen, onClose }: Props) {
-  const modalRef = useRef<HTMLDivElement>(null)
   const { theme, setTheme } = useTheme()
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-    }
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onClose])
-
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isOpen])
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
+  const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   if (!isOpen) return null
 
   return (
     <div className="settings-modal-backdrop" onClick={handleBackdropClick}>
-      <div ref={modalRef} className="settings-modal" role="dialog" aria-modal="true">
+      <div className="settings-modal" role="dialog" aria-modal="true">
         <div className="settings-modal__header">
           <h2 className="settings-modal__title">Настройки</h2>
           <button className="settings-modal__close" onClick={onClose} aria-label="Закрыть">

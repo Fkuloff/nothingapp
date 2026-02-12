@@ -9,7 +9,6 @@ type Props = {
   onChatCreated?: () => void
   loading?: boolean
   error?: string | null
-  totalUnread?: number
 }
 
 export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading, error }: Props) {

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getContacts } from '../../shared/api/contactsApi'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import type { UserListItem } from '../../shared/api/types'
 
 type Props = {
@@ -9,10 +10,10 @@ type Props = {
 }
 
 export function ContactsModal({ isOpen, onClose, onSelectContact }: Props) {
-  const modalRef = useRef<HTMLDivElement>(null)
   const [contacts, setContacts] = useState<UserListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   useEffect(() => {
     if (!isOpen) return
@@ -32,35 +33,6 @@ export function ContactsModal({ isOpen, onClose, onSelectContact }: Props) {
     }
   }, [isOpen])
 
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-    }
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onClose])
-
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isOpen])
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
-
   const handleContactClick = (contact: UserListItem) => {
     onSelectContact(contact)
     onClose()
@@ -76,7 +48,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact }: Props) {
 
   return (
     <div className="contacts-modal-backdrop" onClick={handleBackdropClick}>
-      <div ref={modalRef} className="contacts-modal" role="dialog" aria-modal="true">
+      <div className="contacts-modal" role="dialog" aria-modal="true">
         <div className="contacts-modal__header">
           <h2 className="contacts-modal__title">Контакты</h2>
           <button className="contacts-modal__close" onClick={onClose} aria-label="Закрыть">

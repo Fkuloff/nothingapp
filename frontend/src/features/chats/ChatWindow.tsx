@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Message, WSMessageAction } from '../../shared/api/types'
 import { httpPost } from '../../shared/api/httpClient'
@@ -159,8 +159,8 @@ export function ChatWindow({
     setMessageText('')
   }
 
-  const emptyState = useMemo(
-    () => (
+  if (!chatId || !otherUsername) {
+    return (
       <div className="chat-window glassy empty-chat-panel">
         <div className="empty-hero">
           <div className="empty-hero__badge">Nothing</div>
@@ -172,12 +172,7 @@ export function ChatWindow({
           </div>
         </div>
       </div>
-    ),
-    []
-  )
-
-  if (!chatId || !otherUsername) {
-    return emptyState
+    )
   }
 
   return (

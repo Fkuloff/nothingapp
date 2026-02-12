@@ -226,12 +226,6 @@ export default function ChatsPage() {
     [activeChat, onlineUsers]
   )
 
-  // Calculate total unread count
-  const totalUnread = useMemo(
-    () => chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0),
-    [chats]
-  )
-
   // Filter chats by search query
   const filteredChats = useMemo(() => {
     if (!searchQuery.trim()) return chats
@@ -265,7 +259,6 @@ export default function ChatsPage() {
             onChatCreated={handleChatCreated}
             loading={loadingChats}
             error={chatsError}
-            totalUnread={totalUnread}
           />
         </div>
       </div>

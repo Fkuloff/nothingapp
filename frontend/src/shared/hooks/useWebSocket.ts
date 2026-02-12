@@ -38,28 +38,15 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
     let connectionInProgress = false
 
     const connect = () => {
-      // Prevent multiple connections
-      if (!isActive) {
-        console.log('Component unmounted, aborting connection')
+      if (!isActive || connectionInProgress) {
         return
       }
 
-      if (connectionInProgress) {
-        console.log('Connection already in progress')
+      if (wsRef.current?.readyState === WebSocket.OPEN ||
+          wsRef.current?.readyState === WebSocket.CONNECTING) {
         return
       }
 
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        console.log('WebSocket already connected')
-        return
-      }
-
-      if (wsRef.current?.readyState === WebSocket.CONNECTING) {
-        console.log('WebSocket already connecting')
-        return
-      }
-
-      // Close any existing connection first
       if (wsRef.current) {
         wsRef.current.close()
         wsRef.current = null
@@ -70,20 +57,16 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
       const wsBaseUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin
       const token = getAuthToken()
       const query = token ? `?token=${encodeURIComponent(token)}` : ''
-      // Use global WebSocket endpoint instead of per-chat endpoint
       const wsUrl = `${wsBaseUrl.replace(/^http/, 'ws')}${endpoints.ws.global}${query}`
 
-      console.log('Connecting to WebSocket:', wsUrl)
       const ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
         connectionInProgress = false
         if (!isActive) {
-          console.log('Component unmounted after connection, closing...')
           ws.close()
           return
         }
-        console.log('WebSocket connected')
         setIsConnected(true)
         reconnectAttemptsRef.current = 0
       }
@@ -103,14 +86,12 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
         }
       }
 
-      ws.onerror = (error) => {
+      ws.onerror = () => {
         connectionInProgress = false
-        console.error('WebSocket error:', error)
       }
 
-      ws.onclose = (event) => {
+      ws.onclose = () => {
         connectionInProgress = false
-        console.log('WebSocket closed', event.code, event.reason)
         setIsConnected(false)
 
         const currentWs = wsRef.current
@@ -118,13 +99,9 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
           wsRef.current = null
         }
 
-        // Only reconnect if still active and haven't exceeded attempts
         if (isActive && reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current++
-          console.log(`Attempting to reconnect (${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`)
           reconnectTimeoutRef.current = window.setTimeout(connect, reconnectDelay)
-        } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          console.error('Max reconnection attempts reached')
         }
       }
 
@@ -158,13 +135,10 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
   const send = (data: WSMessageAction) => {
     const ws = wsRef.current
     if (!ws) {
-      console.error('WebSocket is not initialized')
       return false
     }
 
     if (ws.readyState === WebSocket.CONNECTING) {
-      console.log('WebSocket is connecting, queuing message...')
-      // Wait for connection to open
       const sendWhenReady = () => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(data))
@@ -179,7 +153,6 @@ export function useWebSocket({ chatId, onMessage, enabled = true }: UseWebSocket
       return true
     }
 
-    console.error('WebSocket is not connected, state:', ws.readyState)
     return false
   }
 

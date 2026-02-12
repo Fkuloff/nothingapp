@@ -58,7 +58,6 @@ export function useGlobalWebSocket({ onMessage, enabled = true }: UseGlobalWebSo
           ws.close()
           return
         }
-        console.log('Global WebSocket connected')
         setIsConnected(true)
         reconnectAttemptsRef.current = 0
       }
@@ -67,8 +66,8 @@ export function useGlobalWebSocket({ onMessage, enabled = true }: UseGlobalWebSo
         try {
           const data = JSON.parse(event.data) as WSEvent
           onMessageRef.current(data)
-        } catch (err) {
-          console.error('Failed to parse WebSocket message:', err)
+        } catch {
+          // Ignore parse errors
         }
       }
 

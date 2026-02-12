@@ -1007,18 +1007,6 @@ textarea::placeholder,
   }
 }
 
-/* Keep old animation name for compatibility */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 /* Other user's messages - left aligned */
 .message-other {
   margin-right: auto;
@@ -1119,15 +1107,6 @@ textarea::placeholder,
   gap: var(--space-md);
   margin-bottom: 4px;
   font-size: 0.8rem;
-}
-
-.message-sender {
-  font-weight: 600;
-}
-
-.message-time {
-  color: var(--text-tertiary);
-  font-size: 0.7rem;
 }
 
 .message-sender {
