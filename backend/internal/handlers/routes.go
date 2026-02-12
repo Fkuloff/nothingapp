@@ -56,6 +56,9 @@ func SetupRoutes(
 	router.GET("/api/attachments/:id", attachmentHandler.DownloadAttachment)
 	router.GET("/api/attachments/:id/thumbnail", attachmentHandler.GetThumbnail)
 
+	// Public avatar endpoint
+	router.GET("/api/avatars/:user_id", userHandler.GetAvatar)
+
 	// WebSocket endpoint with JWT middleware
 	router.GET("/ws", JWTMiddleware(secret, logger), wsHandler.HandleWebSocket)
 

@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"io"
+	"net/http"
+
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -64,4 +67,28 @@ func (h *UserHandler) DeleteAvatar(c *gin.Context) {
 	}
 
 	sendSuccess(c, gin.H{"success": true})
+}
+
+// GetAvatar serves avatar image by user ID (PUBLIC endpoint)
+func (h *UserHandler) GetAvatar(c *gin.Context) {
+	userID, err := parseUintParam(c, "user_id")
+	if err != nil {
+		sendBadRequest(c, "Invalid user ID")
+		return
+	}
+
+	reader, contentType, err := h.userService.GetAvatarReader(c.Request.Context(), userID)
+	if err != nil {
+		sendNotFound(c, "Avatar not found")
+		return
+	}
+	defer reader.Close()
+
+	c.Header("Content-Type", contentType)
+	c.Header("Cache-Control", "public, max-age=3600")
+	c.Status(http.StatusOK)
+
+	if _, copyErr := io.Copy(c.Writer, reader); copyErr != nil {
+		c.Error(copyErr) //nolint:errcheck
+	}
 }
