@@ -26,6 +26,7 @@ export const endpoints = {
   avatar: {
     upload: '/api/user/avatar',
     remove: '/api/user/avatar',
+    get: (userId: number | string) => `/api/avatars/${userId}`,
   },
   presence: {
     get: (userId: number | string) => `/api/presence/${userId}`,
