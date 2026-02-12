@@ -1,51 +1,48 @@
+# syntax=docker/dockerfile:1.4
+
 # ===================== Build Stage =====================
 FROM golang:1.25-alpine AS builder
 
-# Install build dependencies
+# Install build dependencies in single layer
 RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /app
 
 # Copy go mod files first for better layer caching
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+
+# Download dependencies with BuildKit cache
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download && go mod verify
 
 # Copy source code
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s -extldflags "-static"' \
-    -a -installsuffix cgo \
+# Build with BuildKit cache for faster rebuilds (up to 20x speedup)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -buildid=' \
+    -trimpath \
     -o messenger ./cmd/server
 
 # ===================== Final Stage =====================
-FROM alpine:latest
-
-# Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata && \
-    addgroup -g 1000 appuser && \
-    adduser -D -u 1000 -G appuser appuser
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy timezone data
+# Copy timezone data from builder
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# Copy CA certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Copy binary from builder
 COPY --from=builder /app/messenger .
 
-# Set proper permissions
-RUN chown -R appuser:appuser /app
-
-# Switch to non-root user
-USER appuser
+# Distroless nonroot image already runs as non-root user (uid 65532)
 
 EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 CMD ["./messenger"]
