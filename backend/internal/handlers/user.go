@@ -89,6 +89,6 @@ func (h *UserHandler) GetAvatar(c *gin.Context) {
 	c.Status(http.StatusOK)
 
 	if _, copyErr := io.Copy(c.Writer, reader); copyErr != nil {
-		c.Error(copyErr)
+		c.Error(copyErr) //nolint:errcheck
 	}
 }
