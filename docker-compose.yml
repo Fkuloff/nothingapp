@@ -48,8 +48,6 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-messenger-uploads}
-    networks:
-      - nothing-network
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
