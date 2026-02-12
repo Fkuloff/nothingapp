@@ -35,7 +35,7 @@ func SetupRoutes(
 	presenceService := services.NewPresenceService(logger)
 
 	// Initialize handlers
-	authHandler := NewAuthHandler(authService, secret)
+	authHandler := NewAuthHandler(authService, userService, secret)
 	chatHandler := NewChatHandler(chatService, userService)
 	profileHandler := NewProfileHandler(userService, contactService, logger)
 	attachmentHandler := NewAttachmentHandler(attachmentService, chatService)
