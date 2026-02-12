@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import type { Message, WSMessageAction } from '../../shared/api/types'
 import { httpPost } from '../../shared/api/httpClient'
 import { endpoints } from '../../shared/api/endpoints'
 import { MessageList } from './MessageList'
 import { MessageComposer } from './MessageComposer'
 import { useToast } from '../../shared/components/ToastContext'
+import { UserProfileModal } from '../profile/UserProfileModal'
 
 type Props = {
   chatId?: number
@@ -45,6 +45,7 @@ export function ChatWindow({
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
 
   const { showToast } = useToast()
@@ -186,7 +187,11 @@ export function ChatWindow({
               </svg>
             </button>
           )}
-          <Link to={`/profile/${otherUserId}`} className="chat-header__link">
+          <button
+            type="button"
+            className="chat-header__link"
+            onClick={() => setIsProfileModalOpen(true)}
+          >
             <span className="avatar avatar-sm">
               <img src={otherAvatar || '/img/default-avatar.svg'} alt="avatar" />
             </span>
@@ -197,7 +202,7 @@ export function ChatWindow({
                 <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
               </div>
             </div>
-          </Link>
+          </button>
         </div>
         {!isConnected && (
           <div className="chat-header__actions">
@@ -231,6 +236,17 @@ export function ChatWindow({
         onRemoveFile={handleRemoveFile}
         onCancelDraft={handleCancelDraft}
       />
+
+      {otherUserId && (
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          userId={otherUserId}
+          username={otherUsername}
+          avatarUrl={otherAvatar}
+          isOnline={isOtherUserOnline}
+        />
+      )}
     </div>
   )
 }

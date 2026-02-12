@@ -136,19 +136,16 @@ export default function ChatsPage() {
       setChatsError(null)
       setLoadingChats(true)
       const data = await getCurrentUserChats()
-      setChats(data)
-
-      if (activeChatId && !data.find((c) => c.id === activeChatId)) {
-        setActiveChatId(null)
-        setMessages([])
-      }
+      // Sort by updated_at descending (most recent first)
+      const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      setChats(sortedData)
     } catch (err) {
       console.error('Ошибка загрузки чатов', err)
       setChatsError(err instanceof Error ? err.message : 'Не удалось загрузить чаты')
     } finally {
       setLoadingChats(false)
     }
-  }, [activeChatId])
+  }, [])
 
   const loadMessages = useCallback(async (chatId: number) => {
     try {

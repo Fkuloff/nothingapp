@@ -168,9 +168,10 @@ func (s *UserService) GetUserByID(ctx context.Context, userID uint) (*models.Use
 	return user, nil
 }
 
-// FindByUsername finds a user by username
+// FindByUsername finds a user by username (case-insensitive)
 func (s *UserService) FindByUsername(ctx context.Context, username string) (*models.User, error) {
-	user, err := s.userRepo.FindByUsername(ctx, username)
+	// Normalize username to lowercase for case-insensitive lookup
+	user, err := s.userRepo.FindByUsername(ctx, strings.ToLower(strings.TrimSpace(username)))
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}

@@ -41,11 +41,13 @@ func (r *ChatRepo) GetMessages(ctx context.Context, chatID uint) ([]models.Messa
 	return messages, err
 }
 
-// GetUserChats retrieves all chats for a user
+// GetUserChats retrieves all chats for a user, sorted by updated_at descending (most recent first)
 // preloadUsers: if true, preloads User1 and User2 (use for display); if false, only loads IDs (use for presence/routing)
 func (r *ChatRepo) GetUserChats(ctx context.Context, userID uint, preloadUsers bool) ([]models.Chat, error) {
 	var chats []models.Chat
-	query := r.db.WithContext(ctx).Where("user1_id = ? OR user2_id = ?", userID, userID)
+	query := r.db.WithContext(ctx).
+		Where("user1_id = ? OR user2_id = ?", userID, userID).
+		Order("updated_at DESC")
 
 	if preloadUsers {
 		query = query.Preload("User1").Preload("User2")
