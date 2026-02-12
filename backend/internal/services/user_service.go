@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"strings"
 
@@ -130,6 +131,34 @@ func (s *UserService) DeleteAvatar(ctx context.Context, userID uint) error {
 	return nil
 }
 
+// GetAvatarReader returns a reader for user's avatar file
+func (s *UserService) GetAvatarReader(ctx context.Context, userID uint) (io.ReadCloser, string, error) {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, "", fmt.Errorf("user not found")
+	}
+
+	if user.AvatarURL == nil || *user.AvatarURL == "" {
+		return nil, "", fmt.Errorf("user has no avatar")
+	}
+
+	storageKey := extractStorageKey(*user.AvatarURL)
+	reader, err := s.storage.Get(storageKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get avatar: %w", err)
+	}
+
+	// Determine content type from extension
+	contentType := "image/jpeg"
+	if strings.HasSuffix(strings.ToLower(storageKey), ".png") {
+		contentType = "image/png"
+	} else if strings.HasSuffix(strings.ToLower(storageKey), ".webp") {
+		contentType = "image/webp"
+	}
+
+	return reader, contentType, nil
+}
+
 // GetUserByID retrieves a user by ID
 func (s *UserService) GetUserByID(ctx context.Context, userID uint) (*models.User, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
@@ -176,28 +205,44 @@ func (s *UserService) GetAvatarURL(avatarKey *string) *string {
 	return &url
 }
 
-// RefreshUserAvatarURL updates the user's avatar URL pointer with a fresh presigned URL
+// RefreshUserAvatarURL updates the user's avatar URL to use the API proxy endpoint
 func (s *UserService) RefreshUserAvatarURL(user *models.User) {
-	if user == nil {
+	if user == nil || user.AvatarURL == nil || *user.AvatarURL == "" {
 		return
 	}
-	user.AvatarURL = s.GetAvatarURL(user.AvatarURL)
+	// Return API endpoint URL instead of direct S3 URL
+	url := fmt.Sprintf("/api/avatars/%d", user.ID)
+	user.AvatarURL = &url
 }
 
 // extractStorageKey extracts storage key from URL
 // For local storage: http://localhost:8080/uploads/files/2025/12/14/uuid.ext -> files/2025/12/14/uuid.ext
+// For S3/MinIO: http://host:9000/bucket-name/files/2025/12/14/uuid.ext -> files/2025/12/14/uuid.ext
 func extractStorageKey(url string) string {
-	// URL format: http://localhost:8080/uploads/files/YYYY/MM/DD/uuid.ext
-	// We need to extract: files/YYYY/MM/DD/uuid.ext
-
-	// Find "/uploads/" in the URL
-	uploadsPrefix := "/uploads/"
-	idx := strings.Index(url, uploadsPrefix)
-	if idx == -1 {
-		// If no /uploads/ found, might be relative path already
+	// Check if it's not a URL (already a key)
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		return url
 	}
 
-	// Return everything after /uploads/
-	return url[idx+len(uploadsPrefix):]
+	// Try local storage format: /uploads/
+	uploadsPrefix := "/uploads/"
+	if idx := strings.Index(url, uploadsPrefix); idx != -1 {
+		return url[idx+len(uploadsPrefix):]
+	}
+
+	// Try S3/MinIO format: /bucket-name/files/ or /bucket-name/avatars/
+	// Extract path after bucket name
+	for _, prefix := range []string{"/files/", "/avatars/", "/thumbnails/"} {
+		if idx := strings.Index(url, prefix); idx != -1 {
+			return url[idx+1:] // Include the prefix without leading slash
+		}
+	}
+
+	// Fallback: try to extract after third slash (scheme://host/bucket/key)
+	parts := strings.SplitN(url, "/", 5)
+	if len(parts) >= 5 {
+		return parts[4] // Return the key part
+	}
+
+	return url
 }
