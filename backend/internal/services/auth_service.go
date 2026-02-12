@@ -30,8 +30,9 @@ func (s *AuthService) Register(ctx context.Context, username, password, name str
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	// Normalize username to lowercase for case-insensitive uniqueness
 	user := &models.User{
-		Username: username,
+		Username: strings.ToLower(strings.TrimSpace(username)),
 		Password: string(hashedPassword),
 		Name:     strings.TrimSpace(name),
 	}
@@ -47,7 +48,8 @@ func (s *AuthService) Register(ctx context.Context, username, password, name str
 }
 
 func (s *AuthService) Login(ctx context.Context, username, password string) (*models.User, error) {
-	user, err := s.userRepo.FindByUsername(ctx, username)
+	// Normalize username to lowercase for case-insensitive login
+	user, err := s.userRepo.FindByUsername(ctx, strings.ToLower(strings.TrimSpace(username)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
