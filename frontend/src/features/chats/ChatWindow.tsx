@@ -185,8 +185,10 @@ export function ChatWindow({
       <div className="chat-header">
         <div className="chat-header__title">
           {isMobile && (
-            <button className="btn btn-outline-light btn-sm back-btn" onClick={onBackToList}>
-              ←
+            <button className="back-btn" onClick={onBackToList} aria-label="Назад">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
             </button>
           )}
           <Link to={`/profile/${otherUserId}`} className="chat-header__link">
@@ -213,6 +215,7 @@ export function ChatWindow({
         messages={messages}
         currentUserId={currentUserId}
         otherUsername={otherUsername}
+        chatId={chatId}
         loading={loading}
         error={error}
         onReply={handleReply}

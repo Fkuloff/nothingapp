@@ -100,34 +100,17 @@ export function MessageComposer({
           multiple
           onChange={handleFileChange}
         />
-        <div className="composer-left">
-          <button
-            type="button"
-            className="btn icon-btn emoji-toggle"
-            title="Смайлики"
-            onClick={() => setShowEmojiPicker((prev) => !prev)}
-            disabled={uploading}
-            ref={emojiToggleRef}
-          >
-            😊
-          </button>
-          {showEmojiPicker && (
-            <EmojiPicker
-              onSelect={handleAddEmoji}
-              onClose={() => setShowEmojiPicker(false)}
-              toggleRef={emojiToggleRef}
-            />
-          )}
-          <button
-            type="button"
-            className="btn icon-btn attach-btn"
-            title="Прикрепить файл"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            📎
-          </button>
-        </div>
+        <button
+          type="button"
+          className="btn icon-btn attach-btn"
+          title="Прикрепить файл"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
+        </button>
         <input
           type="text"
           id="message"
@@ -136,11 +119,38 @@ export function MessageComposer({
           placeholder="Напишите сообщение..."
           value={messageText}
           onChange={(e) => onMessageTextChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && (messageText.trim() || selectedFiles.length > 0)) {
+              e.preventDefault()
+              onSubmit(e as unknown as React.FormEvent)
+            }
+          }}
           disabled={uploading}
         />
-        <button type="submit" className="btn btn-send" disabled={uploading || (!messageText.trim() && selectedFiles.length === 0)}>
-          {uploading ? 'Загрузка...' : editingMessageId ? 'Сохранить' : 'Отправить'}
-        </button>
+        <div className="composer-right">
+          <button
+            type="button"
+            className="btn icon-btn emoji-toggle-large"
+            title="Смайлики"
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
+            disabled={uploading}
+            ref={emojiToggleRef}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+              <line x1="9" y1="9" x2="9.01" y2="9" strokeWidth="3" strokeLinecap="round" />
+              <line x1="15" y1="9" x2="15.01" y2="9" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          </button>
+          {showEmojiPicker && (
+            <EmojiPicker
+              onSelect={handleAddEmoji}
+              onClose={() => setShowEmojiPicker(false)}
+              toggleRef={emojiToggleRef}
+            />
+          )}
+        </div>
       </div>
     </form>
   )

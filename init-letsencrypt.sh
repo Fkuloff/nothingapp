@@ -100,14 +100,18 @@ else
     echo "Using production server"
 fi
 
-# Run certbot
-docker compose -f docker-compose.prod.yml run --rm certbot certonly \
+# Run certbot (using docker run directly - docker compose run hangs)
+docker run --rm \
+    -v "$(pwd)/certbot/conf:/etc/letsencrypt" \
+    -v "$(pwd)/certbot/www:/var/www/certbot" \
+    certbot/certbot certonly \
     --webroot \
     --webroot-path=/var/www/certbot \
     $staging_arg \
     --email $email \
     --agree-tos \
     --no-eff-email \
+    --non-interactive \
     --force-renewal \
     $domain_args
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ChatItem } from '../../shared/api/types'
-import { createChat } from '../../shared/api/chatsApi'
+import { createChatByUsername } from '../../shared/api/chatsApi'
 
 type Props = {
   chats: ChatItem[]
@@ -12,7 +12,7 @@ type Props = {
   totalUnread?: number
 }
 
-export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading, error, totalUnread }: Props) {
+export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading, error }: Props) {
   const [newChatUsername, setNewChatUsername] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -30,7 +30,7 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
     setCreateError(null)
 
     try {
-      await createChat(newChatUsername.trim())
+      await createChatByUsername(newChatUsername.trim())
       setNewChatUsername('')
       onChatCreated?.()
     } catch (err) {
@@ -41,57 +41,44 @@ export function ChatList({ chats, activeChatId, onSelect, onChatCreated, loading
   }
 
   return (
-    <div className="chat-list">
-      <div className="chat-list__header">
-        <div>
-          <p className="eyebrow">Диалоги</p>
-          <h3>Ваши чаты</h3>
-        </div>
-        <div className="chat-list__badges">
-          <span className="chat-list__badge">{chats.length}</span>
-          {totalUnread !== undefined && totalUnread > 0 && (
-            <span className="chat-list__unread">{totalUnread} новых</span>
-          )}
-        </div>
-      </div>
-
-      <div className="chat-list__new">
-        <form onSubmit={handleCreateChat} className="chat-list__form">
-          <label className="chat-list__label" htmlFor="newChat">
-            Новый чат по username
-          </label>
-          <div className="input-group">
-            <input
-              id="newChat"
-              type="text"
-              className="form-control"
-              name="other_username"
-              placeholder="@username"
-              value={newChatUsername}
-              onChange={(e) => setNewChatUsername(e.target.value)}
-              disabled={creating}
-              required
-            />
-            <button type="submit" className="btn btn-primary" disabled={creating}>
-              {creating ? 'Создаём...' : 'Создать'}
-            </button>
-          </div>
-          {createError && <p className="text-danger small mb-0 mt-1">{createError}</p>}
+    <div className="telegram-chat-list">
+      {/* Compact new chat form */}
+      <div className="telegram-chat-list__new">
+        <form onSubmit={handleCreateChat} className="telegram-new-chat-form">
+          <input
+            type="text"
+            className="form-control"
+            name="other_username"
+            placeholder="Новый чат: @username"
+            value={newChatUsername}
+            onChange={(e) => setNewChatUsername(e.target.value)}
+            disabled={creating}
+          />
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={creating || !newChatUsername.trim()}
+            title="Создать чат"
+          >
+            +
+          </button>
         </form>
+        {createError && <p className="text-danger small mb-0 mt-1">{createError}</p>}
       </div>
 
-      {error && <div className="alert alert-danger alert-sm">{error}</div>}
+      {error && <div className="alert alert-danger alert-sm m-2">{error}</div>}
 
-      <div className="chat-list__items">
+      {/* Chat list items */}
+      <div className="telegram-chat-list__items fancy-scroll">
         {loading ? (
-          <p className="text-muted small">Загружаем диалоги...</p>
+          <p className="text-muted small p-3">Загружаем диалоги...</p>
         ) : sortedChats.length === 0 ? (
-          <div className="empty-list">
-            <p className="empty-list__title">Пока пусто</p>
-            <p className="empty-list__text">Создайте новый чат, чтобы начать разговор.</p>
+          <div className="telegram-empty-list">
+            <p>Пока пусто</p>
+            <p className="text-muted small">Создайте новый чат выше</p>
           </div>
         ) : (
-          <ul className="list-unstyled mb-0 chat-list__ul">
+          <ul className="telegram-chat-ul">
             {sortedChats.map((chat) => {
               const isActive = chat.id === activeChatId
               const hasUnread = chat.unread_count > 0

@@ -43,6 +43,8 @@ func (h *ProfileHandler) GetContacts(c *gin.Context) {
 		if contact.ContactUser == nil {
 			continue
 		}
+		// Refresh avatar URL for S3 presigned URLs
+		h.userService.RefreshUserAvatarURL(contact.ContactUser)
 		response = append(response, UserListItem{
 			ID:        contact.ContactUser.ID,
 			Username:  contact.ContactUser.Username,
@@ -134,6 +136,8 @@ func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 
 	response := make([]UserListItem, 0, len(users))
 	for _, user := range users {
+		// Refresh avatar URL for S3 presigned URLs
+		h.userService.RefreshUserAvatarURL(user)
 		response = append(response, UserListItem{
 			ID:        user.ID,
 			Username:  user.Username,
@@ -174,6 +178,9 @@ func (h *ProfileHandler) GetProfileAPI(c *gin.Context) {
 		h.logger.Warn("failed to check contact status", zap.Error(err), zap.Uint("current_user", currentUserID), zap.Uint("target_user", targetUserID))
 		isContact = false
 	}
+
+	// Refresh avatar URL for S3 presigned URLs
+	h.userService.RefreshUserAvatarURL(user)
 
 	sendSuccess(c, gin.H{
 		"id":         user.ID,

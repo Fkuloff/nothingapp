@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
+import { HamburgerButton } from '../features/menu/HamburgerButton'
 import type { ChatItem, Message, WSEvent } from '../shared/api/types'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { getCurrentUserChats, getChatMessages } from '../shared/api/chatsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
+import type { OutletContextType } from '../App'
 
 export default function ChatsPage() {
+  const { setMenuOpen } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const [chats, setChats] = useState<ChatItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -18,10 +22,11 @@ export default function ChatsPage() {
   const [messagesError, setMessagesError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     const computeIsMobile = () => {
-      const byWidth = window.matchMedia('(max-width: 900px)').matches
+      const byWidth = window.matchMedia('(max-width: 768px)').matches
       const byUA = /Mobi|Android|iPhone|iPad/i.test(window.navigator.userAgent)
       setIsMobile(byWidth || byUA)
     }
@@ -227,21 +232,46 @@ export default function ChatsPage() {
     [chats]
   )
 
+  // Filter chats by search query
+  const filteredChats = useMemo(() => {
+    if (!searchQuery.trim()) return chats
+    const query = searchQuery.toLowerCase()
+    return chats.filter((chat) =>
+      chat.other_user_name.toLowerCase().includes(query)
+    )
+  }, [chats, searchQuery])
+
   return (
-    <div className={`workspace${isMobile ? ' mobile' : ''}${isMobile && activeChatId ? ' chat-active' : ''}`}>
-      <div className="workspace__panel">
-        <ChatList
-          chats={chats}
-          activeChatId={activeChatId ?? undefined}
-          onSelect={(id) => setActiveChatId(id)}
-          onChatCreated={handleChatCreated}
-          loading={loadingChats}
-          error={chatsError}
-          totalUnread={totalUnread}
-        />
+    <div className={`telegram-layout${isMobile && activeChatId ? ' chat-active' : ''}`}>
+      {/* Sidebar with chat list */}
+      <div className="telegram-sidebar">
+        <div className="telegram-sidebar__header">
+          <HamburgerButton onClick={() => setMenuOpen(true)} />
+          <div className="telegram-sidebar__search">
+            <input
+              type="search"
+              className="form-control"
+              placeholder="Поиск..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="telegram-sidebar__content">
+          <ChatList
+            chats={filteredChats}
+            activeChatId={activeChatId ?? undefined}
+            onSelect={(id) => setActiveChatId(id)}
+            onChatCreated={handleChatCreated}
+            loading={loadingChats}
+            error={chatsError}
+            totalUnread={totalUnread}
+          />
+        </div>
       </div>
 
-      <div className="workspace__content">
+      {/* Main chat area */}
+      <div className="telegram-chat-area">
         <ChatWindow
           chatId={activeChatId ?? undefined}
           messages={messages}

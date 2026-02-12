@@ -1,12 +1,15 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useOutletContext } from 'react-router-dom'
 import { getContacts, addContact, removeContact } from '../shared/api/contactsApi'
 import type { UserListItem } from '../shared/api/types'
 import { ContactItem } from '../features/contacts/ContactItem'
 import { UserSearchBox } from '../features/contacts/UserSearchBox'
 import { useToast } from '../shared/components/ToastContext'
+import { HamburgerButton } from '../features/menu/HamburgerButton'
+import type { OutletContextType } from '../App'
 
 export default function ContactsPage() {
+  const { setMenuOpen } = useOutletContext<OutletContextType>()
   const navigate = useNavigate()
   const { showToast } = useToast()
   const [contacts, setContacts] = useState<UserListItem[]>([])
@@ -80,53 +83,48 @@ export default function ContactsPage() {
   }, [contacts])
 
   return (
-    <div className="workspace">
-      <div className="workspace__panel" style={{ gridColumn: '1 / -1', maxWidth: '800px', margin: '0 auto' }}>
-        <div className="chat-list">
-          {/* Header */}
-          <div className="chat-list__header">
-            <div>
-              <p className="eyebrow">Контакты</p>
-              <h3>Ваши контакты</h3>
+    <div className="page-container">
+      {/* Header */}
+      <div className="page-header">
+        <HamburgerButton onClick={() => setMenuOpen(true)} />
+        <h2>Контакты</h2>
+        <span className="chip">{contacts.length}</span>
+      </div>
+
+      {/* Content */}
+      <div className="page-content">
+        {/* Search box */}
+        <UserSearchBox onAddContact={handleAddContact} existingContactIds={existingContactIds} />
+
+        {/* Error state */}
+        {error && !loading && <div className="alert alert-danger alert-sm mt-3">{error}</div>}
+
+        {/* Contacts list */}
+        <div className="mt-3">
+          {loading ? (
+            <p className="text-muted small">Загружаем контакты...</p>
+          ) : contacts.length === 0 ? (
+            <div className="telegram-empty-list">
+              <p>Контактов пока нет</p>
+              <p className="text-muted small">
+                Используйте поиск выше, чтобы найти пользователей
+              </p>
             </div>
-            <div className="chat-list__badges">
-              <span className="chat-list__badge">{contacts.length}</span>
-            </div>
-          </div>
-
-          {/* Search box */}
-          <UserSearchBox onAddContact={handleAddContact} existingContactIds={existingContactIds} />
-
-          {/* Error state */}
-          {error && !loading && <div className="alert alert-danger alert-sm mt-3">{error}</div>}
-
-          {/* Contacts list */}
-          <div className="chat-list__items">
-            {loading ? (
-              <p className="text-muted small">Загружаем контакты...</p>
-            ) : contacts.length === 0 ? (
-              <div className="empty-list">
-                <p className="empty-list__title">Контактов пока нет</p>
-                <p className="empty-list__text">
-                  Используйте поиск выше, чтобы найти пользователей и добавить их в контакты.
-                </p>
-              </div>
-            ) : (
-              <ul className="list-unstyled mb-0 chat-list__ul">
-                {contacts.map((contact) => (
-                  <ContactItem
-                    key={contact.id}
-                    id={contact.id}
-                    username={contact.username}
-                    name={contact.name}
-                    avatar_url={contact.avatar_url}
-                    onStartChat={handleStartChat}
-                    onRemove={handleRemoveContact}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
+          ) : (
+            <ul className="list-unstyled mb-0">
+              {contacts.map((contact) => (
+                <ContactItem
+                  key={contact.id}
+                  id={contact.id}
+                  username={contact.username}
+                  name={contact.name}
+                  avatar_url={contact.avatar_url}
+                  onStartChat={handleStartChat}
+                  onRemove={handleRemoveContact}
+                />
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

@@ -79,6 +79,30 @@ export function httpPost<T>(path: string, body?: unknown, init?: RequestInit) {
   })
 }
 
+export function httpPut<T>(path: string, body?: unknown, init?: RequestInit) {
+  const payload =
+    body instanceof FormData || body instanceof URLSearchParams || typeof body === 'string'
+      ? (body as BodyInit)
+      : JSON.stringify(body ?? {})
+
+  const defaultHeaders: HeadersInit = {}
+  if (body instanceof URLSearchParams) {
+    defaultHeaders['Content-Type'] = 'application/x-www-form-urlencoded'
+  } else if (!(body instanceof FormData) && typeof body !== 'string') {
+    defaultHeaders['Content-Type'] = 'application/json'
+  }
+
+  return request<T>(path, {
+    ...init,
+    method: 'PUT',
+    body: payload,
+    headers: {
+      ...defaultHeaders,
+      ...(init?.headers ?? {}),
+    },
+  })
+}
+
 export function httpDelete<T>(path: string, init?: RequestInit) {
   return request<T>(path, {
     ...init,

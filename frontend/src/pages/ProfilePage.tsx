@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useOutletContext } from 'react-router-dom'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { httpGet, httpPost } from '../shared/api/httpClient'
 import type { UserProfile, AvatarUploadResponse } from '../shared/api/types'
 import { endpoints } from '../shared/api/endpoints'
 import { useToast } from '../shared/components/ToastContext'
 import { addContact } from '../shared/api/contactsApi'
+import { HamburgerButton } from '../features/menu/HamburgerButton'
+import type { OutletContextType } from '../App'
 
 export default function ProfilePage() {
+  const { setMenuOpen } = useOutletContext<OutletContextType>()
   const { userId } = useParams<{ userId?: string }>()
   const { user: currentUser } = useAuthContext()
   const { showToast } = useToast()
@@ -95,77 +98,130 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="container mt-4 text-center text-muted">
-        Загружаем профиль...
+      <div className="page-container">
+        <div className="page-header">
+          {isOwnProfile ? (
+            <HamburgerButton onClick={() => setMenuOpen(true)} />
+          ) : (
+            <Link to="/" className="back-link">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+              Назад
+            </Link>
+          )}
+          <h2>Профиль</h2>
+        </div>
+        <div className="page-content text-center text-muted">
+          Загружаем профиль...
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="container mt-4">
-        <div className="alert alert-danger">{error}</div>
-        <Link to="/" className="btn btn-secondary">Вернуться к чатам</Link>
+      <div className="page-container">
+        <div className="page-header">
+          <Link to="/" className="back-link">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Назад
+          </Link>
+          <h2>Ошибка</h2>
+        </div>
+        <div className="page-content">
+          <div className="alert alert-danger">{error}</div>
+        </div>
       </div>
     )
   }
 
   if (!displayUser) {
     return (
-      <div className="container mt-4">
-        <div className="alert alert-warning">Профиль не найден</div>
-        <Link to="/" className="btn btn-secondary">Вернуться к чатам</Link>
+      <div className="page-container">
+        <div className="page-header">
+          <Link to="/" className="back-link">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Назад
+          </Link>
+          <h2>Профиль</h2>
+        </div>
+        <div className="page-content">
+          <div className="alert alert-warning">Профиль не найден</div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="container mt-4 profile-layout">
-      <div className="profile-hero glassy">
-        <div className="profile-hero__left">
-          <div className="profile-avatar">
-            {isOwnProfile ? (
-              <div className="avatar-upload-container">
-                <span className="avatar avatar-xl" id="profile-avatar">
+    <div className="page-container">
+      {/* Header */}
+      <div className="page-header">
+        {isOwnProfile ? (
+          <HamburgerButton onClick={() => setMenuOpen(true)} />
+        ) : (
+          <Link to="/" className="back-link">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Назад
+          </Link>
+        )}
+        <h2>{isOwnProfile ? 'Мой профиль' : 'Профиль'}</h2>
+      </div>
+
+      {/* Content */}
+      <div className="page-content">
+        <div className="profile-hero glassy">
+          <div className="profile-hero__left">
+            <div className="profile-avatar">
+              {isOwnProfile ? (
+                <div className="avatar-upload-container">
+                  <span className="avatar avatar-xl" id="profile-avatar">
+                    <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+                  </span>
+                  <label htmlFor="avatar-input" className="avatar-upload-overlay" title="Загрузить аватар">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
+                  </label>
+                  <input
+                    type="file"
+                    id="avatar-input"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                    disabled={uploading}
+                  />
+                </div>
+              ) : (
+                <span className="avatar avatar-xl">
                   <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
                 </span>
-                <label htmlFor="avatar-input" className="avatar-upload-overlay" title="Загрузить аватар">
-                  📷
-                </label>
-                <input
-                  type="file"
-                  id="avatar-input"
-                  accept="image/jpeg,image/png,image/gif,image/webp"
-                  className="hidden"
-                  onChange={handleAvatarUpload}
-                  disabled={uploading}
-                />
-              </div>
-            ) : (
-              <span className="avatar avatar-xl">
-                <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
-              </span>
-            )}
+              )}
+            </div>
+            <div className="profile-meta">
+              <h1 className="profile-name">{displayUser.name}</h1>
+              <p className="profile-username">@{displayUser.username}</p>
+            </div>
           </div>
-          <div className="profile-meta">
-            <h1 className="profile-name">{displayUser.name}</h1>
-            <p className="profile-username">@{displayUser.username}</p>
-          </div>
-        </div>
-        <div className="profile-hero__right">
-          <div className="profile-actions">
-            {!isOwnProfile && (
-              <button
-                onClick={handleAddContact}
-                className="btn btn-outline-light"
-                disabled={profile?.is_contact}
-              >
-                {profile?.is_contact ? 'Уже в контактах' : 'Добавить в контакты'}
-              </button>
-            )}
-            <Link to="/" className="btn btn-primary">
-              Назад к чатам
-            </Link>
+          <div className="profile-hero__right">
+            <div className="profile-actions">
+              {!isOwnProfile && (
+                <button
+                  onClick={handleAddContact}
+                  className="btn btn-outline-light"
+                  disabled={profile?.is_contact}
+                >
+                  {profile?.is_contact ? 'Уже в контактах' : 'Добавить в контакты'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
