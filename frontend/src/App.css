@@ -140,6 +140,11 @@
 /* ============================================
    BASE STYLES
    ============================================ */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -147,9 +152,11 @@ body {
 }
 
 #root {
-  height: 100vh;
+  height: 100%;
+  height: 100dvh; /* Dynamic viewport height for mobile browsers */
   width: 100vw;
   background: var(--bg-primary);
+  overflow: hidden;
 }
 
 /* Utility class for hidden elements */
@@ -879,6 +886,12 @@ textarea::placeholder,
   text-decoration: none;
   color: inherit;
   transition: opacity 0.15s;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
 .chat-header__link:hover {
@@ -1312,15 +1325,30 @@ textarea::placeholder,
 }
 
 .emoji-toggle-large svg {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
+}
+
+/* Send button */
+.send-btn {
+  color: var(--accent-primary);
+}
+
+.send-btn:hover:not(:disabled) {
+  color: var(--accent-primary-muted);
+  background: var(--accent-primary-dim);
+}
+
+.send-btn:disabled {
+  color: var(--text-tertiary);
+  opacity: 0.5;
 }
 
 /* Emoji popover positioned from right */
 .composer-right .emoji-popover {
   right: 0;
   left: auto;
-  bottom: 52px;
+  bottom: 56px;
 }
 
 .icon-btn {
@@ -1336,13 +1364,14 @@ textarea::placeholder,
   transition: var(--transition);
   font-size: 18px;
   line-height: 1;
+  flex-shrink: 0;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .icon-btn svg {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -2502,6 +2531,64 @@ textarea::placeholder,
   max-width: 140px;
 }
 
+/* User Profile Modal (viewing other users) */
+.user-profile-modal__avatar-wrapper {
+  cursor: default;
+  position: relative;
+}
+
+.user-profile-modal__status-dot {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  border: 3px solid var(--bg-secondary);
+}
+
+.user-profile-modal__status-dot.online {
+  background: var(--success);
+}
+
+.user-profile-modal__status-dot.offline {
+  background: var(--text-muted);
+}
+
+.user-profile-modal__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.user-profile-modal__contact-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  color: var(--success);
+  font-size: 0.875rem;
+}
+
+.user-profile-modal__contact-badge svg {
+  width: 16px;
+  height: 16px;
+}
+
+.profile-modal__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+
 /* ============================================
    CONTACTS MODAL
    ============================================ */
@@ -2857,6 +2944,7 @@ textarea::placeholder,
    ============================================ */
 .telegram-layout {
   height: 100vh;
+  height: 100dvh; /* Dynamic viewport height - accounts for mobile browser UI */
   width: 100vw;
   display: flex;
   background: var(--bg-primary);
@@ -2979,6 +3067,8 @@ textarea::placeholder,
 @media (max-width: 768px) {
   .telegram-layout {
     position: relative;
+    height: 100vh;
+    height: 100dvh; /* Dynamic viewport height for mobile browsers */
   }
 
   .telegram-sidebar {
@@ -2998,6 +3088,15 @@ textarea::placeholder,
     left: 0;
     right: 0;
     bottom: 0;
+    height: 100%;
+  }
+
+  /* Ensure chat window fills the area */
+  .telegram-chat-area .chat-window {
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
   }
 
   /* Default state on mobile: show sidebar, hide chat area */
@@ -3148,34 +3247,34 @@ textarea::placeholder,
 
   /* Composer adjustments */
   .icon-btn {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
 
   .icon-btn svg {
-    width: 26px;
-    height: 26px;
+    width: 32px;
+    height: 32px;
   }
 
   .emoji-toggle-large {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
 
   .emoji-toggle-large svg {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
   }
 
   .composer-input {
-    min-height: 44px;
+    min-height: 40px;
     font-size: 0.95rem;
   }
 
-  /* Attachment size */
+  /* Attachment size - use min() for responsive sizing */
   .attachment-item img,
   .attachment-item video {
-    max-width: 220px;
+    max-width: min(220px, calc(100vw - 100px));
     max-height: 220px;
   }
 
@@ -3221,8 +3320,8 @@ textarea::placeholder,
   }
 
   .icon-btn {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     flex-shrink: 0;
   }
 
@@ -3232,8 +3331,8 @@ textarea::placeholder,
   }
 
   .emoji-toggle-large {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     flex-shrink: 0;
   }
 
@@ -3243,7 +3342,7 @@ textarea::placeholder,
   }
 
   .composer-input {
-    min-height: 48px;
+    min-height: 40px;
     padding: var(--space-sm) var(--space-md);
     font-size: 1rem;
   }
@@ -3298,11 +3397,19 @@ textarea::placeholder,
     height: 80px;
   }
 
-  /* Attachment size smaller */
+  /* Attachment size smaller - use calc to respect message boundaries */
   .attachment-item img,
   .attachment-item video {
-    max-width: 200px;
+    max-width: min(200px, calc(100vw - 80px));
     max-height: 200px;
+  }
+
+  /* Prevent attachments from overflowing message bubble */
+  .message-attachments {
+    margin-left: calc(-1 * var(--space-sm));
+    margin-right: calc(-1 * var(--space-sm));
+    max-width: calc(100% + 2 * var(--space-sm));
+    overflow: hidden;
   }
 
   /* Chat list items compact */

@@ -149,6 +149,11 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 			return fmt.Errorf("failed to create message: %w", err)
 		}
 
+		// Update chat's updated_at to reflect the new message for proper sorting
+		if err := tx.Model(&models.Chat{}).Where("id = ?", chatID).Update("updated_at", message.CreatedAt).Error; err != nil {
+			return fmt.Errorf("failed to update chat timestamp: %w", err)
+		}
+
 		// Create unread record if recipient is offline
 		if err := s.createUnreadIfNeeded(ctx, unreadRepo, isRecipientOffline, recipientID, message.ID, chatID); err != nil {
 			return err

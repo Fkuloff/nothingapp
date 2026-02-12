@@ -143,6 +143,16 @@ export function MessageComposer({
               <line x1="15" y1="9" x2="15.01" y2="9" strokeWidth="3" strokeLinecap="round" />
             </svg>
           </button>
+          <button
+            type="submit"
+            className="btn icon-btn send-btn"
+            title="Отправить"
+            disabled={uploading || (!messageText.trim() && selectedFiles.length === 0)}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+            </svg>
+          </button>
           {showEmojiPicker && (
             <EmojiPicker
               onSelect={handleAddEmoji}
