@@ -22,9 +22,11 @@ func main() {
 		if err != nil {
 			os.Exit(1)
 		}
-		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK {
+		status := resp.StatusCode
+		resp.Body.Close()
+
+		if status == http.StatusOK {
 			os.Exit(0)
 		}
 		os.Exit(1)
