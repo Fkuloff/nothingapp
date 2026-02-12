@@ -803,7 +803,7 @@ textarea::placeholder,
   height: 100%;
   width: 100%;
   border: 1px solid var(--border-color);
-  border-radius: 18px;
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -811,10 +811,6 @@ textarea::placeholder,
   flex: 1;
   width: 100%;
   border-radius: 0;
-}
-
-.workspace__content > .chat-window:first-child {
-  border-radius: 12px;
 }
 
 .empty-chat-panel {
@@ -1187,12 +1183,12 @@ textarea::placeholder,
 }
 
 .chat-composer {
-  padding: var(--space-lg) var(--space-xl);
+  padding: var(--space-sm) var(--space-md);
   border-top: 1px solid var(--border-color);
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   position: relative;
   flex-shrink: 0;
 }
@@ -1239,12 +1235,12 @@ textarea::placeholder,
 .chat-composer__controls {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   align-items: center;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
 }
 
 .attachment-preview-pill {
@@ -1370,8 +1366,10 @@ textarea::placeholder,
 }
 
 .icon-btn svg {
-  width: 44px;
-  height: 44px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  flex-shrink: 0;
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -1851,8 +1849,11 @@ textarea::placeholder,
 .glassy {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
+}
+
+.chat-window.glassy {
+  border-radius: 0;
 }
 
 .profile-hero {
@@ -2012,7 +2013,7 @@ textarea::placeholder,
   }
 
   .chat-composer {
-    padding: 10px 12px;
+    padding: var(--space-sm);
   }
 
   .auth-layout {
@@ -3246,24 +3247,17 @@ textarea::placeholder,
   }
 
   /* Composer adjustments */
-  .icon-btn {
-    width: 40px;
-    height: 40px;
-  }
-
-  .icon-btn svg {
-    width: 32px;
-    height: 32px;
-  }
-
+  .icon-btn,
   .emoji-toggle-large {
     width: 40px;
     height: 40px;
   }
 
+  .icon-btn svg,
   .emoji-toggle-large svg {
-    width: 32px;
-    height: 32px;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
   }
 
   .composer-input {
@@ -3311,34 +3305,26 @@ textarea::placeholder,
 
   /* Composer compact */
   .chat-composer {
-    padding: var(--space-xs) var(--space-sm);
+    padding: var(--space-xs);
   }
 
   .chat-composer__controls {
-    padding: 0;
+    padding: var(--space-xs);
     gap: 2px;
   }
 
-  .icon-btn {
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-  }
-
-  .icon-btn svg {
-    width: 32px;
-    height: 32px;
-  }
-
+  .icon-btn,
   .emoji-toggle-large {
     width: 40px;
     height: 40px;
     flex-shrink: 0;
   }
 
+  .icon-btn svg,
   .emoji-toggle-large svg {
-    width: 32px;
-    height: 32px;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
   }
 
   .composer-input {
@@ -3466,7 +3452,7 @@ textarea::placeholder,
     }
 
     .chat-composer {
-      padding-bottom: max(var(--space-lg), env(safe-area-inset-bottom));
+      padding-bottom: max(var(--space-sm), env(safe-area-inset-bottom));
     }
 
     .slide-menu__header {
