@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import type { Message, Attachment } from '../../shared/api/types'
 import { endpoints } from '../../shared/api/endpoints'
 import { formatMessageTime, formatFileSize } from '../../shared/utils'
+import { ImageLightbox } from './ImageLightbox'
 
 type Props = {
   message: Message
@@ -19,14 +20,23 @@ type ContextMenuState = {
   y: number
 }
 
-function AttachmentView({ att }: { att: Attachment }) {
+type AttachmentViewProps = {
+  att: Attachment
+  onImageClick: (src: string, alt: string) => void
+}
+
+function AttachmentView({ att, onImageClick }: AttachmentViewProps) {
   if (!att.id) return null
 
   if (att.file_type === 'image') {
     return (
-      <a href={endpoints.attachments.get(att.id)} target="_blank" rel="noopener noreferrer">
+      <button
+        type="button"
+        className="attachment-image-btn"
+        onClick={() => onImageClick(endpoints.attachments.get(att.id!), att.file_name)}
+      >
         <img src={endpoints.attachments.thumbnail(att.id)} alt={att.file_name} />
-      </a>
+      </button>
     )
   }
 
@@ -63,6 +73,11 @@ export function MessageItem({
     x: 0,
     y: 0,
   })
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null)
+
+  const handleImageClick = useCallback((src: string, alt: string) => {
+    setLightboxImage({ src, alt })
+  }, [])
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     if (message.is_deleted) return
@@ -170,7 +185,7 @@ export function MessageItem({
                     .filter((att) => att.id)
                     .map((att) => (
                       <div key={att.id} className="attachment-item">
-                        <AttachmentView att={att} />
+                        <AttachmentView att={att} onImageClick={handleImageClick} />
                       </div>
                     ))}
                 </div>
@@ -203,6 +218,14 @@ export function MessageItem({
             </>
           )}
         </div>
+      )}
+
+      {lightboxImage && (
+        <ImageLightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          onClose={() => setLightboxImage(null)}
+        />
       )}
     </>
   )

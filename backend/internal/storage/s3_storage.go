@@ -166,6 +166,13 @@ func (s *S3Storage) GetURL(key string) string {
 	return presignedReq.URL
 }
 
+// GetPublicURL returns a permanent public URL for a file
+// This requires the bucket to have public read access configured
+func (s *S3Storage) GetPublicURL(key string) string {
+	// Format: {publicEndpoint}/{bucket}/{key}
+	return fmt.Sprintf("%s/%s/%s", s.publicEndpoint, s.bucket, key)
+}
+
 // GetThumbnailURL returns a presigned URL for thumbnail access
 func (s *S3Storage) GetThumbnailURL(key string) string {
 	return s.GetURL(key)

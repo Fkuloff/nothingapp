@@ -79,11 +79,11 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 		return "", fmt.Errorf("failed to save avatar: %w", err)
 	}
 
-	// Generate avatar URL
-	avatarURL := metadata.URL
+	// Store storage key (not URL) in database - URL will be generated on demand
+	avatarKey := metadata.Key
 
 	// Update user avatar in database
-	if err := s.userRepo.UpdateAvatar(ctx, userID, &avatarURL); err != nil {
+	if err := s.userRepo.UpdateAvatar(ctx, userID, &avatarKey); err != nil {
 		// Rollback: delete uploaded file
 		if delErr := s.storage.Delete(metadata.Key); delErr != nil {
 			s.logger.Warn("failed to rollback avatar upload", zap.Error(delErr), zap.String("key", metadata.Key))
@@ -98,7 +98,8 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 		}
 	}
 
-	return avatarURL, nil
+	// Return the generated URL for immediate use
+	return s.storage.GetURL(avatarKey), nil
 }
 
 // DeleteAvatar removes user avatar
@@ -154,6 +155,33 @@ func (s *UserService) SearchUsers(ctx context.Context, query string) ([]*models.
 		return nil, fmt.Errorf("failed to search users: %w", err)
 	}
 	return users, nil
+}
+
+// GetAvatarURL returns a public URL for the given avatar key
+// Avatars use public URLs since they don't need access control
+func (s *UserService) GetAvatarURL(avatarKey *string) *string {
+	if avatarKey == nil || *avatarKey == "" {
+		return nil
+	}
+
+	// Check if it's already a full URL (legacy data) or a storage key
+	key := *avatarKey
+	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
+		// Legacy: extract key from URL
+		key = extractStorageKey(key)
+	}
+
+	// Use public URL for avatars - no expiration
+	url := s.storage.GetPublicURL(key)
+	return &url
+}
+
+// RefreshUserAvatarURL updates the user's avatar URL pointer with a fresh presigned URL
+func (s *UserService) RefreshUserAvatarURL(user *models.User) {
+	if user == nil {
+		return
+	}
+	user.AvatarURL = s.GetAvatarURL(user.AvatarURL)
 }
 
 // extractStorageKey extracts storage key from URL

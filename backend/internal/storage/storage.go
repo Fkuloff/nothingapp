@@ -29,8 +29,13 @@ type Storage interface {
 	// Delete removes a file from storage
 	Delete(key string) error
 
-	// GetURL returns the access URL for a file
+	// GetURL returns the access URL for a file (presigned for private files)
 	GetURL(key string) string
+
+	// GetPublicURL returns a permanent public URL for a file
+	// This should be used for files that don't need access control (e.g., avatars)
+	// The bucket/path must have public read access configured
+	GetPublicURL(key string) string
 
 	// GetThumbnailURL returns the access URL for a thumbnail
 	GetThumbnailURL(key string) string

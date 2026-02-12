@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Message, WSMessageAction } from '../../shared/api/types'
 import { httpPost } from '../../shared/api/httpClient'
@@ -159,8 +159,8 @@ export function ChatWindow({
     setMessageText('')
   }
 
-  const emptyState = useMemo(
-    () => (
+  if (!chatId || !otherUsername) {
+    return (
       <div className="chat-window glassy empty-chat-panel">
         <div className="empty-hero">
           <div className="empty-hero__badge">Nothing</div>
@@ -172,12 +172,7 @@ export function ChatWindow({
           </div>
         </div>
       </div>
-    ),
-    []
-  )
-
-  if (!chatId || !otherUsername) {
-    return emptyState
+    )
   }
 
   return (
@@ -185,8 +180,10 @@ export function ChatWindow({
       <div className="chat-header">
         <div className="chat-header__title">
           {isMobile && (
-            <button className="btn btn-outline-light btn-sm back-btn" onClick={onBackToList}>
-              ←
+            <button className="back-btn" onClick={onBackToList} aria-label="Назад">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
             </button>
           )}
           <Link to={`/profile/${otherUserId}`} className="chat-header__link">
@@ -213,6 +210,7 @@ export function ChatWindow({
         messages={messages}
         currentUserId={currentUserId}
         otherUsername={otherUsername}
+        chatId={chatId}
         loading={loading}
         error={error}
         onReply={handleReply}

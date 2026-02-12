@@ -124,6 +124,9 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 	for _, chat := range chats {
 		otherUser, otherUserID := chat.GetOtherUser(userID)
 
+		// Refresh avatar URL for S3 presigned URLs
+		h.userService.RefreshUserAvatarURL(otherUser)
+
 		lastMessageText := ""
 		if lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID); err == nil && lastMsg != nil {
 			if lastMsg.IsDeleted {

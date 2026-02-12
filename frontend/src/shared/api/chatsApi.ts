@@ -1,4 +1,4 @@
-import type { ChatListResponse, ChatItem, MessagesResponse, Message } from './types'
+import type { ChatListResponse, ChatItem, MessagesResponse, Message, ChatCreateResponse } from './types'
 import { httpGet, httpPost } from './httpClient'
 import { endpoints } from './endpoints'
 
@@ -13,9 +13,14 @@ export async function getCurrentUserChats(): Promise<ChatItem[]> {
   }
 }
 
+// Create a chat with another user by user ID
+export async function createChat(otherUserId: number): Promise<ChatCreateResponse> {
+  return httpPost<ChatCreateResponse>(endpoints.chats.create, { other_user_id: otherUserId })
+}
+
 // Create a chat with another user by username
-export async function createChat(otherUsername: string): Promise<void> {
-  await httpPost(endpoints.chats.create, { other_username: otherUsername })
+export async function createChatByUsername(otherUsername: string): Promise<ChatCreateResponse> {
+  return httpPost<ChatCreateResponse>(endpoints.chats.create, { other_username: otherUsername })
 }
 
 // Fetch messages of a chat

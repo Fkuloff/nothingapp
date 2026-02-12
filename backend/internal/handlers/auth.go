@@ -17,11 +17,12 @@ import (
 
 type AuthHandler struct {
 	authService *services.AuthService
+	userService *services.UserService
 	secret      []byte
 }
 
-func NewAuthHandler(authService *services.AuthService, secret []byte) *AuthHandler {
-	return &AuthHandler{authService: authService, secret: secret}
+func NewAuthHandler(authService *services.AuthService, userService *services.UserService, secret []byte) *AuthHandler {
+	return &AuthHandler{authService: authService, userService: userService, secret: secret}
 }
 
 // validatePasswordStrength checks if password meets security requirements
@@ -181,6 +182,9 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		sendNotFound(c, "User not found")
 		return
 	}
+
+	// Refresh avatar URL for S3 presigned URLs
+	h.userService.RefreshUserAvatarURL(user)
 
 	sendSuccess(c, gin.H{
 		"id":         user.ID,
