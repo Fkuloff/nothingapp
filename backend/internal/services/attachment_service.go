@@ -81,66 +81,12 @@ func (s *AttachmentService) UploadAttachments(
 	isEncrypted := cryptoMeta != nil && len(ivMap) > 0
 
 	for _, fileHeader := range files {
-		// Validate file
-		if err := s.validator.ValidateAttachment(fileHeader, isEncrypted); err != nil {
-			// Rollback: delete already uploaded files
-			s.rollbackUploads(uploadedKeys)
-			return nil, fmt.Errorf("invalid file %s: %w", fileHeader.Filename, err)
-		}
-
-		// Open file
-		file, err := fileHeader.Open()
+		attachment, storageKey, err := s.processFileUpload(fileHeader, messageID, isEncrypted, ivMap, origTypeMap, origNameMap)
 		if err != nil {
 			s.rollbackUploads(uploadedKeys)
-			return nil, fmt.Errorf("open file %s: %w", fileHeader.Filename, err)
+			return nil, err
 		}
-
-		// Determine file type — use original MIME type for encrypted files
-		contentType := fileHeader.Header.Get("Content-Type")
-		if origType, ok := origTypeMap[fileHeader.Filename]; ok && origType != "" {
-			contentType = origType
-		}
-		fileType := s.validator.DetermineFileType(contentType)
-
-		// Save to storage
-		metadata, err := s.storage.Save(
-			file,
-			fileHeader.Filename,
-			contentType,
-			fileHeader.Size,
-		)
-		if closeErr := file.Close(); closeErr != nil {
-			s.logger.Warn("failed to close file after upload", zap.Error(closeErr), zap.String("filename", fileHeader.Filename))
-		}
-
-		if err != nil {
-			s.rollbackUploads(uploadedKeys)
-			return nil, fmt.Errorf("save file %s: %w", fileHeader.Filename, err)
-		}
-
-		uploadedKeys = append(uploadedKeys, metadata.Key)
-
-		// Create attachment record
-		attachment := &models.Attachment{
-			MessageID:  messageID,
-			FileType:   fileType,
-			StorageKey: metadata.Key,
-			FileName:   metadata.FileName,
-			FileSize:   metadata.Size,
-			MimeType:   metadata.ContentType,
-		}
-
-		// Apply E2E encryption metadata if present
-		if iv, ok := ivMap[fileHeader.Filename]; ok {
-			attachment.IV = iv
-		}
-		if origType, ok := origTypeMap[fileHeader.Filename]; ok {
-			attachment.OriginalType = origType
-		}
-		if origName, ok := origNameMap[fileHeader.Filename]; ok {
-			attachment.OriginalName = origName
-		}
-
+		uploadedKeys = append(uploadedKeys, storageKey)
 		attachments = append(attachments, attachment)
 	}
 
@@ -152,6 +98,51 @@ func (s *AttachmentService) UploadAttachments(
 	}
 
 	return attachments, nil
+}
+
+// processFileUpload validates, uploads, and creates an attachment record for a single file.
+func (s *AttachmentService) processFileUpload(
+	fileHeader *multipart.FileHeader,
+	messageID uint,
+	isEncrypted bool,
+	ivMap, origTypeMap, origNameMap map[string]string,
+) (*models.Attachment, string, error) {
+	if err := s.validator.ValidateAttachment(fileHeader, isEncrypted); err != nil {
+		return nil, "", fmt.Errorf("invalid file %s: %w", fileHeader.Filename, err)
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		return nil, "", fmt.Errorf("open file %s: %w", fileHeader.Filename, err)
+	}
+
+	contentType := fileHeader.Header.Get("Content-Type")
+	if origType, ok := origTypeMap[fileHeader.Filename]; ok && origType != "" {
+		contentType = origType
+	}
+	fileType := s.validator.DetermineFileType(contentType)
+
+	metadata, err := s.storage.Save(file, fileHeader.Filename, contentType, fileHeader.Size)
+	if closeErr := file.Close(); closeErr != nil {
+		s.logger.Warn("failed to close file after upload", zap.Error(closeErr), zap.String("filename", fileHeader.Filename))
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("save file %s: %w", fileHeader.Filename, err)
+	}
+
+	attachment := &models.Attachment{
+		MessageID:    messageID,
+		FileType:     fileType,
+		StorageKey:   metadata.Key,
+		FileName:     metadata.FileName,
+		FileSize:     metadata.Size,
+		MimeType:     metadata.ContentType,
+		IV:           ivMap[fileHeader.Filename],
+		OriginalType: origTypeMap[fileHeader.Filename],
+		OriginalName: origNameMap[fileHeader.Filename],
+	}
+
+	return attachment, metadata.Key, nil
 }
 
 // DeleteAttachment deletes an attachment

@@ -33,7 +33,7 @@ type Attachment struct {
 	Width        *int     `gorm:"default:null" json:"width,omitempty"`
 	Height       *int     `gorm:"default:null" json:"height,omitempty"`
 	Duration     *int     `gorm:"default:null" json:"duration,omitempty"`
-	IV           string   `gorm:"type:varchar(32)" json:"iv,omitempty"`            // AES-GCM nonce (base64); empty = unencrypted
+	IV           string   `gorm:"type:varchar(32)" json:"iv,omitempty"`             // AES-GCM nonce (base64); empty = unencrypted
 	OriginalType string   `gorm:"type:varchar(100)" json:"original_type,omitempty"` // Original MIME type before encryption
 	OriginalName string   `gorm:"type:varchar(255)" json:"original_name,omitempty"` // Original filename before encryption
 	Message      *Message `gorm:"foreignKey:MessageID" json:"-"`

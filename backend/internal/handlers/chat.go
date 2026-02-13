@@ -63,6 +63,29 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 	return result
 }
 
+// formatLastMessage extracts display text and IV from the last message in a chat.
+func formatLastMessage(lastMsg *models.Message, err error) (text, iv string) {
+	if err != nil || lastMsg == nil {
+		return "", ""
+	}
+
+	if lastMsg.IsDeleted {
+		return "Message deleted", ""
+	}
+
+	text = lastMsg.Text
+	iv = lastMsg.IV
+
+	// Truncate plaintext previews only (encrypted messages are truncated client-side)
+	if iv == "" {
+		if runes := []rune(text); len(runes) > MaxChatListPreview {
+			text = string(runes[:MaxChatListPreview])
+		}
+	}
+
+	return text, iv
+}
+
 // GetChatData returns chat data with messages in JSON format for dynamic loading
 func (h *ChatHandler) GetChatData(c *gin.Context) {
 	userID, ok := requireUserID(c)
@@ -129,22 +152,8 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		// Refresh avatar URL for S3 presigned URLs
 		h.userService.RefreshUserAvatarURL(otherUser)
 
-		lastMessageText := ""
-		lastMessageIV := ""
-		if lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID); err == nil && lastMsg != nil {
-			if lastMsg.IsDeleted {
-				lastMessageText = "Message deleted"
-			} else {
-				lastMessageText = lastMsg.Text
-				lastMessageIV = lastMsg.IV
-			}
-
-			if lastMessageIV == "" {
-				if runes := []rune(lastMessageText); len(runes) > MaxChatListPreview {
-					lastMessageText = string(runes[:MaxChatListPreview])
-				}
-			}
-		}
+		lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID)
+		lastMessageText, lastMessageIV := formatLastMessage(lastMsg, err)
 
 		items = append(items, chatListItem{
 			ID:            chat.ID,
