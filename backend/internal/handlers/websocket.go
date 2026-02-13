@@ -551,6 +551,7 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			"chat_id":     unread.ChatID,
 			"user_id":     unread.Message.UserID,
 			"text":        unread.Message.Text,
+			"iv":          unread.Message.IV,
 			"reply_to_id": replyToIDVal,
 			"id":          unread.Message.ID,
 			"created_at":  unread.Message.CreatedAt,

@@ -116,7 +116,7 @@ func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text
 
 // SendMessageAtomic sends a message and creates unread record atomically within a transaction
 // This prevents TOCTOU race conditions where a user could come online between the presence check and unread save
-func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text, iv string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
 	var message *models.Message
 
 	// Wrap message creation + unread save in a single transaction
@@ -142,6 +142,7 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 			ChatID:    chatID,
 			UserID:    userID,
 			Text:      text,
+			IV:        iv,
 			ReplyToID: replyPtr,
 		}
 
@@ -286,7 +287,7 @@ func (s *ChatService) FindChatByIDLight(ctx context.Context, id uint) (*models.C
 }
 
 // EditMessage allows a user to edit their own message
-func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText string) error {
+func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText, iv string) error {
 	// Find the message
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
@@ -308,7 +309,7 @@ func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, n
 		return fmt.Errorf("invalid message length")
 	}
 
-	if err := s.messageRepo.UpdateMessage(ctx, messageID, newText); err != nil {
+	if err := s.messageRepo.UpdateMessage(ctx, messageID, newText, iv); err != nil {
 		return fmt.Errorf("failed to update message: %w", err)
 	}
 

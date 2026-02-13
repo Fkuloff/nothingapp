@@ -38,7 +38,7 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 
 	// ATOMIC: Send message and create unread record in single transaction
 	// This prevents TOCTOU race where user comes online between presence check and unread save
-	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
+	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.IV, msgData.ReplyToID, isRecipientOffline)
 	if err != nil {
 		h.logger.Error("error sending message",
 			zap.Error(err),
@@ -58,6 +58,7 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		"chat_id":     msgData.ChatID,
 		"user_id":     userID,
 		"text":        msgData.Text,
+		"iv":          msgData.IV,
 		"reply_to_id": replyToIDVal,
 		"id":          message.ID,
 		"created_at":  message.CreatedAt,
@@ -154,7 +155,7 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text)
+	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text, msgData.IV)
 	if err != nil {
 		h.logger.Error("error editing message",
 			zap.Error(err),
@@ -169,6 +170,7 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		"chat_id": msgData.ChatID,
 		"id":      msgData.MessageID,
 		"text":    msgData.Text,
+		"iv":      msgData.IV,
 		"user_id": userID,
 	}
 	msgJSON, err := json.Marshal(broadcastData)

@@ -63,6 +63,7 @@ export type Message = {
   chat_id: number
   user_id: number
   text: string
+  iv?: string // AES-GCM nonce for E2E decryption (absent = plaintext/legacy)
   reply_to_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
@@ -83,6 +84,9 @@ export type Attachment = {
   width?: number
   height?: number
   duration?: number
+  iv?: string // AES-GCM nonce for E2E decryption (absent = unencrypted)
+  original_type?: string // Original MIME type before encryption
+  original_name?: string // Original filename before encryption
   created_at?: string
 }
 
@@ -133,6 +137,7 @@ export type WSMessageSend = {
   action: 'send'
   chat_id: number
   text: string
+  iv?: string // AES-GCM nonce (present = E2E encrypted)
   reply_to_id?: number
 }
 
@@ -141,6 +146,7 @@ export type WSMessageEdit = {
   chat_id: number
   message_id: number
   text: string
+  iv?: string // AES-GCM nonce (present = E2E encrypted)
 }
 
 export type WSMessageDelete = {
@@ -163,6 +169,7 @@ export type WSEventNew = {
   chat_id: number
   user_id: number
   text: string
+  iv?: string // AES-GCM nonce (present = E2E encrypted)
   reply_to_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
@@ -175,6 +182,7 @@ export type WSEventEdit = {
   id: number
   chat_id: number
   text: string
+  iv?: string // AES-GCM nonce (present = E2E encrypted)
   edited_at?: string
 }
 

@@ -6,6 +6,8 @@ import { MessageList } from './MessageList'
 import { MessageComposer } from './MessageComposer'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
+import { ChatSearch } from './ChatSearch'
+import { useChatEncryption } from '../../shared/hooks/useChatEncryption'
 
 type Props = {
   chatId?: number
@@ -46,9 +48,11 @@ export function ChatWindow({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
 
   const { showToast } = useToast()
+  const { encryptAction, encryptFileForUpload } = useChatEncryption(otherUserId)
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -70,7 +74,8 @@ export function ChatWindow({
     }
 
     if (editingMessageId) {
-      const success = send({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      const editAction = await encryptAction({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      const success = send(editAction)
       if (success) {
         setMessageText('')
         setEditingMessageId(null)
@@ -85,12 +90,13 @@ export function ChatWindow({
       pendingUploadRef.current = { chatId, files: [...selectedFiles] }
     }
 
-    const success = send({
+    const sendAction = await encryptAction({
       action: 'send',
       chat_id: chatId,
       text: text || ' ',
       reply_to_id: replyToId ?? undefined,
     })
+    const success = send(sendAction)
 
     if (success) {
       setMessageText('')
@@ -108,7 +114,31 @@ export function ChatWindow({
           if (lastMessage && files.length > 0) {
             setUploading(true)
             const formData = new FormData()
-            files.forEach((file) => formData.append('attachments', file))
+            const fileIVs: Record<string, string> = {}
+            const originalTypes: Record<string, string> = {}
+            const originalNames: Record<string, string> = {}
+
+            // Encrypt each file before upload
+            for (const file of files) {
+              const encrypted = await encryptFileForUpload(file, uploadChatId)
+              if (encrypted) {
+                const encFileName = file.name + '.enc'
+                formData.append('attachments', encrypted.blob, encFileName)
+                fileIVs[encFileName] = encrypted.iv
+                originalTypes[encFileName] = encrypted.originalType
+                originalNames[encFileName] = encrypted.originalName
+              } else {
+                // No encryption available — upload plaintext
+                formData.append('attachments', file)
+              }
+            }
+
+            // Attach E2E metadata if any files were encrypted
+            if (Object.keys(fileIVs).length > 0) {
+              formData.append('file_ivs', JSON.stringify(fileIVs))
+              formData.append('original_types', JSON.stringify(originalTypes))
+              formData.append('original_names', JSON.stringify(originalNames))
+            }
 
             try {
               await httpPost(endpoints.attachments.upload(uploadChatId, lastMessage.id + 1), formData)
@@ -204,12 +234,40 @@ export function ChatWindow({
             </div>
           </button>
         </div>
-        {!isConnected && (
-          <div className="chat-header__actions">
+        <div className="chat-header__actions">
+          <button
+            className="chat-header__search-btn"
+            onClick={() => setIsSearchOpen(!isSearchOpen)}
+            aria-label="Поиск по сообщениям"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+          </button>
+          {!isConnected && (
             <span className="badge bg-warning text-dark">Reconnecting</span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {isSearchOpen && otherUserId && (
+        <ChatSearch
+          chatId={chatId}
+          otherUserId={otherUserId}
+          onResultClick={(messageId) => {
+            setIsSearchOpen(false)
+            // Scroll to message — the MessageList component should handle this
+            const el = document.getElementById(`msg-${messageId}`)
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              el.classList.add('highlight')
+              setTimeout(() => el.classList.remove('highlight'), 2000)
+            }
+          }}
+          onClose={() => setIsSearchOpen(false)}
+        />
+      )}
 
       <MessageList
         messages={messages}

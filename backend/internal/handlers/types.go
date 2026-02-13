@@ -6,6 +6,7 @@ import "time"
 type MessageAction struct {
 	Action    string `json:"action"`
 	Text      string `json:"text"`
+	IV        string `json:"iv,omitempty"` // AES-GCM nonce for E2E encryption (base64)
 	ChatID    uint   `json:"chat_id"`
 	ReplyToID uint   `json:"reply_to_id"`
 	MessageID uint   `json:"message_id"`

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,6 +13,14 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// AttachmentCryptoMeta holds E2E encryption metadata for file uploads.
+// All fields are JSON strings: {"original_filename": "value", ...}
+type AttachmentCryptoMeta struct {
+	FileIVs       string // JSON map of filename → base64 IV
+	OriginalTypes string // JSON map of filename → original MIME type
+	OriginalNames string // JSON map of filename → original filename
+}
 
 // AttachmentService handles business logic for attachments
 type AttachmentService struct {
@@ -38,12 +47,14 @@ func NewAttachmentService(
 	}
 }
 
-// UploadAttachments uploads multiple files and creates attachment records
+// UploadAttachments uploads multiple files and creates attachment records.
+// cryptoMeta is optional — when present, files are treated as E2E encrypted.
 func (s *AttachmentService) UploadAttachments(
 	ctx context.Context,
 	messageID uint,
 	userID uint,
 	files []*multipart.FileHeader,
+	cryptoMeta *AttachmentCryptoMeta,
 ) ([]*models.Attachment, error) {
 	// Verify message exists and user owns it
 	message, err := s.messageRepo.FindByID(ctx, messageID)
@@ -53,6 +64,9 @@ func (s *AttachmentService) UploadAttachments(
 	if message.UserID != userID {
 		return nil, fmt.Errorf("unauthorized: not message owner")
 	}
+
+	// Parse E2E crypto metadata if provided
+	ivMap, origTypeMap, origNameMap := parseCryptoMeta(cryptoMeta)
 
 	var attachments []*models.Attachment
 	var uploadedKeys []string // Track uploaded files for rollback
@@ -102,6 +116,17 @@ func (s *AttachmentService) UploadAttachments(
 			FileName:   metadata.FileName,
 			FileSize:   metadata.Size,
 			MimeType:   metadata.ContentType,
+		}
+
+		// Apply E2E encryption metadata if present
+		if iv, ok := ivMap[fileHeader.Filename]; ok {
+			attachment.IV = iv
+		}
+		if origType, ok := origTypeMap[fileHeader.Filename]; ok {
+			attachment.OriginalType = origType
+		}
+		if origName, ok := origNameMap[fileHeader.Filename]; ok {
+			attachment.OriginalName = origName
 		}
 
 		attachments = append(attachments, attachment)
@@ -157,6 +182,30 @@ func (s *AttachmentService) GetAttachment(ctx context.Context, attachmentID uint
 	}
 
 	return attachment, reader, nil
+}
+
+// parseCryptoMeta parses E2E encryption metadata JSON strings into maps.
+// Returns empty maps if metadata is nil or fields are empty.
+func parseCryptoMeta(meta *AttachmentCryptoMeta) (ivs, origTypes, origNames map[string]string) {
+	ivs = make(map[string]string)
+	origTypes = make(map[string]string)
+	origNames = make(map[string]string)
+
+	if meta == nil {
+		return
+	}
+
+	if meta.FileIVs != "" {
+		_ = json.Unmarshal([]byte(meta.FileIVs), &ivs)
+	}
+	if meta.OriginalTypes != "" {
+		_ = json.Unmarshal([]byte(meta.OriginalTypes), &origTypes)
+	}
+	if meta.OriginalNames != "" {
+		_ = json.Unmarshal([]byte(meta.OriginalNames), &origNames)
+	}
+
+	return
 }
 
 // rollbackUploads deletes uploaded files in case of error

@@ -32,6 +32,7 @@ type messageResponse struct {
 	ChatID      uint                `json:"chat_id"`
 	UserID      uint                `json:"user_id"`
 	Text        string              `json:"text"`
+	IV          string              `json:"iv,omitempty"` // AES-GCM nonce; empty = plaintext
 	IsDeleted   bool                `json:"is_deleted"`
 	CreatedAt   time.Time           `json:"created_at"`
 	ReplyToID   *uint               `json:"reply_to_id"`
@@ -51,6 +52,7 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 			ChatID:      msg.ChatID,
 			UserID:      msg.UserID,
 			Text:        msg.Text,
+			IV:          msg.IV,
 			ReplyToID:   msg.ReplyToID,
 			EditedAt:    msg.EditedAt,
 			IsDeleted:   msg.IsDeleted,
