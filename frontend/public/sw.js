@@ -43,8 +43,18 @@ self.addEventListener('push', (event) => {
     },
   }
 
-  console.log('[SW] Showing notification:', payload.title, options)
-  event.waitUntil(self.registration.showNotification(payload.title || 'Messenger', options))
+  // Only show notification if no app tab is currently focused/visible.
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: false }).then((windowClients) => {
+      const hasVisibleTab = windowClients.some((client) => client.visibilityState === 'visible')
+      if (hasVisibleTab) {
+        console.log('[SW] App tab is visible, suppressing notification')
+        return
+      }
+      console.log('[SW] No visible app tab, showing notification')
+      return self.registration.showNotification(payload.title || 'Messenger', options)
+    }),
+  )
 })
 
 self.addEventListener('notificationclick', (event) => {

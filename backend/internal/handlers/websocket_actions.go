@@ -80,15 +80,16 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		)
 	}
 
-	// Send push notification if recipient is offline.
-	if isRecipientOffline && h.pushService != nil && h.pushService.IsEnabled() {
+	// Send push notification to recipient regardless of online status.
+	// The Service Worker will suppress the notification if the app tab is visible.
+	if h.pushService != nil && h.pushService.IsEnabled() {
 		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, msgData.Text)
 	}
 
 	return nil
 }
 
-// sendPushNotification sends a push notification to an offline recipient in a background goroutine.
+// sendPushNotification sends a push notification to a recipient in a background goroutine.
 // Uses context.Background() intentionally: push delivery must not depend on the sender's WebSocket connection.
 //
 //nolint:contextcheck // intentionally detached from client context
@@ -102,7 +103,7 @@ func (h *WebSocketHandler) sendPushNotification(senderID, recipientID, chatID ui
 		}
 	}()
 
-	h.logger.Debug("attempting push notification for offline recipient",
+	h.logger.Debug("attempting push notification",
 		zap.Uint("sender_id", senderID),
 		zap.Uint("recipient_id", recipientID),
 		zap.Uint("chat_id", chatID),
