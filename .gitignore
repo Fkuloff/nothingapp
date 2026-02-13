@@ -41,9 +41,12 @@ frontend/npm-debug.log*
 uploads/
 .env
 .env.production
-.env.production.example
 
-# Backups
+# Backups and database dumps
 backups/
-*.sql
 *.tar.gz
+
+# SQL dumps in root and uploads (migrations are tracked)
+/*.sql
+uploads/*.sql
+backend/uploads/*.sql

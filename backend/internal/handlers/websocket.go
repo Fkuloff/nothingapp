@@ -235,7 +235,7 @@ func (h *WebSocketHandler) cleanup(done chan struct{}, client *wsClient, userID 
 
 // sendError sends error message to WebSocket client
 func (h *WebSocketHandler) sendError(client *wsClient, errorMsg string) {
-	errData := map[string]interface{}{
+	errData := map[string]any{
 		"error": errorMsg,
 	}
 	errJSON, err := json.Marshal(errData)
@@ -471,7 +471,7 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	}
 
 	// Create presence event
-	presenceData := map[string]interface{}{
+	presenceData := map[string]any{
 		"action":    "presence_changed",
 		"user_id":   userID,
 		"is_online": isOnline,
@@ -546,11 +546,12 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			replyToIDVal = *unread.Message.ReplyToID
 		}
 
-		broadcastData := map[string]interface{}{
+		broadcastData := map[string]any{
 			"action":      "new",
 			"chat_id":     unread.ChatID,
 			"user_id":     unread.Message.UserID,
 			"text":        unread.Message.Text,
+			"iv":          unread.Message.IV,
 			"reply_to_id": replyToIDVal,
 			"id":          unread.Message.ID,
 			"created_at":  unread.Message.CreatedAt,

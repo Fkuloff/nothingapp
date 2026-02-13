@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { httpGet, setAuthToken } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { endpoints } from '../../shared/api/endpoints'
+import { initializeKeys } from '../../shared/crypto/keyExchange'
 
 export function useAuth() {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [cryptoReady, setCryptoReady] = useState(false)
+  const [needsKeyRestore, setNeedsKeyRestore] = useState(false)
+  const [needsBackupFirst, setNeedsBackupFirst] = useState(false)
 
   const refreshProfile = useCallback(async () => {
     try {
@@ -37,9 +41,26 @@ export function useAuth() {
     }
   }, [])
 
+  // Initialize E2E encryption keys when user is authenticated
   useEffect(() => {
-    refreshProfile()
-  }, [refreshProfile])
+    if (!user) {
+      setCryptoReady(false)
+      setNeedsKeyRestore(false)
+      setNeedsBackupFirst(false)
+      return
+    }
 
-  return { user, loading, error, refreshProfile, logout }
+    initializeKeys(user.id)
+      .then((result) => {
+        setCryptoReady(result.ready)
+        setNeedsKeyRestore(result.needsRestore)
+        setNeedsBackupFirst(result.needsBackupFirst)
+      })
+      .catch((err) => {
+        console.error('Failed to initialize E2E keys:', err)
+        setCryptoReady(false)
+      })
+  }, [user])
+
+  return { user, loading, error, cryptoReady, needsKeyRestore, needsBackupFirst, refreshProfile, logout }
 }

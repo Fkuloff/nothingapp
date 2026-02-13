@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
@@ -8,6 +8,9 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { getCurrentUserChats, getChatMessages } from '../shared/api/chatsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
+import { getOrDeriveChatKey } from '../shared/crypto/keyExchange'
+import { decryptText } from '../shared/crypto/encryption'
+import { hasIdentityKeys } from '../shared/crypto/keyStore'
 import type { OutletContextType } from '../App'
 
 export default function ChatsPage() {
@@ -23,6 +26,12 @@ export default function ChatsPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
+  const chatsRef = useRef<ChatItem[]>([])
+
+  // Keep chatsRef in sync for use in WS handler
+  useEffect(() => {
+    chatsRef.current = chats
+  }, [chats])
 
   useEffect(() => {
     const computeIsMobile = () => {
@@ -61,59 +70,96 @@ export default function ChatsPage() {
       const chatId = event.chat_id
 
       if (event.action === 'new') {
-        // Update chat list reactively
-        setChats((prevChats) => {
-          const chatIndex = prevChats.findIndex((c) => c.id === chatId)
-          if (chatIndex === -1) {
-            // New chat - reload full list
-            getCurrentUserChats().then(setChats).catch(console.error)
-            return prevChats
+        // Decrypt E2E encrypted messages asynchronously
+        const processNewMessage = async () => {
+          let text = event.text
+          if (event.iv) {
+            try {
+              // Find the other user ID for this chat to derive the key
+              const chat = chatsRef.current.find((c) => c.id === chatId)
+              if (chat && (await hasIdentityKeys())) {
+                const key = await getOrDeriveChatKey(chatId, chat.other_user_id)
+                if (key) {
+                  text = await decryptText(event.text, event.iv, key)
+                }
+              }
+            } catch (err) {
+              console.error('Failed to decrypt new message:', err)
+              text = '[Не удалось расшифровать]'
+            }
           }
 
-          const updatedChats = [...prevChats]
-          const chat = { ...updatedChats[chatIndex] }
+          // Update chat list reactively
+          setChats((prevChats) => {
+            const chatIndex = prevChats.findIndex((c) => c.id === chatId)
+            if (chatIndex === -1) {
+              getCurrentUserChats().then(setChats).catch(console.error)
+              return prevChats
+            }
 
-          // Update last message preview
-          chat.last_message = event.text || '[Вложение]'
-          chat.updated_at = event.created_at
+            const updatedChats = [...prevChats]
+            const chat = { ...updatedChats[chatIndex] }
+            chat.last_message = text || '[Вложение]'
+            chat.updated_at = event.created_at
 
-          // Increment unread count if not active chat and not own message
-          if (chatId !== activeChatId && event.user_id !== user?.id) {
-            chat.unread_count = (chat.unread_count || 0) + 1
+            if (chatId !== activeChatId && event.user_id !== user?.id) {
+              chat.unread_count = (chat.unread_count || 0) + 1
+            }
+
+            updatedChats[chatIndex] = chat
+            return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+          })
+
+          // Add message to active chat
+          if (chatId === activeChatId) {
+            const newMessage: Message = {
+              id: event.id,
+              chat_id: event.chat_id,
+              user_id: event.user_id,
+              text,
+              iv: event.iv,
+              reply_to_id: event.reply_to_id ?? null,
+              edited_at: event.edited_at ?? null,
+              is_deleted: event.is_deleted,
+              created_at: event.created_at,
+              attachments: [],
+            }
+            setMessages((prev) => [...prev, newMessage])
           }
-
-          updatedChats[chatIndex] = chat
-
-          // Sort by updated_at (most recent first)
-          return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-        })
-
-        // Add message to active chat
-        if (chatId === activeChatId) {
-          const newMessage: Message = {
-            id: event.id,
-            chat_id: event.chat_id,
-            user_id: event.user_id,
-            text: event.text,
-            reply_to_id: event.reply_to_id ?? null,
-            edited_at: event.edited_at ?? null,
-            is_deleted: event.is_deleted,
-            created_at: event.created_at,
-            attachments: [],
-          }
-          setMessages((prev) => [...prev, newMessage])
         }
+
+        processNewMessage().catch(console.error)
         return
       }
 
       if (event.action === 'edit' && chatId === activeChatId) {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === event.id
-              ? { ...msg, text: event.text, edited_at: event.edited_at ?? new Date().toISOString() }
-              : msg
+        const processEdit = async () => {
+          let text = event.text
+          if (event.iv) {
+            try {
+              const chat = chatsRef.current.find((c) => c.id === chatId)
+              if (chat && (await hasIdentityKeys())) {
+                const key = await getOrDeriveChatKey(chatId, chat.other_user_id)
+                if (key) {
+                  text = await decryptText(event.text, event.iv, key)
+                }
+              }
+            } catch (err) {
+              console.error('Failed to decrypt edited message:', err)
+              text = '[Не удалось расшифровать]'
+            }
+          }
+
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === event.id
+                ? { ...msg, text, iv: event.iv, edited_at: event.edited_at ?? new Date().toISOString() }
+                : msg
+            )
           )
-        )
+        }
+
+        processEdit().catch(console.error)
         return
       }
 
@@ -136,7 +182,24 @@ export default function ChatsPage() {
       setChatsError(null)
       setLoadingChats(true)
       const data = await getCurrentUserChats()
-      // Sort by updated_at descending (most recent first)
+
+      // Decrypt last_message previews for E2E encrypted chats
+      if (await hasIdentityKeys()) {
+        await Promise.all(
+          data.map(async (chat) => {
+            if (!chat.last_message_iv || !chat.last_message) return
+            try {
+              const key = await getOrDeriveChatKey(chat.id, chat.other_user_id)
+              if (key) {
+                chat.last_message = await decryptText(chat.last_message, chat.last_message_iv, key)
+              }
+            } catch {
+              chat.last_message = '[Зашифрованное сообщение]'
+            }
+          }),
+        )
+      }
+
       const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       setChats(sortedData)
     } catch (err) {
@@ -152,6 +215,28 @@ export default function ChatsPage() {
       setMessagesError(null)
       setLoadingMessages(true)
       const data = await getChatMessages(chatId)
+
+      // Decrypt E2E encrypted messages
+      const chat = chatsRef.current.find((c) => c.id === chatId)
+      if (chat && (await hasIdentityKeys())) {
+        const key = await getOrDeriveChatKey(chatId, chat.other_user_id)
+        if (key) {
+          const decrypted = await Promise.all(
+            data.map(async (msg) => {
+              if (!msg.iv || msg.is_deleted) return msg
+              try {
+                const text = await decryptText(msg.text, msg.iv, key)
+                return { ...msg, text }
+              } catch {
+                return { ...msg, text: '[Не удалось расшифровать]' }
+              }
+            }),
+          )
+          setMessages(decrypted)
+          return
+        }
+      }
+
       setMessages(data)
     } catch (err) {
       console.error('Ошибка загрузки сообщений', err)

@@ -63,13 +63,14 @@ func (r *MessageRepo) FindByID(ctx context.Context, id uint) (*models.Message, e
 	return &msg, err
 }
 
-// UpdateMessage updates message text and sets EditedAt timestamp
-func (r *MessageRepo) UpdateMessage(ctx context.Context, id uint, newText string) error {
+// UpdateMessage updates message text (and IV for E2E encryption) and sets EditedAt timestamp
+func (r *MessageRepo) UpdateMessage(ctx context.Context, id uint, newText, iv string) error {
 	now := time.Now()
 	return r.db.WithContext(ctx).Model(&models.Message{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"text":      newText,
+			"iv":        iv,
 			"edited_at": now,
 		}).Error
 }

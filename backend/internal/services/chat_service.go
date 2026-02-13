@@ -44,7 +44,7 @@ func NewChatService(
 
 func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*models.Chat, error) {
 	if user1ID == user2ID {
-		return nil, fmt.Errorf("cannot create chat with self")
+		return nil, errors.New("cannot create chat with self")
 	}
 
 	// Normalize IDs (smaller always first) to match BeforeCreate hook
@@ -58,7 +58,7 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 		return existingChat, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, fmt.Errorf("failed to check for existing chat: %w", err)
+		return nil, fmt.Errorf("check for existing chat: %w", err)
 	}
 
 	chat := &models.Chat{
@@ -73,9 +73,9 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 			if fetchErr == nil {
 				return raceChat, nil
 			}
-			return nil, fmt.Errorf("failed to fetch existing chat after race condition: %w", fetchErr)
+			return nil, fmt.Errorf("fetch existing chat after race condition: %w", fetchErr)
 		}
-		return nil, fmt.Errorf("failed to create chat: %w", err)
+		return nil, fmt.Errorf("create chat: %w", err)
 	}
 	return chat, nil
 }
@@ -84,18 +84,18 @@ func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text
 	// CRITICAL: Verify user is participant in the chat (use light method for performance)
 	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
 	if err != nil {
-		return nil, fmt.Errorf("chat not found")
+		return nil, errors.New("chat not found")
 	}
 
 	if !chat.HasUser(userID) {
-		return nil, fmt.Errorf("unauthorized: user is not a participant in this chat")
+		return nil, errors.New("unauthorized: user is not a participant in this chat")
 	}
 
 	var replyPtr *uint
 	if replyToID != 0 {
 		msg, err := s.messageRepo.FindByID(ctx, replyToID)
 		if err != nil || msg.ChatID != chatID {
-			return nil, fmt.Errorf("invalid reply message")
+			return nil, errors.New("invalid reply message")
 		}
 		replyPtr = &replyToID
 	}
@@ -109,14 +109,14 @@ func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text
 	}
 
 	if err := s.messageRepo.Create(ctx, message); err != nil {
-		return nil, fmt.Errorf("failed to create message: %w", err)
+		return nil, fmt.Errorf("create message: %w", err)
 	}
 	return message, nil
 }
 
 // SendMessageAtomic sends a message and creates unread record atomically within a transaction
 // This prevents TOCTOU race conditions where a user could come online between the presence check and unread save
-func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text, iv string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
 	var message *models.Message
 
 	// Wrap message creation + unread save in a single transaction
@@ -142,16 +142,17 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 			ChatID:    chatID,
 			UserID:    userID,
 			Text:      text,
+			IV:        iv,
 			ReplyToID: replyPtr,
 		}
 
 		if err := messageRepo.Create(ctx, message); err != nil {
-			return fmt.Errorf("failed to create message: %w", err)
+			return fmt.Errorf("create message: %w", err)
 		}
 
 		// Update chat's updated_at to reflect the new message for proper sorting
 		if err := tx.Model(&models.Chat{}).Where("id = ?", chatID).Update("updated_at", message.CreatedAt).Error; err != nil {
-			return fmt.Errorf("failed to update chat timestamp: %w", err)
+			return fmt.Errorf("update chat timestamp: %w", err)
 		}
 
 		// Create unread record if recipient is offline
@@ -173,11 +174,11 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 func (s *ChatService) validateUserAccess(ctx context.Context, chatRepo *repositories.ChatRepo, chatID, userID uint) error {
 	chat, err := chatRepo.FindByIDLight(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("chat not found")
+		return errors.New("chat not found")
 	}
 
 	if !chat.HasUser(userID) {
-		return fmt.Errorf("unauthorized: user is not a participant in this chat")
+		return errors.New("unauthorized: user is not a participant in this chat")
 	}
 
 	return nil
@@ -191,7 +192,7 @@ func (s *ChatService) validateReplyMessage(ctx context.Context, messageRepo *rep
 
 	msg, err := messageRepo.FindByID(ctx, replyToID)
 	if err != nil || msg.ChatID != chatID {
-		return nil, fmt.Errorf("invalid reply message")
+		return nil, errors.New("invalid reply message")
 	}
 
 	return &replyToID, nil
@@ -213,7 +214,7 @@ func (s *ChatService) createUnreadIfNeeded(ctx context.Context, unreadRepo *repo
 		// If unique constraint violated (duplicate), ignore the error
 		// This can happen if the same message is marked unread twice (race condition)
 		if !errors.Is(err, gorm.ErrDuplicatedKey) {
-			return fmt.Errorf("failed to create unread message: %w", err)
+			return fmt.Errorf("create unread message: %w", err)
 		}
 	}
 
@@ -224,7 +225,7 @@ func (s *ChatService) createUnreadIfNeeded(ctx context.Context, unreadRepo *repo
 func (s *ChatService) GetMessageByID(ctx context.Context, messageID uint) (*models.Message, error) {
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find message: %w", err)
+		return nil, fmt.Errorf("find message: %w", err)
 	}
 	return message, nil
 }
@@ -232,7 +233,7 @@ func (s *ChatService) GetMessageByID(ctx context.Context, messageID uint) (*mode
 func (s *ChatService) GetMessages(ctx context.Context, chatID uint) ([]models.Message, error) {
 	messages, err := s.messageRepo.GetAllByChatID(ctx, chatID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get messages: %w", err)
+		return nil, fmt.Errorf("get messages: %w", err)
 	}
 	return messages, nil
 }
@@ -241,7 +242,7 @@ func (s *ChatService) GetMessages(ctx context.Context, chatID uint) ([]models.Me
 func (s *ChatService) GetRecentMessages(ctx context.Context, chatID uint, limit int) ([]models.Message, error) {
 	messages, err := s.messageRepo.GetRecentByChatID(ctx, chatID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get recent messages: %w", err)
+		return nil, fmt.Errorf("get recent messages: %w", err)
 	}
 	return messages, nil
 }
@@ -250,7 +251,7 @@ func (s *ChatService) GetRecentMessages(ctx context.Context, chatID uint, limit 
 func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*models.Message, error) {
 	messages, err := s.messageRepo.GetRecentByChatID(ctx, chatID, 1)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get last message: %w", err)
+		return nil, fmt.Errorf("get last message: %w", err)
 	}
 	if len(messages) == 0 {
 		return nil, ErrNoMessages
@@ -263,7 +264,7 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 func (s *ChatService) GetUserChats(ctx context.Context, userID uint, preloadUsers bool) ([]models.Chat, error) {
 	chats, err := s.chatRepo.GetUserChats(ctx, userID, preloadUsers)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user chats: %w", err)
+		return nil, fmt.Errorf("get user chats: %w", err)
 	}
 	return chats, nil
 }
@@ -271,7 +272,7 @@ func (s *ChatService) GetUserChats(ctx context.Context, userID uint, preloadUser
 func (s *ChatService) FindChatByID(ctx context.Context, id uint) (*models.Chat, error) {
 	chat, err := s.chatRepo.FindByID(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find chat: %w", err)
+		return nil, fmt.Errorf("find chat: %w", err)
 	}
 	return chat, nil
 }
@@ -280,36 +281,36 @@ func (s *ChatService) FindChatByID(ctx context.Context, id uint) (*models.Chat, 
 func (s *ChatService) FindChatByIDLight(ctx context.Context, id uint) (*models.Chat, error) {
 	chat, err := s.chatRepo.FindByIDLight(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find chat: %w", err)
+		return nil, fmt.Errorf("find chat: %w", err)
 	}
 	return chat, nil
 }
 
 // EditMessage allows a user to edit their own message
-func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText string) error {
+func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText, iv string) error {
 	// Find the message
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
-		return fmt.Errorf("message not found")
+		return errors.New("message not found")
 	}
 
 	// Verify ownership
 	if message.UserID != userID {
-		return fmt.Errorf("unauthorized: you can only edit your own messages")
+		return errors.New("unauthorized: you can only edit your own messages")
 	}
 
 	// Check if already deleted
 	if message.IsDeleted {
-		return fmt.Errorf("cannot edit deleted message")
+		return errors.New("cannot edit deleted message")
 	}
 
 	// Validate new text
 	if newText == "" || len(newText) > 10000 {
-		return fmt.Errorf("invalid message length")
+		return errors.New("invalid message length")
 	}
 
-	if err := s.messageRepo.UpdateMessage(ctx, messageID, newText); err != nil {
-		return fmt.Errorf("failed to update message: %w", err)
+	if err := s.messageRepo.UpdateMessage(ctx, messageID, newText, iv); err != nil {
+		return fmt.Errorf("update message: %w", err)
 	}
 
 	return nil
@@ -320,21 +321,21 @@ func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint)
 	// Find the message
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
-		return fmt.Errorf("message not found")
+		return errors.New("message not found")
 	}
 
 	// Verify ownership
 	if message.UserID != userID {
-		return fmt.Errorf("unauthorized: you can only delete your own messages")
+		return errors.New("unauthorized: you can only delete your own messages")
 	}
 
 	// Check if already deleted
 	if message.IsDeleted {
-		return fmt.Errorf("message already deleted")
+		return errors.New("message already deleted")
 	}
 
 	if err := s.messageRepo.SoftDeleteMessage(ctx, messageID); err != nil {
-		return fmt.Errorf("failed to delete message: %w", err)
+		return fmt.Errorf("delete message: %w", err)
 	}
 
 	return nil
@@ -344,7 +345,7 @@ func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint)
 func (s *ChatService) GetUnreadMessagesForUser(ctx context.Context, userID uint) ([]models.UnreadMessage, error) {
 	unreadMessages, err := s.unreadMessageRepo.GetByUser(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get unread messages: %w", err)
+		return nil, fmt.Errorf("get unread messages: %w", err)
 	}
 	return unreadMessages, nil
 }
@@ -352,7 +353,7 @@ func (s *ChatService) GetUnreadMessagesForUser(ctx context.Context, userID uint)
 // CreateUnreadMessage creates a new unread message record
 func (s *ChatService) CreateUnreadMessage(ctx context.Context, unreadMsg *models.UnreadMessage) error {
 	if err := s.unreadMessageRepo.Create(ctx, unreadMsg); err != nil {
-		return fmt.Errorf("failed to create unread message: %w", err)
+		return fmt.Errorf("create unread message: %w", err)
 	}
 	return nil
 }
@@ -360,7 +361,7 @@ func (s *ChatService) CreateUnreadMessage(ctx context.Context, unreadMsg *models
 // MarkChatAsRead marks all messages in a chat as read for a user
 func (s *ChatService) MarkChatAsRead(ctx context.Context, userID, chatID uint) error {
 	if err := s.unreadMessageRepo.DeleteByChat(ctx, userID, chatID); err != nil {
-		return fmt.Errorf("failed to mark chat as read: %w", err)
+		return fmt.Errorf("mark chat as read: %w", err)
 	}
 	return nil
 }
@@ -369,7 +370,7 @@ func (s *ChatService) MarkChatAsRead(ctx context.Context, userID, chatID uint) e
 func (s *ChatService) GetUnreadCounts(ctx context.Context, userID uint) (map[uint]int64, error) {
 	counts, err := s.unreadMessageRepo.GetUnreadCounts(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get unread counts: %w", err)
+		return nil, fmt.Errorf("get unread counts: %w", err)
 	}
 	return counts, nil
 }
