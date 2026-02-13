@@ -1,0 +1,70 @@
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE/Editor
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# Documentation (keep only essential docs in image)
+*.md
+!README.md
+
+# Environment files (secrets should never be in image)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Backend artifacts
+backend/messenger
+backend/*.exe
+*.exe
+
+# Frontend build artifacts (node_modules excluded, dist may be needed)
+frontend/node_modules/
+frontend/logs/
+frontend/*.log
+frontend/npm-debug.log*
+
+# Uploads and storage (not needed in image - use volumes)
+uploads/
+backend/uploads/
+
+# Docker files (not needed inside image)
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# CI/CD
+.github/
+
+# Backups
+backups/
+*.sql
+*.tar.gz
+*.zip
+
+# Nginx config (if managed separately)
+nginx-proxy/
+certbot/
+
+# Let's Encrypt scripts
+init-letsencrypt.sh
+
+# Test files (if you add them later)
+*_test.go
+**/*_test.go
