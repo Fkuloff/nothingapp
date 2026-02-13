@@ -19,7 +19,6 @@ type AttachmentService struct {
 	attachmentRepo *repositories.AttachmentRepo
 	messageRepo    *repositories.MessageRepo
 	storage        storage.Storage
-	thumbnailGen   *ThumbnailGenerator
 	validator      *FileValidator
 }
 
@@ -35,7 +34,6 @@ func NewAttachmentService(
 		attachmentRepo: attachmentRepo,
 		messageRepo:    messageRepo,
 		storage:        storage,
-		thumbnailGen:   NewThumbnailGenerator(storage),
 		validator:      &FileValidator{},
 	}
 }
@@ -106,16 +104,6 @@ func (s *AttachmentService) UploadAttachments(
 			MimeType:   metadata.ContentType,
 		}
 
-		// Generate thumbnail for images/videos
-		if attachment.RequiresThumbnail() {
-			thumbMeta, err := s.thumbnailGen.Generate(metadata.Key, 300, 300)
-			if err == nil && thumbMeta != nil {
-				attachment.ThumbnailKey = &thumbMeta.Key
-				uploadedKeys = append(uploadedKeys, thumbMeta.Key)
-			}
-			// Don't fail if thumbnail generation fails
-		}
-
 		attachments = append(attachments, attachment)
 	}
 
@@ -148,13 +136,6 @@ func (s *AttachmentService) DeleteAttachment(ctx context.Context, attachmentID, 
 		s.logger.Warn("failed to delete file from storage", zap.Error(err), zap.String("storage_key", attachment.StorageKey))
 	}
 
-	// Delete thumbnail if exists
-	if attachment.ThumbnailKey != nil {
-		if err := s.storage.Delete(*attachment.ThumbnailKey); err != nil {
-			s.logger.Warn("failed to delete thumbnail from storage", zap.Error(err), zap.String("thumbnail_key", *attachment.ThumbnailKey))
-		}
-	}
-
 	// Delete from database
 	if err := s.attachmentRepo.Delete(ctx, attachmentID); err != nil {
 		return fmt.Errorf("failed to delete attachment: %w", err)
@@ -173,25 +154,6 @@ func (s *AttachmentService) GetAttachment(ctx context.Context, attachmentID uint
 	reader, err := s.storage.Get(attachment.StorageKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to retrieve file: %w", err)
-	}
-
-	return attachment, reader, nil
-}
-
-// GetThumbnail retrieves a thumbnail
-func (s *AttachmentService) GetThumbnail(ctx context.Context, attachmentID uint) (*models.Attachment, io.ReadCloser, error) {
-	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("attachment not found")
-	}
-
-	if attachment.ThumbnailKey == nil {
-		return nil, nil, fmt.Errorf("thumbnail not available")
-	}
-
-	reader, err := s.storage.Get(*attachment.ThumbnailKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to retrieve thumbnail: %w", err)
 	}
 
 	return attachment, reader, nil
