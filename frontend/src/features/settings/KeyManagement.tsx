@@ -5,12 +5,13 @@ import { clearAllCryptoData } from '../../shared/crypto/keyStore'
 type Props = {
   cryptoReady: boolean
   needsKeyRestore: boolean
+  needsBackupFirst: boolean
   onKeysRestored: () => void
 }
 
 type KeyStatus = 'idle' | 'loading' | 'success' | 'error'
 
-export function KeyManagement({ cryptoReady, needsKeyRestore, onKeysRestored }: Props) {
+export function KeyManagement({ cryptoReady, needsKeyRestore, needsBackupFirst, onKeysRestored }: Props) {
   const [backupPassword, setBackupPassword] = useState('')
   const [restorePassword, setRestorePassword] = useState('')
   const [backupStatus, setBackupStatus] = useState<KeyStatus>('idle')
@@ -71,9 +72,7 @@ export function KeyManagement({ cryptoReady, needsKeyRestore, onKeysRestored }: 
   const handleResetKeys = useCallback(async () => {
     await clearAllCryptoData()
     setShowResetConfirm(false)
-    setStatusMessage('Ключи удалены. Перезагрузите страницу.')
-    setBackupStatus('idle')
-    setRestoreStatus('idle')
+    window.location.reload()
   }, [])
 
   const hasKeys = cryptoReady && !needsKeyRestore
@@ -83,9 +82,24 @@ export function KeyManagement({ cryptoReady, needsKeyRestore, onKeysRestored }: 
       <div className="key-management__status">
         <span className="key-management__status-label">Ключи шифрования</span>
         <span className={`key-management__status-badge ${hasKeys ? 'active' : 'inactive'}`}>
-          {hasKeys ? 'Активны' : needsKeyRestore ? 'Требуется восстановление' : 'Не настроены'}
+          {hasKeys ? 'Активны' : needsKeyRestore ? 'Требуется восстановление' : needsBackupFirst ? 'Ожидает бэкап' : 'Не настроены'}
         </span>
       </div>
+
+      {needsBackupFirst && (
+        <div className="key-management__section">
+          <p className="key-management__hint">
+            Ключи шифрования найдены на другом устройстве, но бэкап ещё не создан.
+            Создайте бэкап на основном устройстве (Настройки → Шифрование), затем восстановите здесь.
+          </p>
+          <button
+            className="key-management__btn key-management__btn--danger-text"
+            onClick={() => setShowResetConfirm(true)}
+          >
+            Сбросить и создать новые ключи
+          </button>
+        </div>
+      )}
 
       {needsKeyRestore && (
         <div className="key-management__section">
@@ -147,36 +161,40 @@ export function KeyManagement({ cryptoReady, needsKeyRestore, onKeysRestored }: 
         </div>
       )}
 
-      {hasKeys && (
+      {hasKeys && !showResetConfirm && (
         <div className="key-management__section">
-          {!showResetConfirm ? (
-            <button
-              className="key-management__btn key-management__btn--danger-text"
-              onClick={() => setShowResetConfirm(true)}
-            >
-              Сбросить ключи
-            </button>
-          ) : (
-            <div className="key-management__confirm">
-              <p className="key-management__warning">
-                Все локальные ключи будут удалены. Без бэкапа вы потеряете доступ к зашифрованным сообщениям.
-              </p>
-              <div className="key-management__confirm-actions">
-                <button
-                  className="key-management__btn key-management__btn--danger"
-                  onClick={handleResetKeys}
-                >
-                  Удалить ключи
-                </button>
-                <button
-                  className="key-management__btn"
-                  onClick={() => setShowResetConfirm(false)}
-                >
-                  Отмена
-                </button>
-              </div>
+          <button
+            className="key-management__btn key-management__btn--danger-text"
+            onClick={() => setShowResetConfirm(true)}
+          >
+            Сбросить ключи
+          </button>
+        </div>
+      )}
+
+      {showResetConfirm && (
+        <div className="key-management__section">
+          <div className="key-management__confirm">
+            <p className="key-management__warning">
+              {needsBackupFirst
+                ? 'Будут созданы новые ключи. Старые зашифрованные сообщения станут недоступны.'
+                : 'Все локальные ключи будут удалены. Без бэкапа вы потеряете доступ к зашифрованным сообщениям.'}
+            </p>
+            <div className="key-management__confirm-actions">
+              <button
+                className="key-management__btn key-management__btn--danger"
+                onClick={handleResetKeys}
+              >
+                {needsBackupFirst ? 'Создать новые ключи' : 'Удалить ключи'}
+              </button>
+              <button
+                className="key-management__btn"
+                onClick={() => setShowResetConfirm(false)}
+              >
+                Отмена
+              </button>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

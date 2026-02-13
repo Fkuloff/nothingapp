@@ -26,6 +26,7 @@ type ChatListItem struct {
 	OtherUserID   uint      `json:"other_user_id"`
 	OtherUserName string    `json:"other_user_name"`
 	LastMessage   string    `json:"last_message"`
+	LastMessageIV string    `json:"last_message_iv,omitempty"`
 	UnreadCount   int       `json:"unread_count"`
 	UpdatedAt     time.Time `json:"updated_at"`
 	AvatarURL     *string   `json:"avatar_url"`

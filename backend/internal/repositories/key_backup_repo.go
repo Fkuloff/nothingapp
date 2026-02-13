@@ -30,8 +30,10 @@ func (r *KeyBackupRepo) Upsert(ctx context.Context, backup *models.KeyBackup) er
 // FindByUserID returns the key backup for a user
 func (r *KeyBackupRepo) FindByUserID(ctx context.Context, userID uint) (*models.KeyBackup, error) {
 	var backup models.KeyBackup
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&backup).Error
-	return &backup, err
+	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&backup).Error; err != nil {
+		return nil, err
+	}
+	return &backup, nil
 }
 
 // Delete removes a user's key backup

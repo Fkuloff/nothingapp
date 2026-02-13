@@ -10,6 +10,7 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null)
   const [cryptoReady, setCryptoReady] = useState(false)
   const [needsKeyRestore, setNeedsKeyRestore] = useState(false)
+  const [needsBackupFirst, setNeedsBackupFirst] = useState(false)
 
   const refreshProfile = useCallback(async () => {
     try {
@@ -37,8 +38,6 @@ export function useAuth() {
       setAuthToken(undefined)
       setUser(null)
       setLoading(false)
-      // Note: We don't clear crypto data on logout to preserve keys for re-login.
-      // Keys are cleared only when explicitly requested via key management UI.
     }
   }, [])
 
@@ -47,13 +46,15 @@ export function useAuth() {
     if (!user) {
       setCryptoReady(false)
       setNeedsKeyRestore(false)
+      setNeedsBackupFirst(false)
       return
     }
 
-    initializeKeys()
-      .then(({ ready, needsRestore }) => {
-        setCryptoReady(ready)
-        setNeedsKeyRestore(needsRestore)
+    initializeKeys(user.id)
+      .then((result) => {
+        setCryptoReady(result.ready)
+        setNeedsKeyRestore(result.needsRestore)
+        setNeedsBackupFirst(result.needsBackupFirst)
       })
       .catch((err) => {
         console.error('Failed to initialize E2E keys:', err)
@@ -61,9 +62,5 @@ export function useAuth() {
       })
   }, [user])
 
-  useEffect(() => {
-    refreshProfile()
-  }, [refreshProfile])
-
-  return { user, loading, error, cryptoReady, needsKeyRestore, refreshProfile, logout }
+  return { user, loading, error, cryptoReady, needsKeyRestore, needsBackupFirst, refreshProfile, logout }
 }

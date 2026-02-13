@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	ErrMessageNotFound    = errors.New("message not found")
+	ErrNotMessageOwner    = errors.New("unauthorized: not message owner")
+	ErrAttachmentNotFound = errors.New("attachment not found")
+)
+
 // AttachmentCryptoMeta holds E2E encryption metadata for file uploads.
 // All fields are JSON strings: {"original_filename": "value", ...}
 type AttachmentCryptoMeta struct {
@@ -60,10 +66,10 @@ func (s *AttachmentService) UploadAttachments(
 	// Verify message exists and user owns it
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
-		return nil, errors.New("message not found")
+		return nil, ErrMessageNotFound
 	}
 	if message.UserID != userID {
-		return nil, errors.New("unauthorized: not message owner")
+		return nil, ErrNotMessageOwner
 	}
 
 	// Parse E2E crypto metadata if provided
@@ -72,9 +78,11 @@ func (s *AttachmentService) UploadAttachments(
 	var attachments []*models.Attachment
 	var uploadedKeys []string // Track uploaded files for rollback
 
+	isEncrypted := cryptoMeta != nil && len(ivMap) > 0
+
 	for _, fileHeader := range files {
 		// Validate file
-		if err := s.validator.ValidateAttachment(fileHeader); err != nil {
+		if err := s.validator.ValidateAttachment(fileHeader, isEncrypted); err != nil {
 			// Rollback: delete already uploaded files
 			s.rollbackUploads(uploadedKeys)
 			return nil, fmt.Errorf("invalid file %s: %w", fileHeader.Filename, err)
@@ -87,8 +95,11 @@ func (s *AttachmentService) UploadAttachments(
 			return nil, fmt.Errorf("open file %s: %w", fileHeader.Filename, err)
 		}
 
-		// Determine file type
+		// Determine file type — use original MIME type for encrypted files
 		contentType := fileHeader.Header.Get("Content-Type")
+		if origType, ok := origTypeMap[fileHeader.Filename]; ok && origType != "" {
+			contentType = origType
+		}
 		fileType := s.validator.DetermineFileType(contentType)
 
 		// Save to storage
@@ -147,13 +158,13 @@ func (s *AttachmentService) UploadAttachments(
 func (s *AttachmentService) DeleteAttachment(ctx context.Context, attachmentID, userID uint) error {
 	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
 	if err != nil {
-		return errors.New("attachment not found")
+		return ErrAttachmentNotFound
 	}
 
 	// Verify ownership through message
 	message, err := s.messageRepo.FindByID(ctx, attachment.MessageID)
 	if err != nil || message.UserID != userID {
-		return errors.New("unauthorized")
+		return ErrNotMessageOwner
 	}
 
 	// Delete from storage
@@ -174,7 +185,7 @@ func (s *AttachmentService) DeleteAttachment(ctx context.Context, attachmentID, 
 func (s *AttachmentService) GetAttachment(ctx context.Context, attachmentID uint) (*models.Attachment, io.ReadCloser, error) {
 	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
 	if err != nil {
-		return nil, nil, errors.New("attachment not found")
+		return nil, nil, ErrAttachmentNotFound
 	}
 
 	reader, err := s.storage.Get(attachment.StorageKey)

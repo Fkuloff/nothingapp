@@ -30,8 +30,10 @@ func (r *UserKeyRepo) Upsert(ctx context.Context, key *models.UserKey) error {
 // FindByUserID returns the public key for a user
 func (r *UserKeyRepo) FindByUserID(ctx context.Context, userID uint) (*models.UserKey, error) {
 	var key models.UserKey
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&key).Error
-	return &key, err
+	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&key).Error; err != nil {
+		return nil, err
+	}
+	return &key, nil
 }
 
 // FindByUserIDs returns public keys for multiple users

@@ -49,17 +49,6 @@ async function dbGet<T>(storeName: string, key: string | number): Promise<T | nu
   })
 }
 
-async function dbDelete(storeName: string, key: string | number): Promise<void> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite')
-    const store = tx.objectStore(storeName)
-    store.delete(key)
-    tx.oncomplete = () => { db.close(); resolve() }
-    tx.onerror = () => { db.close(); reject(tx.error) }
-  })
-}
-
 // --- Identity Key Storage ---
 
 /** Save the user's private key to IndexedDB */
@@ -101,11 +90,6 @@ export async function saveChatKey(chatId: number, key: CryptoKey): Promise<void>
 export async function getChatKey(chatId: number): Promise<CryptoKey | null> {
   const result = await dbGet<{ chatId: number; key: CryptoKey }>(CHAT_KEYS_STORE, chatId)
   return result?.key ?? null
-}
-
-/** Remove a cached chat key */
-export async function removeChatKey(chatId: number): Promise<void> {
-  await dbDelete(CHAT_KEYS_STORE, chatId)
 }
 
 // --- Cleanup ---

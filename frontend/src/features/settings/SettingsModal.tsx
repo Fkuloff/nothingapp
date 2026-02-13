@@ -12,7 +12,7 @@ type Props = {
 export function SettingsModal({ isOpen, onClose }: Props) {
   const { theme, setTheme } = useTheme()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
-  const { cryptoReady, needsKeyRestore, refreshProfile } = useAuthContext()
+  const { cryptoReady, needsKeyRestore, needsBackupFirst, refreshProfile } = useAuthContext()
 
   if (!isOpen) return null
 
@@ -78,6 +78,7 @@ export function SettingsModal({ isOpen, onClose }: Props) {
             <KeyManagement
               cryptoReady={cryptoReady}
               needsKeyRestore={needsKeyRestore}
+              needsBackupFirst={needsBackupFirst}
               onKeysRestored={refreshProfile}
             />
           </div>

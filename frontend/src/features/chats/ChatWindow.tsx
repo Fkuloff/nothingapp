@@ -9,6 +9,18 @@ import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
 import { useChatEncryption } from '../../shared/hooks/useChatEncryption'
 
+function getEncryptionErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.message === 'E2E_NO_KEYS') {
+      return 'Ключи шифрования не настроены. Откройте Настройки → Ключи шифрования.'
+    }
+    if (err.message === 'E2E_NO_CHAT_KEY') {
+      return 'Не удалось установить защищённое соединение. У собеседника нет ключей шифрования.'
+    }
+  }
+  return 'Ошибка шифрования. Сообщение не отправлено.'
+}
+
 type Props = {
   chatId?: number
   messages: Message[]
@@ -81,29 +93,27 @@ export function ChatWindow({
 
       for (const file of files) {
         const encrypted = await encryptFileForUpload(file, uploadChatId)
-        if (encrypted) {
-          const encFileName = file.name + '.enc'
-          formData.append('attachments', encrypted.blob, encFileName)
-          fileIVs[encFileName] = encrypted.iv
-          originalTypes[encFileName] = encrypted.originalType
-          originalNames[encFileName] = encrypted.originalName
-        } else {
-          formData.append('attachments', file)
-        }
+        const encFileName = file.name + '.enc'
+        formData.append('attachments', encrypted.blob, encFileName)
+        fileIVs[encFileName] = encrypted.iv
+        originalTypes[encFileName] = encrypted.originalType
+        originalNames[encFileName] = encrypted.originalName
       }
 
-      if (Object.keys(fileIVs).length > 0) {
-        formData.append('file_ivs', JSON.stringify(fileIVs))
-        formData.append('original_types', JSON.stringify(originalTypes))
-        formData.append('original_names', JSON.stringify(originalNames))
-      }
+      formData.append('file_ivs', JSON.stringify(fileIVs))
+      formData.append('original_types', JSON.stringify(originalTypes))
+      formData.append('original_names', JSON.stringify(originalNames))
 
       try {
         await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
         onMessagesUpdate?.()
       } catch (err) {
-        console.error('Ошибка загрузки вложений:', err)
-        showToast('Не удалось загрузить вложения', 'error')
+        if (err instanceof Error && err.message.startsWith('E2E_')) {
+          showToast(getEncryptionErrorMessage(err), 'error')
+        } else {
+          console.error('Ошибка загрузки вложений:', err)
+          showToast('Не удалось загрузить вложения', 'error')
+        }
       } finally {
         setUploading(false)
       }
@@ -132,7 +142,13 @@ export function ChatWindow({
     }
 
     if (editingMessageId) {
-      const editAction = await encryptAction({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      let editAction
+      try {
+        editAction = await encryptAction({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      } catch (err) {
+        showToast(getEncryptionErrorMessage(err), 'error')
+        return
+      }
       const success = send(editAction)
       if (success) {
         setMessageText('')
@@ -148,12 +164,19 @@ export function ChatWindow({
       pendingUploadRef.current = { chatId, files: [...selectedFiles] }
     }
 
-    const sendAction = await encryptAction({
-      action: 'send',
-      chat_id: chatId,
-      text: text || ' ',
-      reply_to_id: replyToId ?? undefined,
-    })
+    let sendAction
+    try {
+      sendAction = await encryptAction({
+        action: 'send',
+        chat_id: chatId,
+        text: text || ' ',
+        reply_to_id: replyToId ?? undefined,
+      })
+    } catch (err) {
+      showToast(getEncryptionErrorMessage(err), 'error')
+      pendingUploadRef.current = null
+      return
+    }
     const success = send(sendAction)
 
     if (success) {
@@ -281,6 +304,7 @@ export function ChatWindow({
       <MessageList
         messages={messages}
         currentUserId={currentUserId}
+        otherUserId={otherUserId}
         otherUsername={otherUsername}
         chatId={chatId}
         loading={loading}

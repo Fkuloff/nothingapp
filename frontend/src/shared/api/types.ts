@@ -42,6 +42,7 @@ export type ChatItem = {
   other_user_name: string
   avatar_url?: string
   last_message?: string
+  last_message_iv?: string
   unread_count: number
   updated_at: string
 }

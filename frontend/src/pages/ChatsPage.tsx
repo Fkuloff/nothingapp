@@ -182,7 +182,24 @@ export default function ChatsPage() {
       setChatsError(null)
       setLoadingChats(true)
       const data = await getCurrentUserChats()
-      // Sort by updated_at descending (most recent first)
+
+      // Decrypt last_message previews for E2E encrypted chats
+      if (await hasIdentityKeys()) {
+        await Promise.all(
+          data.map(async (chat) => {
+            if (!chat.last_message_iv || !chat.last_message) return
+            try {
+              const key = await getOrDeriveChatKey(chat.id, chat.other_user_id)
+              if (key) {
+                chat.last_message = await decryptText(chat.last_message, chat.last_message_iv, key)
+              }
+            } catch {
+              chat.last_message = '[Зашифрованное сообщение]'
+            }
+          }),
+        )
+      }
+
       const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       setChats(sortedData)
     } catch (err) {

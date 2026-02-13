@@ -130,15 +130,19 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		h.userService.RefreshUserAvatarURL(otherUser)
 
 		lastMessageText := ""
+		lastMessageIV := ""
 		if lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID); err == nil && lastMsg != nil {
 			if lastMsg.IsDeleted {
 				lastMessageText = "Message deleted"
 			} else {
 				lastMessageText = lastMsg.Text
+				lastMessageIV = lastMsg.IV
 			}
 
-			if runes := []rune(lastMessageText); len(runes) > MaxChatListPreview {
-				lastMessageText = string(runes[:MaxChatListPreview])
+			if lastMessageIV == "" {
+				if runes := []rune(lastMessageText); len(runes) > MaxChatListPreview {
+					lastMessageText = string(runes[:MaxChatListPreview])
+				}
 			}
 		}
 
@@ -148,6 +152,7 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 			OtherUserName: otherUser.GetDisplayName(),
 			AvatarURL:     otherUser.AvatarURL,
 			LastMessage:   lastMessageText,
+			LastMessageIV: lastMessageIV,
 			UnreadCount:   int(unreadCounts[chat.ID]),
 			UpdatedAt:     chat.UpdatedAt,
 		})

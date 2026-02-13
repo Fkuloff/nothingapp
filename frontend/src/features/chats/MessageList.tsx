@@ -5,6 +5,7 @@ import { MessageItem } from './MessageItem'
 type Props = {
   messages: Message[]
   currentUserId?: number
+  otherUserId?: number
   otherUsername: string
   chatId?: number
   loading?: boolean
@@ -17,6 +18,7 @@ type Props = {
 export function MessageList({
   messages,
   currentUserId,
+  otherUserId,
   otherUsername,
   chatId,
   loading,
@@ -97,6 +99,8 @@ export function MessageList({
           onReply={onReply}
           onEdit={onEdit}
           onDelete={onDelete}
+          chatId={chatId}
+          otherUserId={otherUserId}
         />
       )
     })
