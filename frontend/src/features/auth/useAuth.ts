@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { httpGet, setAuthToken } from '../../shared/api/httpClient'
+import { getAuthToken, httpGet, setAuthToken } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { endpoints } from '../../shared/api/endpoints'
 import { initializeKeys } from '../../shared/crypto/keyExchange'
@@ -40,6 +40,16 @@ export function useAuth() {
       setLoading(false)
     }
   }, [])
+
+  // On mount: check if we have a token and try to restore the session
+  useEffect(() => {
+    const token = getAuthToken()
+    if (token) {
+      refreshProfile()
+    } else {
+      setLoading(false)
+    }
+  }, [refreshProfile])
 
   // Initialize E2E encryption keys when user is authenticated
   useEffect(() => {
