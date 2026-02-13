@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Message, WSMessageAction } from '../../shared/api/types'
 import { httpPost } from '../../shared/api/httpClient'
 import { endpoints } from '../../shared/api/endpoints'
@@ -50,9 +50,67 @@ export function ChatWindow({
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
+  const prevMessagesLenRef = useRef(messages.length)
 
   const { showToast } = useToast()
   const { encryptAction, encryptFileForUpload } = useChatEncryption(otherUserId)
+
+  // Upload files when the sender's new message arrives via WebSocket broadcast
+  useEffect(() => {
+    const prevLen = prevMessagesLenRef.current
+    prevMessagesLenRef.current = messages.length
+
+    if (!pendingUploadRef.current || messages.length <= prevLen) return
+
+    // Find the newest message from the current user
+    const newMessage = messages[messages.length - 1]
+    if (!newMessage || newMessage.user_id !== currentUserId) return
+
+    const { chatId: uploadChatId, files } = pendingUploadRef.current
+    if (newMessage.chat_id !== uploadChatId || files.length === 0) return
+
+    pendingUploadRef.current = null
+    const messageId = newMessage.id
+
+    const doUpload = async () => {
+      setUploading(true)
+      const formData = new FormData()
+      const fileIVs: Record<string, string> = {}
+      const originalTypes: Record<string, string> = {}
+      const originalNames: Record<string, string> = {}
+
+      for (const file of files) {
+        const encrypted = await encryptFileForUpload(file, uploadChatId)
+        if (encrypted) {
+          const encFileName = file.name + '.enc'
+          formData.append('attachments', encrypted.blob, encFileName)
+          fileIVs[encFileName] = encrypted.iv
+          originalTypes[encFileName] = encrypted.originalType
+          originalNames[encFileName] = encrypted.originalName
+        } else {
+          formData.append('attachments', file)
+        }
+      }
+
+      if (Object.keys(fileIVs).length > 0) {
+        formData.append('file_ivs', JSON.stringify(fileIVs))
+        formData.append('original_types', JSON.stringify(originalTypes))
+        formData.append('original_names', JSON.stringify(originalNames))
+      }
+
+      try {
+        await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
+        onMessagesUpdate?.()
+      } catch (err) {
+        console.error('Ошибка загрузки вложений:', err)
+        showToast('Не удалось загрузить вложения', 'error')
+      } finally {
+        setUploading(false)
+      }
+    }
+
+    doUpload().catch(console.error)
+  }, [messages, currentUserId, encryptFileForUpload, onMessagesUpdate, showToast])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -101,57 +159,8 @@ export function ChatWindow({
     if (success) {
       setMessageText('')
       setReplyToId(null)
-
-      // Handle file uploads - need to get message ID from the new message
-      if (pendingUploadRef.current) {
-        const { chatId: uploadChatId, files } = pendingUploadRef.current
-        pendingUploadRef.current = null
-        setSelectedFiles([])
-
-        // Wait a bit for the message to be created, then get the last message ID
-        setTimeout(async () => {
-          const lastMessage = messages[messages.length - 1]
-          if (lastMessage && files.length > 0) {
-            setUploading(true)
-            const formData = new FormData()
-            const fileIVs: Record<string, string> = {}
-            const originalTypes: Record<string, string> = {}
-            const originalNames: Record<string, string> = {}
-
-            // Encrypt each file before upload
-            for (const file of files) {
-              const encrypted = await encryptFileForUpload(file, uploadChatId)
-              if (encrypted) {
-                const encFileName = file.name + '.enc'
-                formData.append('attachments', encrypted.blob, encFileName)
-                fileIVs[encFileName] = encrypted.iv
-                originalTypes[encFileName] = encrypted.originalType
-                originalNames[encFileName] = encrypted.originalName
-              } else {
-                // No encryption available — upload plaintext
-                formData.append('attachments', file)
-              }
-            }
-
-            // Attach E2E metadata if any files were encrypted
-            if (Object.keys(fileIVs).length > 0) {
-              formData.append('file_ivs', JSON.stringify(fileIVs))
-              formData.append('original_types', JSON.stringify(originalTypes))
-              formData.append('original_names', JSON.stringify(originalNames))
-            }
-
-            try {
-              await httpPost(endpoints.attachments.upload(uploadChatId, lastMessage.id + 1), formData)
-              onMessagesUpdate?.()
-            } catch (err) {
-              console.error('Ошибка загрузки вложений:', err)
-              showToast('Не удалось загрузить вложения', 'error')
-            } finally {
-              setUploading(false)
-            }
-          }
-        }, 500)
-      }
+      setSelectedFiles([])
+      // Files will be uploaded by the useEffect when the WS broadcast arrives
     } else {
       showToast('Не удалось отправить сообщение, повторите.', 'error')
       pendingUploadRef.current = null

@@ -38,7 +38,7 @@ func (s *KeyService) SavePublicKey(ctx context.Context, userID uint, publicKeyJW
 		PublicKey: publicKeyJWK,
 	}
 	if err := s.userKeyRepo.Upsert(ctx, key); err != nil {
-		return fmt.Errorf("failed to save public key: %w", err)
+		return fmt.Errorf("save public key: %w", err)
 	}
 	return nil
 }
@@ -50,7 +50,7 @@ func (s *KeyService) GetPublicKey(ctx context.Context, userID uint) (*models.Use
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPublicKeyNotFound
 		}
-		return nil, fmt.Errorf("failed to get public key: %w", err)
+		return nil, fmt.Errorf("get public key: %w", err)
 	}
 	return key, nil
 }
@@ -59,7 +59,7 @@ func (s *KeyService) GetPublicKey(ctx context.Context, userID uint) (*models.Use
 func (s *KeyService) GetPublicKeys(ctx context.Context, userIDs []uint) ([]models.UserKey, error) {
 	keys, err := s.userKeyRepo.FindByUserIDs(ctx, userIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get public keys: %w", err)
+		return nil, fmt.Errorf("get public keys: %w", err)
 	}
 	return keys, nil
 }
@@ -73,7 +73,7 @@ func (s *KeyService) SaveKeyBackup(ctx context.Context, userID uint, encryptedKe
 		IV:           iv,
 	}
 	if err := s.keyBackupRepo.Upsert(ctx, backup); err != nil {
-		return fmt.Errorf("failed to save key backup: %w", err)
+		return fmt.Errorf("save key backup: %w", err)
 	}
 	return nil
 }
@@ -85,7 +85,7 @@ func (s *KeyService) GetKeyBackup(ctx context.Context, userID uint) (*models.Key
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrKeyBackupNotFound
 		}
-		return nil, fmt.Errorf("failed to get key backup: %w", err)
+		return nil, fmt.Errorf("get key backup: %w", err)
 	}
 	return backup, nil
 }
@@ -93,7 +93,7 @@ func (s *KeyService) GetKeyBackup(ctx context.Context, userID uint) (*models.Key
 // DeleteKeyBackup removes a user's key backup
 func (s *KeyService) DeleteKeyBackup(ctx context.Context, userID uint) error {
 	if err := s.keyBackupRepo.Delete(ctx, userID); err != nil {
-		return fmt.Errorf("failed to delete key backup: %w", err)
+		return fmt.Errorf("delete key backup: %w", err)
 	}
 	return nil
 }

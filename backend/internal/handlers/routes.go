@@ -133,10 +133,12 @@ func registerUserRoutes(api *gin.RouterGroup, userHandler *UserHandler, wsHandle
 func registerKeyRoutes(api *gin.RouterGroup, h *KeyHandler) {
 	keys := api.Group("/keys")
 	keys.PUT("", h.UploadPublicKey)
-	keys.GET("/:user_id", h.GetPublicKey)
+	// Static routes MUST be registered before parameterized routes
+	// to avoid /keys/backup being matched by /keys/:user_id
 	keys.PUT("/backup", h.SaveKeyBackup)
 	keys.GET("/backup", h.GetKeyBackup)
 	keys.DELETE("/backup", h.DeleteKeyBackup)
+	keys.GET("/:user_id", h.GetPublicKey)
 }
 
 func registerPushRoutes(api *gin.RouterGroup, h *PushHandler) {

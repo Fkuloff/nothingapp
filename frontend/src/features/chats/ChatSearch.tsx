@@ -3,7 +3,6 @@ import { getChatMessages } from '../../shared/api/chatsApi'
 import { getOrDeriveChatKey } from '../../shared/crypto/keyExchange'
 import { decryptText } from '../../shared/crypto/encryption'
 import { hasIdentityKeys } from '../../shared/crypto/keyStore'
-import type { Message } from '../../shared/api/types'
 
 type SearchResult = {
   messageId: number

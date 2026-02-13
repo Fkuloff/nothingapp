@@ -32,8 +32,12 @@ export async function exportPrivateKey(key: CryptoKey): Promise<JsonWebKey> {
 
 /**
  * Import a public key from JWK format.
+ * Validates JWK structure before importing to catch tampered keys early.
  */
 export async function importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
+  if (jwk.kty !== 'EC' || jwk.crv !== 'P-256' || !jwk.x || !jwk.y) {
+    throw new Error('Invalid public key: expected EC P-256 JWK with x,y coordinates')
+  }
   return crypto.subtle.importKey('jwk', jwk, ECDH_PARAMS, true, [])
 }
 

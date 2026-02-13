@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { backupPrivateKey, restorePrivateKey } from '../../shared/crypto/keyExchange'
-import { hasIdentityKeys, clearAllCryptoData } from '../../shared/crypto/keyStore'
+import { clearAllCryptoData } from '../../shared/crypto/keyStore'
 
 type Props = {
   cryptoReady: boolean

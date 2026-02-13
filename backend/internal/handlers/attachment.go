@@ -73,14 +73,13 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 	}
 
 	// Parse E2E encryption metadata (optional — present only for encrypted uploads)
-	fileIVs := c.PostForm("file_ivs")           // JSON: {"filename": "base64-iv", ...}
-	originalTypes := c.PostForm("original_types") // JSON: {"filename": "mime/type", ...}
-	originalNames := c.PostForm("original_names") // JSON: {"filename": "original-name", ...}
-
-	cryptoMeta := &services.AttachmentCryptoMeta{
-		FileIVs:       fileIVs,
-		OriginalTypes: originalTypes,
-		OriginalNames: originalNames,
+	var cryptoMeta *services.AttachmentCryptoMeta
+	if fileIVs := c.PostForm("file_ivs"); fileIVs != "" {
+		cryptoMeta = &services.AttachmentCryptoMeta{
+			FileIVs:       fileIVs,
+			OriginalTypes: c.PostForm("original_types"),
+			OriginalNames: c.PostForm("original_names"),
+		}
 	}
 
 	// Upload attachments

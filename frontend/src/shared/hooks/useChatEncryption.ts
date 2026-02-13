@@ -9,6 +9,8 @@ import type { Message, WSMessageAction, WSEventNew, WSEventEdit } from '../api/t
  * Wraps the WebSocket send function to encrypt outgoing messages,
  * and provides helpers to decrypt incoming messages.
  */
+const MAX_CACHED_KEYS = 50
+
 export function useChatEncryption(otherUserId: number | undefined) {
   const keyCache = useRef<Map<number, CryptoKey>>(new Map())
 
@@ -22,6 +24,13 @@ export function useChatEncryption(otherUserId: number | undefined) {
 
       const key = await getOrDeriveChatKey(chatId, otherUserId)
       if (key) {
+        // Evict oldest entry if cache is full
+        if (keyCache.current.size >= MAX_CACHED_KEYS) {
+          const oldest = keyCache.current.keys().next().value
+          if (oldest !== undefined) {
+            keyCache.current.delete(oldest)
+          }
+        }
         keyCache.current.set(chatId, key)
       }
       return key

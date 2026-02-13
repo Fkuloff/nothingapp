@@ -27,39 +27,36 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-function dbPut(storeName: string, value: unknown): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    const db = await openDB()
+async function dbPut(storeName: string, value: unknown): Promise<void> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite')
     const store = tx.objectStore(storeName)
-    const request = store.put(value)
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-    tx.oncomplete = () => db.close()
+    store.put(value)
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onerror = () => { db.close(); reject(tx.error) }
   })
 }
 
-function dbGet<T>(storeName: string, key: string | number): Promise<T | null> {
-  return new Promise(async (resolve, reject) => {
-    const db = await openDB()
+async function dbGet<T>(storeName: string, key: string | number): Promise<T | null> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, 'readonly')
     const store = tx.objectStore(storeName)
     const request = store.get(key)
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve((request.result as T) ?? null)
-    tx.oncomplete = () => db.close()
+    tx.oncomplete = () => { db.close(); resolve((request.result as T) ?? null) }
+    tx.onerror = () => { db.close(); reject(tx.error) }
   })
 }
 
-function dbDelete(storeName: string, key: string | number): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    const db = await openDB()
+async function dbDelete(storeName: string, key: string | number): Promise<void> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite')
     const store = tx.objectStore(storeName)
-    const request = store.delete(key)
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-    tx.oncomplete = () => db.close()
+    store.delete(key)
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onerror = () => { db.close(); reject(tx.error) }
   })
 }
 
