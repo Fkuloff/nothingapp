@@ -1,11 +1,23 @@
 package handlers
 
 import (
+	"net/url"
+	"strings"
+
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+// validatePushEndpoint checks that the endpoint is a valid HTTPS URL.
+func validatePushEndpoint(endpoint string) bool {
+	u, err := url.ParseRequestURI(endpoint)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Scheme, "https")
+}
 
 // PushHandler handles push notification REST endpoints
 type PushHandler struct {
@@ -51,7 +63,16 @@ func (h *PushHandler) Subscribe(c *gin.Context) {
 		return
 	}
 
+	if !validatePushEndpoint(req.Endpoint) {
+		sendBadRequest(c, "Invalid push endpoint: must be a valid HTTPS URL")
+		return
+	}
+
 	if err := h.pushService.Subscribe(c.Request.Context(), userID, req.Endpoint, req.P256dh, req.Auth); err != nil {
+		if strings.Contains(err.Error(), "subscription limit reached") {
+			sendBadRequest(c, err.Error())
+			return
+		}
 		h.logger.Error("failed to save push subscription",
 			zap.Error(err),
 			zap.Uint("user_id", userID),

@@ -1,5 +1,5 @@
 import { useTheme } from '../../shared/hooks/useTheme'
-import { usePushNotifications } from '../../shared/hooks/usePushNotifications'
+import { PushToggle } from '../../shared/components/PushToggle'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -9,23 +9,7 @@ type Props = {
 
 export function SettingsModal({ isOpen, onClose }: Props) {
   const { theme, setTheme } = useTheme()
-  const {
-    isSupported: pushSupported,
-    isSubscribed: pushSubscribed,
-    isLoading: pushLoading,
-    permission: pushPermission,
-    subscribe: pushSubscribe,
-    unsubscribe: pushUnsubscribe,
-  } = usePushNotifications()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
-
-  const handlePushToggle = async () => {
-    if (pushSubscribed) {
-      await pushUnsubscribe()
-    } else {
-      await pushSubscribe()
-    }
-  }
 
   if (!isOpen) return null
 
@@ -82,19 +66,7 @@ export function SettingsModal({ isOpen, onClose }: Props) {
             <h3 className="settings-modal__section-title">Уведомления</h3>
             <div className="settings-modal__option">
               <span className="settings-modal__option-label">Push-уведомления</span>
-              {!pushSupported ? (
-                <span className="settings-modal__placeholder">Не поддерживается</span>
-              ) : pushPermission === 'denied' ? (
-                <span className="settings-modal__placeholder">Заблокировано в браузере</span>
-              ) : (
-                <button
-                  className={`btn btn-sm ${pushSubscribed ? 'btn-success' : 'btn-outline-secondary'}`}
-                  onClick={handlePushToggle}
-                  disabled={pushLoading}
-                >
-                  {pushLoading ? '...' : pushSubscribed ? 'Вкл' : 'Выкл'}
-                </button>
-              )}
+              <PushToggle placeholderClass="settings-modal__placeholder" />
             </div>
           </div>
 

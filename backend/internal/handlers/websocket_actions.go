@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
 	"messenger/internal/services"
 
@@ -92,7 +93,7 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 				}
 			}()
 
-			h.logger.Info("attempting push notification for offline recipient",
+			h.logger.Debug("attempting push notification for offline recipient",
 				zap.Uint("sender_id", userID),
 				zap.Uint("recipient_id", otherUserID),
 				zap.Uint("chat_id", msgData.ChatID),
@@ -104,8 +105,9 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 			}
 
 			body := msgData.Text
-			if len(body) > 200 {
-				body = body[:200] + "..."
+			if utf8.RuneCountInString(body) > 200 {
+				runes := []rune(body)
+				body = string(runes[:200]) + "..."
 			}
 
 			payload := services.PushPayload{

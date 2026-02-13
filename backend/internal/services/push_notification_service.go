@@ -63,8 +63,21 @@ func (s *PushNotificationService) GetVAPIDPublicKey() string {
 	return s.vapidPublicKey
 }
 
-// Subscribe stores a push subscription for a user
+// MaxSubscriptionsPerUser is the maximum number of push subscriptions allowed per user.
+const MaxSubscriptionsPerUser = 10
+
+// Subscribe stores a push subscription for a user.
+// Enforces a per-user limit to prevent abuse.
 func (s *PushNotificationService) Subscribe(ctx context.Context, userID uint, endpoint, p256dh, auth string) error {
+	// Check subscription limit before creating a new one
+	count, err := s.pushSubRepo.CountByUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to check subscription count: %w", err)
+	}
+	if count >= MaxSubscriptionsPerUser {
+		return fmt.Errorf("subscription limit reached (max %d)", MaxSubscriptionsPerUser)
+	}
+
 	sub := &models.PushSubscription{
 		UserID:   userID,
 		Endpoint: endpoint,
@@ -81,17 +94,13 @@ func (s *PushNotificationService) Unsubscribe(ctx context.Context, userID uint, 
 
 // HasSubscriptions checks if a user has any push subscriptions
 func (s *PushNotificationService) HasSubscriptions(ctx context.Context, userID uint) (bool, error) {
-	subs, err := s.pushSubRepo.GetByUser(ctx, userID)
-	if err != nil {
-		return false, err
-	}
-	return len(subs) > 0, nil
+	return s.pushSubRepo.ExistsByUser(ctx, userID)
 }
 
 // SendNotification sends a push notification to all subscriptions of a user
 func (s *PushNotificationService) SendNotification(ctx context.Context, recipientUserID uint, payload PushPayload) error {
 	if !s.enabled {
-		s.logger.Info("push notification skipped: not enabled")
+		s.logger.Debug("push notification skipped: not enabled")
 		return nil
 	}
 
@@ -101,7 +110,7 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 	}
 
 	if len(subs) == 0 {
-		s.logger.Info("push notification skipped: no subscriptions for user",
+		s.logger.Debug("push notification skipped: no subscriptions for user",
 			zap.Uint("user_id", recipientUserID),
 		)
 		return nil
@@ -110,7 +119,6 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 	s.logger.Info("sending push notification",
 		zap.Uint("recipient_id", recipientUserID),
 		zap.Int("subscription_count", len(subs)),
-		zap.String("title", payload.Title),
 	)
 
 	payloadJSON, err := json.Marshal(payload)
@@ -118,8 +126,10 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 		return fmt.Errorf("failed to marshal push payload: %w", err)
 	}
 
+	// Use background context so goroutines don't depend on caller's lifecycle.
+	bgCtx := context.Background()
 	for _, sub := range subs {
-		go s.sendToSubscription(ctx, sub, payloadJSON)
+		go s.sendToSubscription(bgCtx, sub, payloadJSON)
 	}
 
 	return nil
@@ -154,9 +164,8 @@ func (s *PushNotificationService) sendToSubscription(ctx context.Context, sub mo
 
 	switch resp.StatusCode {
 	case http.StatusCreated, http.StatusOK:
-		s.logger.Info("push notification delivered successfully",
+		s.logger.Debug("push notification delivered",
 			zap.Uint("user_id", sub.UserID),
-			zap.String("endpoint", sub.Endpoint[:min(len(sub.Endpoint), 80)]),
 		)
 	case http.StatusGone:
 		s.logger.Info("push subscription expired, removing",

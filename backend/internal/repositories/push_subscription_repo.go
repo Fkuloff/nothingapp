@@ -52,3 +52,24 @@ func (r *PushSubscriptionRepo) DeleteByEndpointGlobal(ctx context.Context, endpo
 		Where("endpoint = ?", endpoint).
 		Delete(&models.PushSubscription{}).Error
 }
+
+// ExistsByUser checks if a user has at least one push subscription.
+func (r *PushSubscriptionRepo) ExistsByUser(ctx context.Context, userID uint) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.PushSubscription{}).
+		Where("user_id = ?", userID).
+		Limit(1).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// CountByUser returns the number of push subscriptions for a user.
+func (r *PushSubscriptionRepo) CountByUser(ctx context.Context, userID uint) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.PushSubscription{}).
+		Where("user_id = ?", userID).
+		Count(&count).Error
+	return count, err
+}

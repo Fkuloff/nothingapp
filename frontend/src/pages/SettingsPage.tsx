@@ -1,28 +1,12 @@
 import { useOutletContext } from 'react-router-dom'
 import { useTheme } from '../shared/hooks/useTheme'
-import { usePushNotifications } from '../shared/hooks/usePushNotifications'
+import { PushToggle } from '../shared/components/PushToggle'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import type { OutletContextType } from '../App'
 
 export default function SettingsPage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()
   const { theme, setTheme } = useTheme()
-  const {
-    isSupported: pushSupported,
-    isSubscribed: pushSubscribed,
-    isLoading: pushLoading,
-    permission: pushPermission,
-    subscribe: pushSubscribe,
-    unsubscribe: pushUnsubscribe,
-  } = usePushNotifications()
-
-  const handlePushToggle = async () => {
-    if (pushSubscribed) {
-      await pushUnsubscribe()
-    } else {
-      await pushSubscribe()
-    }
-  }
 
   return (
     <div className="page-container">
@@ -58,19 +42,7 @@ export default function SettingsPage() {
           </div>
           <div className="settings-item">
             <span>Push-уведомления</span>
-            {!pushSupported ? (
-              <span className="chip">Не поддерживается</span>
-            ) : pushPermission === 'denied' ? (
-              <span className="chip">Заблокировано</span>
-            ) : (
-              <button
-                className={`btn btn-sm ${pushSubscribed ? 'btn-success' : 'btn-outline-secondary'}`}
-                onClick={handlePushToggle}
-                disabled={pushLoading}
-              >
-                {pushLoading ? '...' : pushSubscribed ? 'Вкл' : 'Выкл'}
-              </button>
-            )}
+            <PushToggle placeholderClass="chip" />
           </div>
         </div>
 
