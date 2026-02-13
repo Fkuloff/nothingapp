@@ -30,6 +30,12 @@ export const endpoints = {
   presence: {
     get: (userId: number | string) => `/api/presence/${userId}`,
   },
+  push: {
+    vapidKey: '/api/push/vapid-key',
+    subscribe: '/api/push/subscribe',
+    unsubscribe: '/api/push/unsubscribe',
+    status: '/api/push/status',
+  },
   ws: {
     global: '/ws',
   },

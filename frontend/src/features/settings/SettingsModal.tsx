@@ -1,4 +1,5 @@
 import { useTheme } from '../../shared/hooks/useTheme'
+import { PushToggle } from '../../shared/components/PushToggle'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -63,8 +64,9 @@ export function SettingsModal({ isOpen, onClose }: Props) {
 
           <div className="settings-modal__section">
             <h3 className="settings-modal__section-title">Уведомления</h3>
-            <div className="settings-modal__placeholder">
-              Скоро...
+            <div className="settings-modal__option">
+              <span className="settings-modal__option-label">Push-уведомления</span>
+              <PushToggle placeholderClass="settings-modal__placeholder" />
             </div>
           </div>
 

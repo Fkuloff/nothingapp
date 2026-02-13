@@ -1,5 +1,6 @@
 import { useOutletContext } from 'react-router-dom'
 import { useTheme } from '../shared/hooks/useTheme'
+import { PushToggle } from '../shared/components/PushToggle'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import type { OutletContextType } from '../App'
 
@@ -32,16 +33,16 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Notifications section - placeholder */}
+        {/* Notifications section */}
         <div className="settings-section">
           <h3>Уведомления</h3>
           <div className="settings-item" style={{ opacity: 0.5 }}>
             <span>Звуковые уведомления</span>
             <span className="chip">Скоро</span>
           </div>
-          <div className="settings-item" style={{ opacity: 0.5 }}>
+          <div className="settings-item">
             <span>Push-уведомления</span>
-            <span className="chip">Скоро</span>
+            <PushToggle placeholderClass="chip" />
           </div>
         </div>
 

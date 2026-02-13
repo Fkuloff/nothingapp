@@ -13,9 +13,12 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Storage   *storage.StorageConfig
-	DBURL     string
-	JWTSecret string
+	Storage         *storage.StorageConfig
+	DBURL           string
+	JWTSecret       string
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string
 }
 
 // Sentinel errors for configuration validation
@@ -45,8 +48,11 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &Config{
-		DBURL:     dbURL,
-		JWTSecret: jwtSecret,
-		Storage:   storage.LoadStorageConfig(),
+		DBURL:           dbURL,
+		JWTSecret:       jwtSecret,
+		Storage:         storage.LoadStorageConfig(),
+		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:    os.Getenv("VAPID_SUBJECT"),
 	}, nil
 }

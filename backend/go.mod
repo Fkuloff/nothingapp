@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/JGLTechnologies/gin-rate-limit v1.5.6
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
