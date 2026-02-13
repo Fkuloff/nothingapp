@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -72,10 +73,27 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
+	// Parse E2E encryption metadata (optional — present only for encrypted uploads)
+	var cryptoMeta *services.AttachmentCryptoMeta
+	if fileIVs := c.PostForm("file_ivs"); fileIVs != "" {
+		cryptoMeta = &services.AttachmentCryptoMeta{
+			FileIVs:       fileIVs,
+			OriginalTypes: c.PostForm("original_types"),
+			OriginalNames: c.PostForm("original_names"),
+		}
+	}
+
 	// Upload attachments
-	attachments, err := h.attachmentService.UploadAttachments(c.Request.Context(), messageID, userID, files)
+	attachments, err := h.attachmentService.UploadAttachments(c.Request.Context(), messageID, userID, files, cryptoMeta)
 	if err != nil {
-		sendInternalError(c, err.Error())
+		switch {
+		case errors.Is(err, services.ErrMessageNotFound):
+			sendNotFound(c, "Message not found")
+		case errors.Is(err, services.ErrNotMessageOwner):
+			sendForbidden(c, "Access denied")
+		default:
+			sendInternalError(c, "Failed to upload attachments")
+		}
 		return
 	}
 
@@ -125,7 +143,14 @@ func (h *AttachmentHandler) DeleteAttachment(c *gin.Context) {
 	}
 
 	if err := h.attachmentService.DeleteAttachment(c.Request.Context(), attachmentID, userID); err != nil {
-		sendInternalError(c, err.Error())
+		switch {
+		case errors.Is(err, services.ErrAttachmentNotFound):
+			sendNotFound(c, "Attachment not found")
+		case errors.Is(err, services.ErrNotMessageOwner):
+			sendForbidden(c, "Access denied")
+		default:
+			sendInternalError(c, "Failed to delete attachment")
+		}
 		return
 	}
 

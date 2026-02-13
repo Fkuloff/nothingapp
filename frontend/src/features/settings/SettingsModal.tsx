@@ -1,6 +1,8 @@
 import { useTheme } from '../../shared/hooks/useTheme'
 import { PushToggle } from '../../shared/components/PushToggle'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { useAuthContext } from '../auth/AuthContext'
+import { KeyManagement } from './KeyManagement'
 
 type Props = {
   isOpen: boolean
@@ -10,6 +12,7 @@ type Props = {
 export function SettingsModal({ isOpen, onClose }: Props) {
   const { theme, setTheme } = useTheme()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  const { cryptoReady, needsKeyRestore, needsBackupFirst, refreshProfile } = useAuthContext()
 
   if (!isOpen) return null
 
@@ -71,10 +74,13 @@ export function SettingsModal({ isOpen, onClose }: Props) {
           </div>
 
           <div className="settings-modal__section">
-            <h3 className="settings-modal__section-title">Конфиденциальность</h3>
-            <div className="settings-modal__placeholder">
-              Скоро...
-            </div>
+            <h3 className="settings-modal__section-title">Шифрование</h3>
+            <KeyManagement
+              cryptoReady={cryptoReady}
+              needsKeyRestore={needsKeyRestore}
+              needsBackupFirst={needsBackupFirst}
+              onKeysRestored={refreshProfile}
+            />
           </div>
         </div>
       </div>

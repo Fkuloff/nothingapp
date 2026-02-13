@@ -155,6 +155,8 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.Attachment{},
 		&models.UnreadMessage{},
 		&models.PushSubscription{},
+		&models.UserKey{},
+		&models.KeyBackup{},
 	)
 }
 

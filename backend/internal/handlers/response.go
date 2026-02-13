@@ -16,11 +16,11 @@ const (
 
 // HTTP response helpers
 
-func sendSuccess(c *gin.Context, data interface{}) {
+func sendSuccess(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, data)
 }
 
-func sendCreated(c *gin.Context, data interface{}) {
+func sendCreated(c *gin.Context, data any) {
 	c.JSON(http.StatusCreated, data)
 }
 

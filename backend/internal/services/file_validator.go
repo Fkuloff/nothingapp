@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"path/filepath"
@@ -44,11 +45,21 @@ var (
 // FileValidator provides centralized file validation logic
 type FileValidator struct{}
 
-// ValidateAttachment validates a file for attachment upload
-func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) error {
+// ValidateAttachment validates a file for attachment upload.
+// When encrypted is true, files have application/octet-stream type and .enc extension — skip MIME checks.
+func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader, encrypted bool) error {
 	contentType := fileHeader.Header.Get("Content-Type")
 	if contentType == "" {
-		return fmt.Errorf("content type not specified")
+		return errors.New("content type not specified")
+	}
+
+	if encrypted {
+		// Encrypted files always arrive as application/octet-stream with .enc suffix.
+		// Validate size only; MIME type and extension were checked client-side before encryption.
+		if fileHeader.Size > MaxFileSize {
+			return fmt.Errorf("file too large (max %d MB)", MaxFileSize/(1024*1024))
+		}
+		return nil
 	}
 
 	// Check if file type is allowed
@@ -56,10 +67,9 @@ func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) err
 		return fmt.Errorf("unsupported file type: %s", contentType)
 	}
 
-	// Check file size based on type
-	maxSize := v.getMaxFileSize(contentType)
-	if fileHeader.Size > maxSize {
-		return fmt.Errorf("file too large (max %d MB)", maxSize/(1024*1024))
+	// Check file size
+	if fileHeader.Size > MaxFileSize {
+		return fmt.Errorf("file too large (max %d MB)", MaxFileSize/(1024*1024))
 	}
 
 	// Validate filename for security
@@ -74,17 +84,17 @@ func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) err
 func (v *FileValidator) ValidateAvatar(fileHeader *multipart.FileHeader) error {
 	contentType := fileHeader.Header.Get("Content-Type")
 	if contentType == "" {
-		return fmt.Errorf("content type not specified")
+		return errors.New("content type not specified")
 	}
 
 	// Check if it's an image
 	if !AllowedImageTypes[contentType] {
-		return fmt.Errorf("avatar must be an image (JPEG, PNG, GIF, or WebP)")
+		return errors.New("avatar must be an image (JPEG, PNG, GIF, or WebP)")
 	}
 
 	// Check size
 	if fileHeader.Size > MaxAvatarSize {
-		return fmt.Errorf("avatar too large (max 10 MB)")
+		return errors.New("avatar too large (max 10 MB)")
 	}
 
 	// Validate filename
@@ -98,14 +108,6 @@ func (v *FileValidator) ValidateAvatar(fileHeader *multipart.FileHeader) error {
 // isAllowedMimeType checks if a MIME type is allowed for any attachment type
 func (v *FileValidator) isAllowedMimeType(mimeType string) bool {
 	return AllowedImageTypes[mimeType] || AllowedVideoTypes[mimeType] || AllowedDocumentTypes[mimeType]
-}
-
-// getMaxFileSize returns the maximum allowed size for a given MIME type
-func (v *FileValidator) getMaxFileSize(mimeType string) int64 {
-	if v.isAllowedMimeType(mimeType) {
-		return MaxFileSize
-	}
-	return 0
 }
 
 // DetermineFileType returns the attachment type based on MIME type
@@ -123,13 +125,12 @@ func (v *FileValidator) DetermineFileType(mimeType string) models.AttachmentType
 func (v *FileValidator) validateFilename(filename string) error {
 	// Prevent path traversal
 	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
-		return fmt.Errorf("invalid filename")
+		return errors.New("invalid filename")
 	}
 
 	// Ensure filename has an extension
-	ext := filepath.Ext(filename)
-	if ext == "" {
-		return fmt.Errorf("filename must have an extension")
+	if filepath.Ext(filename) == "" {
+		return errors.New("filename must have an extension")
 	}
 
 	return nil

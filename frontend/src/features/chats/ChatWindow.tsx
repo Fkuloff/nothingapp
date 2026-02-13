@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Message, WSMessageAction } from '../../shared/api/types'
 import { httpPost } from '../../shared/api/httpClient'
 import { endpoints } from '../../shared/api/endpoints'
@@ -6,6 +6,20 @@ import { MessageList } from './MessageList'
 import { MessageComposer } from './MessageComposer'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
+import { ChatSearch } from './ChatSearch'
+import { useChatEncryption } from '../../shared/hooks/useChatEncryption'
+
+function getEncryptionErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.message === 'E2E_NO_KEYS') {
+      return 'Ключи шифрования не настроены. Откройте Настройки → Ключи шифрования.'
+    }
+    if (err.message === 'E2E_NO_CHAT_KEY') {
+      return 'Не удалось установить защищённое соединение. У собеседника нет ключей шифрования.'
+    }
+  }
+  return 'Ошибка шифрования. Сообщение не отправлено.'
+}
 
 type Props = {
   chatId?: number
@@ -46,9 +60,67 @@ export function ChatWindow({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
+  const prevMessagesLenRef = useRef(messages.length)
 
   const { showToast } = useToast()
+  const { encryptAction, encryptFileForUpload } = useChatEncryption(otherUserId)
+
+  // Upload files when the sender's new message arrives via WebSocket broadcast
+  useEffect(() => {
+    const prevLen = prevMessagesLenRef.current
+    prevMessagesLenRef.current = messages.length
+
+    if (!pendingUploadRef.current || messages.length <= prevLen) return
+
+    // Find the newest message from the current user
+    const newMessage = messages[messages.length - 1]
+    if (!newMessage || newMessage.user_id !== currentUserId) return
+
+    const { chatId: uploadChatId, files } = pendingUploadRef.current
+    if (newMessage.chat_id !== uploadChatId || files.length === 0) return
+
+    pendingUploadRef.current = null
+    const messageId = newMessage.id
+
+    const doUpload = async () => {
+      setUploading(true)
+      const formData = new FormData()
+      const fileIVs: Record<string, string> = {}
+      const originalTypes: Record<string, string> = {}
+      const originalNames: Record<string, string> = {}
+
+      for (const file of files) {
+        const encrypted = await encryptFileForUpload(file, uploadChatId)
+        const encFileName = file.name + '.enc'
+        formData.append('attachments', encrypted.blob, encFileName)
+        fileIVs[encFileName] = encrypted.iv
+        originalTypes[encFileName] = encrypted.originalType
+        originalNames[encFileName] = encrypted.originalName
+      }
+
+      formData.append('file_ivs', JSON.stringify(fileIVs))
+      formData.append('original_types', JSON.stringify(originalTypes))
+      formData.append('original_names', JSON.stringify(originalNames))
+
+      try {
+        await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
+        onMessagesUpdate?.()
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('E2E_')) {
+          showToast(getEncryptionErrorMessage(err), 'error')
+        } else {
+          console.error('Ошибка загрузки вложений:', err)
+          showToast('Не удалось загрузить вложения', 'error')
+        }
+      } finally {
+        setUploading(false)
+      }
+    }
+
+    doUpload().catch(console.error)
+  }, [messages, currentUserId, encryptFileForUpload, onMessagesUpdate, showToast])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -70,7 +142,14 @@ export function ChatWindow({
     }
 
     if (editingMessageId) {
-      const success = send({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      let editAction
+      try {
+        editAction = await encryptAction({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      } catch (err) {
+        showToast(getEncryptionErrorMessage(err), 'error')
+        return
+      }
+      const success = send(editAction)
       if (success) {
         setMessageText('')
         setEditingMessageId(null)
@@ -85,43 +164,26 @@ export function ChatWindow({
       pendingUploadRef.current = { chatId, files: [...selectedFiles] }
     }
 
-    const success = send({
-      action: 'send',
-      chat_id: chatId,
-      text: text || ' ',
-      reply_to_id: replyToId ?? undefined,
-    })
+    let sendAction
+    try {
+      sendAction = await encryptAction({
+        action: 'send',
+        chat_id: chatId,
+        text: text || ' ',
+        reply_to_id: replyToId ?? undefined,
+      })
+    } catch (err) {
+      showToast(getEncryptionErrorMessage(err), 'error')
+      pendingUploadRef.current = null
+      return
+    }
+    const success = send(sendAction)
 
     if (success) {
       setMessageText('')
       setReplyToId(null)
-
-      // Handle file uploads - need to get message ID from the new message
-      if (pendingUploadRef.current) {
-        const { chatId: uploadChatId, files } = pendingUploadRef.current
-        pendingUploadRef.current = null
-        setSelectedFiles([])
-
-        // Wait a bit for the message to be created, then get the last message ID
-        setTimeout(async () => {
-          const lastMessage = messages[messages.length - 1]
-          if (lastMessage && files.length > 0) {
-            setUploading(true)
-            const formData = new FormData()
-            files.forEach((file) => formData.append('attachments', file))
-
-            try {
-              await httpPost(endpoints.attachments.upload(uploadChatId, lastMessage.id + 1), formData)
-              onMessagesUpdate?.()
-            } catch (err) {
-              console.error('Ошибка загрузки вложений:', err)
-              showToast('Не удалось загрузить вложения', 'error')
-            } finally {
-              setUploading(false)
-            }
-          }
-        }, 500)
-      }
+      setSelectedFiles([])
+      // Files will be uploaded by the useEffect when the WS broadcast arrives
     } else {
       showToast('Не удалось отправить сообщение, повторите.', 'error')
       pendingUploadRef.current = null
@@ -204,16 +266,45 @@ export function ChatWindow({
             </div>
           </button>
         </div>
-        {!isConnected && (
-          <div className="chat-header__actions">
+        <div className="chat-header__actions">
+          <button
+            className="chat-header__search-btn"
+            onClick={() => setIsSearchOpen(!isSearchOpen)}
+            aria-label="Поиск по сообщениям"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+          </button>
+          {!isConnected && (
             <span className="badge bg-warning text-dark">Reconnecting</span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {isSearchOpen && otherUserId && (
+        <ChatSearch
+          chatId={chatId}
+          otherUserId={otherUserId}
+          onResultClick={(messageId) => {
+            setIsSearchOpen(false)
+            // Scroll to message — the MessageList component should handle this
+            const el = document.getElementById(`msg-${messageId}`)
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              el.classList.add('highlight')
+              setTimeout(() => el.classList.remove('highlight'), 2000)
+            }
+          }}
+          onClose={() => setIsSearchOpen(false)}
+        />
+      )}
 
       <MessageList
         messages={messages}
         currentUserId={currentUserId}
+        otherUserId={otherUserId}
         otherUsername={otherUsername}
         chatId={chatId}
         loading={loading}

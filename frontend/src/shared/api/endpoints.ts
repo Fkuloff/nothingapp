@@ -36,6 +36,11 @@ export const endpoints = {
     unsubscribe: '/api/push/unsubscribe',
     status: '/api/push/status',
   },
+  keys: {
+    upload: '/api/keys',
+    get: (userId: number | string) => `/api/keys/${userId}`,
+    backup: '/api/keys/backup',
+  },
   ws: {
     global: '/ws',
   },

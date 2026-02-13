@@ -20,6 +20,9 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	if len(msgData.Text) > MaxMessageSize {
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
+	if msgData.IV == "" {
+		return &wsError{message: "E2E encryption required: missing IV"}
+	}
 
 	// Check access to chat and get recipient ID
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
@@ -38,14 +41,14 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 
 	// ATOMIC: Send message and create unread record in single transaction
 	// This prevents TOCTOU race where user comes online between presence check and unread save
-	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
+	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.IV, msgData.ReplyToID, isRecipientOffline)
 	if err != nil {
 		h.logger.Error("error sending message",
 			zap.Error(err),
 			zap.Uint("user_id", userID),
 			zap.Uint("chat_id", msgData.ChatID),
 		)
-		return &wsError{message: "Failed to send message: " + err.Error()}
+		return &wsError{message: "Failed to send message"}
 	}
 
 	replyToIDVal := uint(0)
@@ -53,11 +56,12 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		replyToIDVal = *message.ReplyToID
 	}
 
-	broadcastData := map[string]interface{}{
+	broadcastData := map[string]any{
 		"action":      "new",
 		"chat_id":     msgData.ChatID,
 		"user_id":     userID,
 		"text":        msgData.Text,
+		"iv":          msgData.IV,
 		"reply_to_id": replyToIDVal,
 		"id":          message.ID,
 		"created_at":  message.CreatedAt,
@@ -82,8 +86,9 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 
 	// Send push notification to recipient regardless of online status.
 	// The Service Worker will suppress the notification if the app tab is visible.
+	// Use generic body since message is E2E encrypted and server cannot read it.
 	if h.pushService != nil && h.pushService.IsEnabled() {
-		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, msgData.Text)
+		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, "Новое сообщение")
 	}
 
 	return nil
@@ -147,6 +152,9 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 	if len(msgData.Text) > MaxMessageSize {
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
+	if msgData.IV == "" {
+		return &wsError{message: "E2E encryption required: missing IV"}
+	}
 
 	// Check access to chat
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
@@ -154,21 +162,22 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text)
+	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text, msgData.IV)
 	if err != nil {
 		h.logger.Error("error editing message",
 			zap.Error(err),
 			zap.Uint("message_id", msgData.MessageID),
 			zap.Uint("user_id", userID),
 		)
-		return &wsError{message: "Failed to edit message: " + err.Error()}
+		return &wsError{message: "Failed to edit message"}
 	}
 
-	broadcastData := map[string]interface{}{
+	broadcastData := map[string]any{
 		"action":  "edit",
 		"chat_id": msgData.ChatID,
 		"id":      msgData.MessageID,
 		"text":    msgData.Text,
+		"iv":      msgData.IV,
 		"user_id": userID,
 	}
 	msgJSON, err := json.Marshal(broadcastData)
@@ -208,10 +217,10 @@ func (h *WebSocketHandler) handleDeleteMessage(ctx context.Context, userID uint,
 			zap.Uint("message_id", msgData.MessageID),
 			zap.Uint("user_id", userID),
 		)
-		return &wsError{message: "Failed to delete message: " + err.Error()}
+		return &wsError{message: "Failed to delete message"}
 	}
 
-	broadcastData := map[string]interface{}{
+	broadcastData := map[string]any{
 		"action":     "delete",
 		"chat_id":    msgData.ChatID,
 		"id":         msgData.MessageID,
