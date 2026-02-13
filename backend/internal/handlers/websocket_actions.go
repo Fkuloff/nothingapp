@@ -81,53 +81,58 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	}
 
 	// Send push notification if recipient is offline.
-	// Uses context.Background() intentionally: push delivery must not depend on the sender's WebSocket connection.
 	if isRecipientOffline && h.pushService != nil && h.pushService.IsEnabled() {
-		go func() { //nolint:contextcheck // intentionally detached from client context
-			defer func() {
-				if r := recover(); r != nil {
-					h.logger.Error("panic in push notification goroutine",
-						zap.Any("panic", r),
-						zap.Uint("recipient_id", otherUserID),
-					)
-				}
-			}()
-
-			h.logger.Debug("attempting push notification for offline recipient",
-				zap.Uint("sender_id", userID),
-				zap.Uint("recipient_id", otherUserID),
-				zap.Uint("chat_id", msgData.ChatID),
-			)
-
-			senderName := "New message"
-			if sender, err := h.userService.GetUserByID(context.Background(), userID); err == nil {
-				senderName = sender.GetDisplayName()
-			}
-
-			body := msgData.Text
-			if utf8.RuneCountInString(body) > 200 {
-				runes := []rune(body)
-				body = string(runes[:200]) + "..."
-			}
-
-			payload := services.PushPayload{
-				Title:  senderName,
-				Body:   body,
-				ChatID: msgData.ChatID,
-				UserID: userID,
-				Tag:    fmt.Sprintf("chat-%d", msgData.ChatID),
-			}
-
-			if err := h.pushService.SendNotification(context.Background(), otherUserID, payload); err != nil {
-				h.logger.Error("failed to send push notification",
-					zap.Error(err),
-					zap.Uint("recipient_id", otherUserID),
-				)
-			}
-		}()
+		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, msgData.Text)
 	}
 
 	return nil
+}
+
+// sendPushNotification sends a push notification to an offline recipient in a background goroutine.
+// Uses context.Background() intentionally: push delivery must not depend on the sender's WebSocket connection.
+//
+//nolint:contextcheck // intentionally detached from client context
+func (h *WebSocketHandler) sendPushNotification(senderID, recipientID, chatID uint, text string) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.logger.Error("panic in push notification goroutine",
+				zap.Any("panic", r),
+				zap.Uint("recipient_id", recipientID),
+			)
+		}
+	}()
+
+	h.logger.Debug("attempting push notification for offline recipient",
+		zap.Uint("sender_id", senderID),
+		zap.Uint("recipient_id", recipientID),
+		zap.Uint("chat_id", chatID),
+	)
+
+	senderName := "New message"
+	if sender, err := h.userService.GetUserByID(context.Background(), senderID); err == nil {
+		senderName = sender.GetDisplayName()
+	}
+
+	body := text
+	if utf8.RuneCountInString(body) > 200 {
+		runes := []rune(body)
+		body = string(runes[:200]) + "..."
+	}
+
+	payload := services.PushPayload{
+		Title:  senderName,
+		Body:   body,
+		ChatID: chatID,
+		UserID: senderID,
+		Tag:    fmt.Sprintf("chat-%d", chatID),
+	}
+
+	if err := h.pushService.SendNotification(context.Background(), recipientID, payload); err != nil {
+		h.logger.Error("failed to send push notification",
+			zap.Error(err),
+			zap.Uint("recipient_id", recipientID),
+		)
+	}
 }
 
 // handleEditMessage processes a message edit

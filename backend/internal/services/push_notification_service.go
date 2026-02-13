@@ -129,7 +129,7 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 	// Use background context so goroutines don't depend on caller's lifecycle.
 	bgCtx := context.Background()
 	for _, sub := range subs {
-		go s.sendToSubscription(bgCtx, sub, payloadJSON)
+		go s.sendToSubscription(bgCtx, sub, payloadJSON) //nolint:contextcheck // intentionally detached from caller context
 	}
 
 	return nil
