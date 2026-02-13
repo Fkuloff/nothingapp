@@ -20,7 +20,6 @@ export const endpoints = {
     upload: (chatId: number | string, messageId: number | string) =>
       `/api/chats/${chatId}/messages/${messageId}/attachments`,
     get: (id: number | string) => `/api/attachments/${id}`,
-    thumbnail: (id: number | string) => `/api/attachments/${id}/thumbnail`,
     remove: (id: number | string) => `/api/attachments/${id}`,
   },
   avatar: {

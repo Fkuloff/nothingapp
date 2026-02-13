@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -171,61 +170,4 @@ func (s *S3Storage) GetURL(key string) string {
 func (s *S3Storage) GetPublicURL(key string) string {
 	// Format: {publicEndpoint}/{bucket}/{key}
 	return fmt.Sprintf("%s/%s/%s", s.publicEndpoint, s.bucket, key)
-}
-
-// GetThumbnailURL returns a presigned URL for thumbnail access
-func (s *S3Storage) GetThumbnailURL(key string) string {
-	return s.GetURL(key)
-}
-
-// SaveThumbnail saves a thumbnail file to S3
-func (s *S3Storage) SaveThumbnail(reader io.Reader, originalKey string) (*FileMetadata, error) {
-	ctx := context.Background()
-
-	// Extract date path from original key
-	// Format: files/YYYY/MM/DD/uuid.ext → thumbnails/YYYY/MM/DD/uuid_thumb.jpg
-	var dateDir string
-	parts := strings.Split(filepath.ToSlash(originalKey), "/")
-	if len(parts) >= 4 && parts[0] == "files" {
-		dateDir = filepath.Join(parts[1], parts[2], parts[3])
-	} else {
-		now := time.Now()
-		dateDir = filepath.Join(
-			fmt.Sprintf("%04d", now.Year()),
-			fmt.Sprintf("%02d", now.Month()),
-			fmt.Sprintf("%02d", now.Day()),
-		)
-	}
-
-	// Generate thumbnail filename
-	uniqueID := uuid.New().String()
-	thumbFileName := fmt.Sprintf("%s_thumb.jpg", uniqueID)
-	storageKey := filepath.ToSlash(filepath.Join("thumbnails", dateDir, thumbFileName))
-
-	// Read thumbnail data
-	var buf bytes.Buffer
-	written, err := io.Copy(&buf, reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read thumbnail data: %w", err)
-	}
-
-	// Upload to S3
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(storageKey),
-		Body:        bytes.NewReader(buf.Bytes()),
-		ContentType: aws.String("image/jpeg"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload thumbnail to S3: %w", err)
-	}
-
-	return &FileMetadata{
-		Key:         storageKey,
-		FileName:    thumbFileName,
-		ContentType: "image/jpeg",
-		Size:        written,
-		URL:         s.GetThumbnailURL(storageKey),
-		UploadedAt:  time.Now(),
-	}, nil
 }

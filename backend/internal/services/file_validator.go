@@ -11,10 +11,8 @@ import (
 
 // File size limits
 const (
-	MaxImageSize    = 100 * 1024 * 1024 // 100MB
-	MaxVideoSize    = 500 * 1024 * 1024 // 500MB
-	MaxDocumentSize = 50 * 1024 * 1024  // 50MB
-	MaxAvatarSize   = 10 * 1024 * 1024  // 10MB
+	MaxFileSize   = 20 * 1024 * 1024 // 20MB - единый лимит для всех типов файлов
+	MaxAvatarSize = 10 * 1024 * 1024 // 10MB
 )
 
 // Allowed MIME types by category
@@ -104,14 +102,8 @@ func (v *FileValidator) isAllowedMimeType(mimeType string) bool {
 
 // getMaxFileSize returns the maximum allowed size for a given MIME type
 func (v *FileValidator) getMaxFileSize(mimeType string) int64 {
-	if AllowedImageTypes[mimeType] {
-		return MaxImageSize
-	}
-	if AllowedVideoTypes[mimeType] {
-		return MaxVideoSize
-	}
-	if AllowedDocumentTypes[mimeType] {
-		return MaxDocumentSize
+	if v.isAllowedMimeType(mimeType) {
+		return MaxFileSize
 	}
 	return 0
 }
