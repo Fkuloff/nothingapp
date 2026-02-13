@@ -162,6 +162,30 @@ export default function ChatsPage() {
     }
   }, [])
 
+  // Handle notification click (from service worker)
+  useEffect(() => {
+    const handleSWMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NOTIFICATION_CLICK' && event.data.chat_id) {
+        setActiveChatId(event.data.chat_id)
+      }
+    }
+
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage)
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', handleSWMessage)
+    }
+  }, [])
+
+  // Handle ?chat= URL parameter (opened from notification in new window)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const chatId = params.get('chat')
+    if (chatId) {
+      setActiveChatId(Number(chatId))
+      window.history.replaceState({}, '', '/')
+    }
+  }, [])
+
   useEffect(() => {
     loadChats()
   }, [loadChats])

@@ -4,6 +4,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+
+	"messenger/internal/services"
 
 	"go.uber.org/zap"
 )
@@ -75,6 +78,53 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 			zap.Uint("chat_id", msgData.ChatID),
 		)
 	}
+
+	// Send push notification if recipient is offline.
+	// Uses context.Background() intentionally: push delivery must not depend on the sender's WebSocket connection.
+	if isRecipientOffline && h.pushService != nil && h.pushService.IsEnabled() {
+		go func() { //nolint:contextcheck // intentionally detached from client context
+			defer func() {
+				if r := recover(); r != nil {
+					h.logger.Error("panic in push notification goroutine",
+						zap.Any("panic", r),
+						zap.Uint("recipient_id", otherUserID),
+					)
+				}
+			}()
+
+			h.logger.Info("attempting push notification for offline recipient",
+				zap.Uint("sender_id", userID),
+				zap.Uint("recipient_id", otherUserID),
+				zap.Uint("chat_id", msgData.ChatID),
+			)
+
+			senderName := "New message"
+			if sender, err := h.userService.GetUserByID(context.Background(), userID); err == nil {
+				senderName = sender.GetDisplayName()
+			}
+
+			body := msgData.Text
+			if len(body) > 200 {
+				body = body[:200] + "..."
+			}
+
+			payload := services.PushPayload{
+				Title:  senderName,
+				Body:   body,
+				ChatID: msgData.ChatID,
+				UserID: userID,
+				Tag:    fmt.Sprintf("chat-%d", msgData.ChatID),
+			}
+
+			if err := h.pushService.SendNotification(context.Background(), otherUserID, payload); err != nil {
+				h.logger.Error("failed to send push notification",
+					zap.Error(err),
+					zap.Uint("recipient_id", otherUserID),
+				)
+			}
+		}()
+	}
+
 	return nil
 }
 

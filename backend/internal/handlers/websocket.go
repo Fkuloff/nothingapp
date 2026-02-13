@@ -32,6 +32,8 @@ type wsClient struct {
 type WebSocketHandler struct {
 	chatService     *services.ChatService
 	presenceService *services.PresenceService
+	pushService     *services.PushNotificationService
+	userService     *services.UserService
 	logger          *zap.Logger
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
@@ -42,11 +44,15 @@ type WebSocketHandler struct {
 func NewWebSocketHandler(
 	chatService *services.ChatService,
 	presenceService *services.PresenceService,
+	pushService *services.PushNotificationService,
+	userService *services.UserService,
 	logger *zap.Logger,
 ) *WebSocketHandler {
 	return &WebSocketHandler{
 		chatService:     chatService,
 		presenceService: presenceService,
+		pushService:     pushService,
+		userService:     userService,
 		logger:          logger,
 		clients:         make(map[uint][]*wsClient),
 		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency

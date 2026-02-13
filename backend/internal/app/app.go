@@ -56,7 +56,7 @@ func Run() error {
 	router := setupRouter(log)
 
 	// Setup routes with dependencies
-	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log); err != nil {
+	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg); err != nil {
 		return fmt.Errorf("setup routes: %w", err)
 	}
 
@@ -154,6 +154,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.Contact{},
 		&models.Attachment{},
 		&models.UnreadMessage{},
+		&models.PushSubscription{},
 	)
 }
 
