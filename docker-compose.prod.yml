@@ -132,10 +132,11 @@ services:
     networks:
       - messenger-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
+      test: ["CMD", "/app/messenger", "-health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
 
   # Nginx Frontend
   frontend:
@@ -148,10 +149,11 @@ services:
     networks:
       - messenger-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:80 || exit 1"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
 volumes:
   postgres_data:

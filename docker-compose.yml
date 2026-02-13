@@ -84,9 +84,10 @@ services:
       STORAGE_S3_USE_SSL: ${STORAGE_S3_USE_SSL:-false}
       STORAGE_S3_PRESIGNED_EXPIRY: ${STORAGE_S3_PRESIGNED_EXPIRY:-3600}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 3s
+      test: ["CMD", "/app/messenger", "-health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
       retries: 3
 
   # pgAdmin (optional, for development)
@@ -116,7 +117,8 @@ services:
     container_name: nothing-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${PORT:-80}:80"
 
