@@ -4,6 +4,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"unicode/utf8"
+
+	"messenger/internal/services"
 
 	"go.uber.org/zap"
 )
@@ -75,7 +79,61 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 			zap.Uint("chat_id", msgData.ChatID),
 		)
 	}
+
+	// Send push notification to recipient regardless of online status.
+	// The Service Worker will suppress the notification if the app tab is visible.
+	if h.pushService != nil && h.pushService.IsEnabled() {
+		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, msgData.Text)
+	}
+
 	return nil
+}
+
+// sendPushNotification sends a push notification to a recipient in a background goroutine.
+// Uses context.Background() intentionally: push delivery must not depend on the sender's WebSocket connection.
+//
+//nolint:contextcheck // intentionally detached from client context
+func (h *WebSocketHandler) sendPushNotification(senderID, recipientID, chatID uint, text string) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.logger.Error("panic in push notification goroutine",
+				zap.Any("panic", r),
+				zap.Uint("recipient_id", recipientID),
+			)
+		}
+	}()
+
+	h.logger.Debug("attempting push notification",
+		zap.Uint("sender_id", senderID),
+		zap.Uint("recipient_id", recipientID),
+		zap.Uint("chat_id", chatID),
+	)
+
+	senderName := "New message"
+	if sender, err := h.userService.GetUserByID(context.Background(), senderID); err == nil {
+		senderName = sender.GetDisplayName()
+	}
+
+	body := text
+	if utf8.RuneCountInString(body) > 200 {
+		runes := []rune(body)
+		body = string(runes[:200]) + "..."
+	}
+
+	payload := services.PushPayload{
+		Title:  senderName,
+		Body:   body,
+		ChatID: chatID,
+		UserID: senderID,
+		Tag:    fmt.Sprintf("chat-%d", chatID),
+	}
+
+	if err := h.pushService.SendNotification(context.Background(), recipientID, payload); err != nil {
+		h.logger.Error("failed to send push notification",
+			zap.Error(err),
+			zap.Uint("recipient_id", recipientID),
+		)
+	}
 }
 
 // handleEditMessage processes a message edit
