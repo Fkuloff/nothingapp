@@ -16,11 +16,10 @@ import (
 
 // UserService handles business logic for users
 type UserService struct {
-	logger       *zap.Logger
-	userRepo     *repositories.UserRepo
-	storage      storage.Storage
-	thumbnailGen *ThumbnailGenerator
-	validator    *FileValidator
+	logger    *zap.Logger
+	userRepo  *repositories.UserRepo
+	storage   storage.Storage
+	validator *FileValidator
 }
 
 // NewUserService creates a new UserService instance
@@ -30,11 +29,10 @@ func NewUserService(
 	storage storage.Storage,
 ) *UserService {
 	return &UserService{
-		logger:       logger,
-		userRepo:     userRepo,
-		storage:      storage,
-		thumbnailGen: NewThumbnailGenerator(storage),
-		validator:    &FileValidator{},
+		logger:    logger,
+		userRepo:  userRepo,
+		storage:   storage,
+		validator: &FileValidator{},
 	}
 }
 

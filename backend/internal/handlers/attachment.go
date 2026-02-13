@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -110,35 +109,6 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 
 	// Stream file
 	c.DataFromReader(http.StatusOK, attachment.FileSize, attachment.MimeType, reader, nil)
-}
-
-// GetThumbnail serves thumbnail (PUBLIC endpoint - no JWT required)
-// Access control: Thumbnails are publicly accessible via S3 presigned URLs
-// This endpoint simply proxies the request to the storage backend
-func (h *AttachmentHandler) GetThumbnail(c *gin.Context) {
-	attachmentID, err := parseUintParam(c, "id")
-	if err != nil {
-		sendBadRequest(c, "Invalid attachment ID")
-		return
-	}
-
-	_, reader, err := h.attachmentService.GetThumbnail(c.Request.Context(), attachmentID)
-	if err != nil {
-		sendNotFound(c, err.Error())
-		return
-	}
-	defer reader.Close()
-
-	// Set headers for inline display
-	c.Header("Content-Type", "image/jpeg")
-	c.Status(http.StatusOK)
-
-	// Stream thumbnail without setting Content-Length (auto-detected)
-	if _, copyErr := io.Copy(c.Writer, reader); copyErr != nil {
-		// Log error but don't send response as headers already sent
-		// c.Error returns *Error which we can safely ignore here
-		c.Error(copyErr) //nolint:errcheck // error already being logged via Gin's error handling
-	}
 }
 
 // DeleteAttachment removes an attachment

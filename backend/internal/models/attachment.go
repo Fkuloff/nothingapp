@@ -30,11 +30,10 @@ type Attachment struct {
 	MimeType   string         `gorm:"type:varchar(100);not null" json:"mime_type"`
 	FileSize   int64          `gorm:"not null" json:"file_size"`
 
-	ThumbnailKey *string  `gorm:"type:varchar(500)" json:"thumbnail_key,omitempty"`
-	Width        *int     `gorm:"default:null" json:"width,omitempty"`
-	Height       *int     `gorm:"default:null" json:"height,omitempty"`
-	Duration     *int     `gorm:"default:null" json:"duration,omitempty"`
-	Message      *Message `gorm:"foreignKey:MessageID" json:"-"`
+	Width    *int     `gorm:"default:null" json:"width,omitempty"`
+	Height   *int     `gorm:"default:null" json:"height,omitempty"`
+	Duration *int     `gorm:"default:null" json:"duration,omitempty"`
+	Message  *Message `gorm:"foreignKey:MessageID" json:"-"`
 }
 
 // IsImage returns true if the attachment is an image
@@ -45,9 +44,4 @@ func (a *Attachment) IsImage() bool {
 // IsVideo returns true if the attachment is a video
 func (a *Attachment) IsVideo() bool {
 	return a.FileType == AttachmentTypeVideo
-}
-
-// RequiresThumbnail returns true if the attachment needs a thumbnail
-func (a *Attachment) RequiresThumbnail() bool {
-	return a.IsImage() || a.IsVideo()
 }

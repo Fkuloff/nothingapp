@@ -35,7 +35,7 @@ function AttachmentView({ att, onImageClick }: AttachmentViewProps) {
         className="attachment-image-btn"
         onClick={() => onImageClick(endpoints.attachments.get(att.id!), att.file_name)}
       >
-        <img src={endpoints.attachments.thumbnail(att.id)} alt={att.file_name} />
+        <img src={endpoints.attachments.get(att.id)} alt={att.file_name} loading="lazy" />
       </button>
     )
   }

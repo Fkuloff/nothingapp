@@ -54,7 +54,6 @@ func SetupRoutes(
 
 	// Public attachment endpoints (GET - no JWT, files are publicly accessible)
 	router.GET("/api/attachments/:id", attachmentHandler.DownloadAttachment)
-	router.GET("/api/attachments/:id/thumbnail", attachmentHandler.GetThumbnail)
 
 	// Public avatar endpoint
 	router.GET("/api/avatars/:user_id", userHandler.GetAvatar)
