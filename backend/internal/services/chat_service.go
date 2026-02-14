@@ -8,6 +8,7 @@ import (
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
+	"messenger/internal/storage"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -24,6 +25,7 @@ type ChatService struct {
 	chatRepo          *repositories.ChatRepo
 	messageRepo       *repositories.MessageRepo
 	unreadMessageRepo *repositories.UnreadMessageRepo
+	fileStorage       storage.Storage
 }
 
 func NewChatService(
@@ -32,6 +34,7 @@ func NewChatService(
 	chatRepo *repositories.ChatRepo,
 	messageRepo *repositories.MessageRepo,
 	unreadMessageRepo *repositories.UnreadMessageRepo,
+	fileStorage storage.Storage,
 ) *ChatService {
 	return &ChatService{
 		db:                db,
@@ -39,6 +42,7 @@ func NewChatService(
 		chatRepo:          chatRepo,
 		messageRepo:       messageRepo,
 		unreadMessageRepo: unreadMessageRepo,
+		fileStorage:       fileStorage,
 	}
 }
 
@@ -339,6 +343,100 @@ func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint)
 	}
 
 	return nil
+}
+
+// ClearChat hard-deletes all messages, attachments and unread records in a chat
+func (s *ChatService) ClearChat(ctx context.Context, chatID, userID uint) error {
+	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
+	if err != nil {
+		return errors.New("chat not found")
+	}
+	if !chat.HasUser(userID) {
+		return errors.New("access denied")
+	}
+
+	storageKeys, err := s.purgeMessagesAndAttachments(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	s.deleteStorageFiles(storageKeys)
+	return nil
+}
+
+// DeleteChat hard-deletes a chat and all its messages, attachments, and unread records
+func (s *ChatService) DeleteChat(ctx context.Context, chatID, userID uint) error {
+	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
+	if err != nil {
+		return errors.New("chat not found")
+	}
+	if !chat.HasUser(userID) {
+		return errors.New("access denied")
+	}
+
+	storageKeys, err := s.purgeChat(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	s.deleteStorageFiles(storageKeys)
+	return nil
+}
+
+// purgeMessagesAndAttachments hard-deletes messages, attachments and unread records for a chat.
+// Returns storage keys of deleted attachments for cleanup.
+func (s *ChatService) purgeMessagesAndAttachments(ctx context.Context, chatID uint) ([]string, error) {
+	// Collect attachment storage keys before deleting
+	var storageKeys []string
+	if err := s.db.WithContext(ctx).Model(&models.Attachment{}).
+		Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).
+		Pluck("storage_key", &storageKeys).Error; err != nil {
+		return nil, fmt.Errorf("fetch attachment keys: %w", err)
+	}
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Delete unread messages
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.UnreadMessage{}).Error; err != nil {
+			return fmt.Errorf("delete unread messages: %w", err)
+		}
+		// Delete attachments
+		if err := tx.Unscoped().Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).Delete(&models.Attachment{}).Error; err != nil {
+			return fmt.Errorf("delete attachments: %w", err)
+		}
+		// Clear reply references to avoid FK constraint issues
+		if err := tx.Model(&models.Message{}).Where("chat_id = ? AND reply_to_id IS NOT NULL", chatID).Update("reply_to_id", nil).Error; err != nil {
+			return fmt.Errorf("clear reply references: %w", err)
+		}
+		// Hard-delete messages
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.Message{}).Error; err != nil {
+			return fmt.Errorf("delete messages: %w", err)
+		}
+		return nil
+	})
+
+	return storageKeys, err
+}
+
+// purgeChat hard-deletes a chat and all its data. Returns storage keys for cleanup.
+func (s *ChatService) purgeChat(ctx context.Context, chatID uint) ([]string, error) {
+	storageKeys, err := s.purgeMessagesAndAttachments(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Hard-delete the chat itself (Unscoped bypasses GORM soft-delete)
+	if err := s.db.WithContext(ctx).Unscoped().Delete(&models.Chat{}, chatID).Error; err != nil {
+		return storageKeys, fmt.Errorf("delete chat: %w", err)
+	}
+
+	return storageKeys, nil
+}
+
+// deleteStorageFiles removes files from storage (best-effort, errors are logged)
+func (s *ChatService) deleteStorageFiles(keys []string) {
+	for _, key := range keys {
+		if err := s.fileStorage.Delete(key); err != nil {
+			s.logger.Warn("failed to delete file from storage", zap.Error(err), zap.String("key", key))
+		}
+	}
 }
 
 // GetUnreadMessagesForUser retrieves all unread messages for a user

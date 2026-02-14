@@ -1,5 +1,5 @@
 import type { ChatListResponse, ChatItem, MessagesResponse, Message, ChatCreateResponse } from './types'
-import { httpGet, httpPost } from './httpClient'
+import { httpGet, httpPost, httpDelete } from './httpClient'
 import { endpoints } from './endpoints'
 
 // Fetch chats of the current user
@@ -21,6 +21,16 @@ export async function createChat(otherUserId: number): Promise<ChatCreateRespons
 // Create a chat with another user by username
 export async function createChatByUsername(otherUsername: string): Promise<ChatCreateResponse> {
   return httpPost<ChatCreateResponse>(endpoints.chats.create, { other_username: otherUsername })
+}
+
+// Delete a chat
+export async function deleteChat(chatId: number): Promise<void> {
+  await httpDelete(endpoints.chats.delete(chatId))
+}
+
+// Clear all messages in a chat
+export async function clearChat(chatId: number): Promise<void> {
+  await httpPost(endpoints.chats.clear(chatId), {})
 }
 
 // Fetch messages of a chat

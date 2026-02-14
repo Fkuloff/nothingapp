@@ -1,6 +1,6 @@
 import { httpGet, httpPut } from '../api/httpClient'
 import { generateKeyPair, exportKey, importPublicKey, importPrivateKey, deriveSharedKey } from './keys'
-import { savePrivateKey, savePublicKey, getPrivateKey, getPublicKey, getChatKey, saveChatKey, hasIdentityKeys } from './keyStore'
+import { savePrivateKey, savePublicKey, getPrivateKey, getPublicKey, getChatKey, saveChatKey, hasIdentityKeys, clearAllCryptoData } from './keyStore'
 import { arrayBufferToBase64, base64ToArrayBuffer } from './encryption'
 
 // --- Public Key Exchange ---
@@ -45,6 +45,17 @@ export type KeyInitResult = {
 }
 
 export async function initializeKeys(userId?: number): Promise<KeyInitResult> {
+  // Ensure crypto keys belong to the current user.
+  // When switching accounts in the same browser, the old user's keys
+  // would be used by the new user, corrupting key exchange.
+  if (userId) {
+    const storedOwner = localStorage.getItem('crypto_owner_id')
+    if (storedOwner && storedOwner !== String(userId)) {
+      await clearAllCryptoData()
+    }
+    localStorage.setItem('crypto_owner_id', String(userId))
+  }
+
   if (await hasIdentityKeys()) {
     const pub = await getPublicKey()
     if (pub) {

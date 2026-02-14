@@ -33,7 +33,7 @@ func SetupRoutes(
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
-	chatService := services.NewChatService(db, logger, chatRepo, messageRepo, unreadMessageRepo)
+	chatService := services.NewChatService(db, logger, chatRepo, messageRepo, unreadMessageRepo, fileStorage)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(logger, attachmentRepo, messageRepo, fileStorage)
 	userService := services.NewUserService(logger, userRepo, fileStorage)
@@ -98,13 +98,16 @@ func registerChatRoutes(api *gin.RouterGroup, chatHandler *ChatHandler, attachme
 	chats.GET("", chatHandler.ListChatsAPI)
 	chats.POST("", chatHandler.CreateChatAPI)
 	chats.GET("/:id", chatHandler.GetChatData)
+	chats.DELETE("/:id", chatHandler.DeleteChatAPI)
+	chats.POST("/:id/clear", chatHandler.ClearChatAPI)
 	chats.GET("/:id/messages", chatHandler.GetChatMessagesAPI)
-	chats.POST("/:chat_id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
+	chats.POST("/:id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
 }
 
 func registerProfileRoutes(api *gin.RouterGroup, h *ProfileHandler) {
 	profile := api.Group("/profile")
 	profile.GET("", h.GetProfileAPI)
+	profile.PUT("", h.UpdateProfileAPI)
 	profile.GET("/:user_id", h.GetProfileAPI)
 
 	contacts := api.Group("/contacts")

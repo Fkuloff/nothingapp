@@ -5,14 +5,14 @@ import { httpGet, httpPost } from '../shared/api/httpClient'
 import type { UserProfile, AvatarUploadResponse } from '../shared/api/types'
 import { endpoints } from '../shared/api/endpoints'
 import { useToast } from '../shared/components/ToastContext'
-import { addContact } from '../shared/api/contactsApi'
+import { addContact, removeContact } from '../shared/api/contactsApi'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import type { OutletContextType } from '../App'
 
 export default function ProfilePage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()
   const { userId } = useParams<{ userId?: string }>()
-  const { user: currentUser } = useAuthContext()
+  const { user: currentUser, refreshProfile } = useAuthContext()
   const { showToast } = useToast()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,7 +72,8 @@ export default function ProfilePage() {
       const response = await httpPost<AvatarUploadResponse>(endpoints.avatar.upload, formData)
 
       if (response.success && currentUser) {
-        setProfile({ ...currentUser, avatar_url: response.avatar_url })
+        await refreshProfile()
+        setProfile((prev) => prev ? { ...prev, avatar_url: response.avatar_url } : prev)
         showToast('Аватар обновлён', 'success')
       }
     } catch (err) {
@@ -93,6 +94,18 @@ export default function ProfilePage() {
       setProfile((prev) => (prev ? { ...prev, is_contact: true } : prev))
     } catch (err) {
       showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось добавить контакт'), 'error')
+    }
+  }
+
+  const handleRemoveContact = async () => {
+    if (!profile?.id) return
+
+    try {
+      await removeContact(profile.id)
+      showToast('Удалено из контактов', 'success')
+      setProfile((prev) => (prev ? { ...prev, is_contact: false } : prev))
+    } catch (err) {
+      showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось удалить контакт'), 'error')
     }
   }
 
@@ -213,13 +226,21 @@ export default function ProfilePage() {
           <div className="profile-hero__right">
             <div className="profile-actions">
               {!isOwnProfile && (
-                <button
-                  onClick={handleAddContact}
-                  className="btn btn-outline-light"
-                  disabled={profile?.is_contact}
-                >
-                  {profile?.is_contact ? 'Уже в контактах' : 'Добавить в контакты'}
-                </button>
+                profile?.is_contact ? (
+                  <button
+                    onClick={handleRemoveContact}
+                    className="btn btn-outline-danger"
+                  >
+                    Удалить из контактов
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleAddContact}
+                    className="btn btn-outline-light"
+                  >
+                    Добавить в контакты
+                  </button>
+                )
               )}
             </div>
           </div>

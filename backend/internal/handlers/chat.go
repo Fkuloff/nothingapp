@@ -229,6 +229,56 @@ func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
 	})
 }
 
+// ClearChatAPI clears all messages in a chat
+func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	chatID, err := parseUintParam(c, "id")
+	if err != nil {
+		sendBadRequest(c, "Invalid chat ID")
+		return
+	}
+
+	if err := h.chatService.ClearChat(c.Request.Context(), chatID, userID); err != nil {
+		if err.Error() == "access denied" {
+			sendForbidden(c, "Access denied")
+		} else {
+			sendInternalError(c, "Failed to clear chat")
+		}
+		return
+	}
+
+	sendSuccess(c, gin.H{"message": "Chat cleared"})
+}
+
+// DeleteChatAPI deletes a chat
+func (h *ChatHandler) DeleteChatAPI(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	chatID, err := parseUintParam(c, "id")
+	if err != nil {
+		sendBadRequest(c, "Invalid chat ID")
+		return
+	}
+
+	if err := h.chatService.DeleteChat(c.Request.Context(), chatID, userID); err != nil {
+		if err.Error() == "access denied" {
+			sendForbidden(c, "Access denied")
+		} else {
+			sendInternalError(c, "Failed to delete chat")
+		}
+		return
+	}
+
+	sendSuccess(c, gin.H{"message": "Chat deleted"})
+}
+
 // GetChatMessagesAPI returns chat messages for external UI
 func (h *ChatHandler) GetChatMessagesAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)

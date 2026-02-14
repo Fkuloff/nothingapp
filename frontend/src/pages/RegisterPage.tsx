@@ -18,10 +18,23 @@ export default function RegisterPage() {
     event.preventDefault()
     setSubmitting(true)
     setError(null)
+
+    const trimmedName = name.trim()
+    if (trimmedName.length < 2) {
+      setError('Имя должно содержать минимум 2 символа (без учёта пробелов)')
+      setSubmitting(false)
+      return
+    }
+    if (password.trim().length === 0) {
+      setError('Пароль не может состоять только из пробелов')
+      setSubmitting(false)
+      return
+    }
+
     try {
       const res = await httpPost<AuthRegisterResponse>(endpoints.auth.register, {
         username,
-        name,
+        name: trimmedName,
         password,
       })
       setAuthToken(res.token)

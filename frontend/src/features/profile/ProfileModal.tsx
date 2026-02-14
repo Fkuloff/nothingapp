@@ -3,6 +3,7 @@ import { useAuthContext } from '../auth/AuthContext'
 import { httpPost, httpPut } from '../../shared/api/httpClient'
 import { endpoints } from '../../shared/api/endpoints'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { useToast } from '../../shared/components/ToastContext'
 import type { AvatarUploadResponse } from '../../shared/api/types'
 
 type Props = {
@@ -16,6 +17,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
   const [isEditing, setIsEditing] = useState(false)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
+  const { showToast } = useToast()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   useEffect(() => {
@@ -44,8 +46,12 @@ export function ProfileModal({ isOpen, onClose }: Props) {
     try {
       await httpPost<AvatarUploadResponse>(endpoints.avatar.upload, formData)
       await refreshProfile()
+      showToast('Аватар успешно загружен', 'success')
     } catch (err) {
       console.error('Failed to upload avatar:', err)
+      showToast('Не удалось загрузить аватар', 'error')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 

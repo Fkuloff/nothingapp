@@ -10,6 +10,7 @@ type Props = {
   messageText: string
   selectedFiles: File[]
   uploading: boolean
+  sending?: boolean
   onMessageTextChange: (text: string) => void
   onSubmit: (event: React.FormEvent) => void
   onFileSelect: (files: File[]) => void
@@ -24,6 +25,7 @@ export function MessageComposer({
   messageText,
   selectedFiles,
   uploading,
+  sending,
   onMessageTextChange,
   onSubmit,
   onFileSelect,
@@ -145,13 +147,17 @@ export function MessageComposer({
           </button>
           <button
             type="submit"
-            className="btn icon-btn send-btn"
+            className={`btn icon-btn send-btn${sending ? ' send-btn--sending' : ''}`}
             title="Отправить"
-            disabled={uploading || (!messageText.trim() && selectedFiles.length === 0)}
+            disabled={uploading || sending || (!messageText.trim() && selectedFiles.length === 0)}
           >
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
+            {sending ? (
+              <span className="send-spinner" />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
+            )}
           </button>
           {showEmojiPicker && (
             <EmojiPicker

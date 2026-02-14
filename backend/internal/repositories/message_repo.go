@@ -81,3 +81,4 @@ func (r *MessageRepo) SoftDeleteMessage(ctx context.Context, id uint) error {
 		Where("id = ?", id).
 		Update("is_deleted", true).Error
 }
+

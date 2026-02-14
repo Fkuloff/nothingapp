@@ -75,3 +75,4 @@ func (r *ChatRepo) FindByIDLight(ctx context.Context, id uint) (*models.Chat, er
 	}
 	return &chat, nil
 }
+

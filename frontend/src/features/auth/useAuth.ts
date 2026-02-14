@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getAuthToken, httpGet, setAuthToken } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { endpoints } from '../../shared/api/endpoints'
 import { initializeKeys } from '../../shared/crypto/keyExchange'
+import { clearAllCryptoData } from '../../shared/crypto/keyStore'
 
 export function useAuth() {
   const [user, setUser] = useState<UserProfile | null>(null)
@@ -11,13 +12,17 @@ export function useAuth() {
   const [cryptoReady, setCryptoReady] = useState(false)
   const [needsKeyRestore, setNeedsKeyRestore] = useState(false)
   const [needsBackupFirst, setNeedsBackupFirst] = useState(false)
+  const initializedRef = useRef(false)
 
   const refreshProfile = useCallback(async () => {
     try {
-      setLoading(true)
+      // Only show loading spinner on initial load, not on refresh.
+      // Setting loading=true unmounts ProtectedRoute's Outlet, closing any open modals.
+      if (!initializedRef.current) setLoading(true)
       setError(null)
       const profile = await httpGet<UserProfile>(endpoints.auth.me)
       setUser(profile)
+      initializedRef.current = true
     } catch (err) {
       console.error('Не удалось получить профиль', err)
       setUser(null)
@@ -38,6 +43,10 @@ export function useAuth() {
       setAuthToken(undefined)
       setUser(null)
       setLoading(false)
+      initializedRef.current = false
+      // Clear crypto keys so they don't leak to the next user session
+      clearAllCryptoData().catch(() => {})
+      localStorage.removeItem('crypto_owner_id')
     }
   }, [])
 
