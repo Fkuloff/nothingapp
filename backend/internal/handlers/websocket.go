@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"messenger/internal/crypto"
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,7 @@ type WebSocketHandler struct {
 	pushService     *services.PushNotificationService
 	userService     *services.UserService
 	logger          *zap.Logger
+	encryptor       *crypto.MessageEncryptor
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
 	broadcastPool   *WorkerPool // Limits concurrent broadcast goroutines
@@ -47,6 +49,7 @@ func NewWebSocketHandler(
 	pushService *services.PushNotificationService,
 	userService *services.UserService,
 	logger *zap.Logger,
+	encryptor *crypto.MessageEncryptor,
 ) *WebSocketHandler {
 	return &WebSocketHandler{
 		chatService:     chatService,
@@ -54,6 +57,7 @@ func NewWebSocketHandler(
 		pushService:     pushService,
 		userService:     userService,
 		logger:          logger,
+		encryptor:       encryptor,
 		clients:         make(map[uint][]*wsClient),
 		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency
 	}
@@ -546,12 +550,19 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			replyToIDVal = *unread.Message.ReplyToID
 		}
 
+		// Decrypt message text from DB before broadcasting
+		text := unread.Message.Text
+		if unread.Message.IV != "" {
+			if plaintext, err := h.encryptor.Decrypt(text, unread.Message.IV); err == nil {
+				text = plaintext
+			}
+		}
+
 		broadcastData := map[string]any{
 			"action":      "new",
 			"chat_id":     unread.ChatID,
 			"user_id":     unread.Message.UserID,
-			"text":        unread.Message.Text,
-			"iv":          unread.Message.IV,
+			"text":        text,
 			"reply_to_id": replyToIDVal,
 			"id":          unread.Message.ID,
 			"created_at":  unread.Message.CreatedAt,

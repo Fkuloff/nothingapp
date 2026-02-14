@@ -11,7 +11,7 @@ type Message struct {
 	ChatID    uint   `gorm:"index:idx_chat_messages"`
 	UserID    uint   `gorm:"index:idx_user_messages"`
 	Text      string `gorm:"not null"`
-	IV        string `gorm:"type:varchar(32)" json:"iv,omitempty"` // AES-GCM nonce (base64); empty = plaintext
+	IV        string `gorm:"type:varchar(32)" json:"-"` // AES-GCM nonce (base64); internal use only
 	IsDeleted bool   `gorm:"default:false"`
 
 	ReplyToID   *uint        `gorm:"index:idx_reply_to"`

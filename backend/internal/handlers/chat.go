@@ -32,7 +32,6 @@ type messageResponse struct {
 	ChatID      uint                `json:"chat_id"`
 	UserID      uint                `json:"user_id"`
 	Text        string              `json:"text"`
-	IV          string              `json:"iv,omitempty"` // AES-GCM nonce; empty = plaintext
 	IsDeleted   bool                `json:"is_deleted"`
 	CreatedAt   time.Time           `json:"created_at"`
 	ReplyToID   *uint               `json:"reply_to_id"`
@@ -52,7 +51,6 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 			ChatID:      msg.ChatID,
 			UserID:      msg.UserID,
 			Text:        msg.Text,
-			IV:          msg.IV,
 			ReplyToID:   msg.ReplyToID,
 			EditedAt:    msg.EditedAt,
 			IsDeleted:   msg.IsDeleted,
@@ -63,27 +61,22 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 	return result
 }
 
-// formatLastMessage extracts display text and IV from the last message in a chat.
-func formatLastMessage(lastMsg *models.Message, err error) (text, iv string) {
+// formatLastMessage extracts display text from the last message in a chat.
+func formatLastMessage(lastMsg *models.Message, err error) string {
 	if err != nil || lastMsg == nil {
-		return "", ""
+		return ""
 	}
 
 	if lastMsg.IsDeleted {
-		return "Message deleted", ""
+		return "Сообщение удалено"
 	}
 
-	text = lastMsg.Text
-	iv = lastMsg.IV
-
-	// Truncate plaintext previews only (encrypted messages are truncated client-side)
-	if iv == "" {
-		if runes := []rune(text); len(runes) > MaxChatListPreview {
-			text = string(runes[:MaxChatListPreview])
-		}
+	text := lastMsg.Text
+	if runes := []rune(text); len(runes) > MaxChatListPreview {
+		text = string(runes[:MaxChatListPreview])
 	}
 
-	return text, iv
+	return text
 }
 
 // GetChatData returns chat data with messages in JSON format for dynamic loading
@@ -153,7 +146,7 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		h.userService.RefreshUserAvatarURL(otherUser)
 
 		lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID)
-		lastMessageText, lastMessageIV := formatLastMessage(lastMsg, err)
+		lastMessageText := formatLastMessage(lastMsg, err)
 
 		items = append(items, chatListItem{
 			ID:            chat.ID,
@@ -161,7 +154,6 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 			OtherUserName: otherUser.GetDisplayName(),
 			AvatarURL:     otherUser.AvatarURL,
 			LastMessage:   lastMessageText,
-			LastMessageIV: lastMessageIV,
 			UnreadCount:   int(unreadCounts[chat.ID]),
 			UpdatedAt:     chat.UpdatedAt,
 		})

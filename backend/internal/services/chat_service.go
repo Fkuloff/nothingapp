@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"messenger/internal/crypto"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 	"messenger/internal/storage"
@@ -26,6 +27,7 @@ type ChatService struct {
 	messageRepo       *repositories.MessageRepo
 	unreadMessageRepo *repositories.UnreadMessageRepo
 	fileStorage       storage.Storage
+	encryptor         *crypto.MessageEncryptor
 }
 
 func NewChatService(
@@ -35,6 +37,7 @@ func NewChatService(
 	messageRepo *repositories.MessageRepo,
 	unreadMessageRepo *repositories.UnreadMessageRepo,
 	fileStorage storage.Storage,
+	encryptor *crypto.MessageEncryptor,
 ) *ChatService {
 	return &ChatService{
 		db:                db,
@@ -43,6 +46,7 @@ func NewChatService(
 		messageRepo:       messageRepo,
 		unreadMessageRepo: unreadMessageRepo,
 		fileStorage:       fileStorage,
+		encryptor:         encryptor,
 	}
 }
 
@@ -104,27 +108,45 @@ func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text
 		replyPtr = &replyToID
 	}
 
+	// Encrypt message text before saving
+	ciphertext, iv, err := s.encryptor.Encrypt(text)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt message: %w", err)
+	}
+
 	// Allow empty text if attachments will be added
 	message := &models.Message{
 		ChatID:    chatID,
 		UserID:    userID,
-		Text:      text,
+		Text:      ciphertext,
+		IV:        iv,
 		ReplyToID: replyPtr,
 	}
 
 	if err := s.messageRepo.Create(ctx, message); err != nil {
 		return nil, fmt.Errorf("create message: %w", err)
 	}
+
+	// Restore plaintext for the caller (e.g. broadcast)
+	message.Text = text
+	message.IV = ""
+
 	return message, nil
 }
 
 // SendMessageAtomic sends a message and creates unread record atomically within a transaction
 // This prevents TOCTOU race conditions where a user could come online between the presence check and unread save
-func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text, iv string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+	// Encrypt message text before saving
+	ciphertext, iv, err := s.encryptor.Encrypt(text)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt message: %w", err)
+	}
+
 	var message *models.Message
 
 	// Wrap message creation + unread save in a single transaction
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Use transaction-aware repositories
 		chatRepo := s.chatRepo.WithTx(tx)
 		messageRepo := s.messageRepo.WithTx(tx)
@@ -145,7 +167,7 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 		message = &models.Message{
 			ChatID:    chatID,
 			UserID:    userID,
-			Text:      text,
+			Text:      ciphertext,
 			IV:        iv,
 			ReplyToID: replyPtr,
 		}
@@ -170,6 +192,10 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 	if err != nil {
 		return nil, err
 	}
+
+	// Restore plaintext for the caller (e.g. broadcast)
+	message.Text = text
+	message.IV = ""
 
 	return message, nil
 }
@@ -231,6 +257,9 @@ func (s *ChatService) GetMessageByID(ctx context.Context, messageID uint) (*mode
 	if err != nil {
 		return nil, fmt.Errorf("find message: %w", err)
 	}
+	messages := []models.Message{*message}
+	s.decryptMessages(messages)
+	*message = messages[0]
 	return message, nil
 }
 
@@ -239,6 +268,7 @@ func (s *ChatService) GetMessages(ctx context.Context, chatID uint) ([]models.Me
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
+	s.decryptMessages(messages)
 	return messages, nil
 }
 
@@ -248,6 +278,7 @@ func (s *ChatService) GetRecentMessages(ctx context.Context, chatID uint, limit 
 	if err != nil {
 		return nil, fmt.Errorf("get recent messages: %w", err)
 	}
+	s.decryptMessages(messages)
 	return messages, nil
 }
 
@@ -260,6 +291,7 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 	if len(messages) == 0 {
 		return nil, ErrNoMessages
 	}
+	s.decryptMessages(messages)
 	return &messages[0], nil
 }
 
@@ -291,7 +323,7 @@ func (s *ChatService) FindChatByIDLight(ctx context.Context, id uint) (*models.C
 }
 
 // EditMessage allows a user to edit their own message
-func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText, iv string) error {
+func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText string) error {
 	// Find the message
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
@@ -313,7 +345,13 @@ func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, n
 		return errors.New("invalid message length")
 	}
 
-	if err := s.messageRepo.UpdateMessage(ctx, messageID, newText, iv); err != nil {
+	// Encrypt before update
+	ciphertext, newIV, err := s.encryptor.Encrypt(newText)
+	if err != nil {
+		return fmt.Errorf("encrypt message: %w", err)
+	}
+
+	if err := s.messageRepo.UpdateMessage(ctx, messageID, ciphertext, newIV); err != nil {
 		return fmt.Errorf("update message: %w", err)
 	}
 
@@ -471,4 +509,26 @@ func (s *ChatService) GetUnreadCounts(ctx context.Context, userID uint) (map[uin
 		return nil, fmt.Errorf("get unread counts: %w", err)
 	}
 	return counts, nil
+}
+
+// decryptMessages decrypts all messages in a slice (including ReplyTo).
+func (s *ChatService) decryptMessages(messages []models.Message) {
+	for i := range messages {
+		if messages[i].IV != "" && messages[i].Text != "" && !messages[i].IsDeleted {
+			if plaintext, err := s.encryptor.Decrypt(messages[i].Text, messages[i].IV); err == nil {
+				messages[i].Text = plaintext
+			} else {
+				messages[i].Text = "[Ошибка расшифровки]"
+			}
+			messages[i].IV = ""
+		}
+		if messages[i].ReplyTo != nil && messages[i].ReplyTo.IV != "" && !messages[i].ReplyTo.IsDeleted {
+			if plaintext, err := s.encryptor.Decrypt(messages[i].ReplyTo.Text, messages[i].ReplyTo.IV); err == nil {
+				messages[i].ReplyTo.Text = plaintext
+			} else {
+				messages[i].ReplyTo.Text = "[Ошибка расшифровки]"
+			}
+			messages[i].ReplyTo.IV = ""
+		}
+	}
 }

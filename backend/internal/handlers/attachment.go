@@ -73,18 +73,8 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
-	// Parse E2E encryption metadata (optional — present only for encrypted uploads)
-	var cryptoMeta *services.AttachmentCryptoMeta
-	if fileIVs := c.PostForm("file_ivs"); fileIVs != "" {
-		cryptoMeta = &services.AttachmentCryptoMeta{
-			FileIVs:       fileIVs,
-			OriginalTypes: c.PostForm("original_types"),
-			OriginalNames: c.PostForm("original_names"),
-		}
-	}
-
 	// Upload attachments
-	attachments, err := h.attachmentService.UploadAttachments(c.Request.Context(), messageID, userID, files, cryptoMeta)
+	attachments, err := h.attachmentService.UploadAttachments(c.Request.Context(), messageID, userID, files)
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrMessageNotFound):

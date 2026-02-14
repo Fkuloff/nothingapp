@@ -5,9 +5,7 @@ import { MessageItem } from './MessageItem'
 type Props = {
   messages: Message[]
   currentUserId?: number
-  otherUserId?: number
   otherUsername: string
-  chatId?: number
   loading?: boolean
   error?: string | null
   onReply: (msgId: number) => void
@@ -18,9 +16,7 @@ type Props = {
 export function MessageList({
   messages,
   currentUserId,
-  otherUserId,
   otherUsername,
-  chatId,
   loading,
   error,
   onReply,
@@ -31,6 +27,9 @@ export function MessageList({
   const prevChatIdRef = useRef<number | undefined>(undefined)
   const prevMessagesLengthRef = useRef<number>(0)
   const hasScrolledRef = useRef(false)
+
+  // Derive chatId from first message (for scroll tracking)
+  const chatId = messages.length > 0 ? messages[0].chat_id : undefined
 
   // Reset scroll flag when chat changes
   useEffect(() => {
@@ -99,8 +98,6 @@ export function MessageList({
           onReply={onReply}
           onEdit={onEdit}
           onDelete={onDelete}
-          chatId={chatId}
-          otherUserId={otherUserId}
         />
       )
     })

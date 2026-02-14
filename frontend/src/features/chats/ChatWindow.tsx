@@ -7,19 +7,6 @@ import { MessageComposer } from './MessageComposer'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
-import { useChatEncryption } from '../../shared/hooks/useChatEncryption'
-
-function getEncryptionErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    if (err.message === 'E2E_NO_KEYS') {
-      return 'Ключи шифрования не настроены. Откройте Настройки → Ключи шифрования.'
-    }
-    if (err.message === 'E2E_NO_CHAT_KEY') {
-      return 'Не удалось установить защищённое соединение. У собеседника нет ключей шифрования.'
-    }
-  }
-  return 'Ошибка шифрования. Сообщение не отправлено.'
-}
 
 type Props = {
   chatId?: number
@@ -98,7 +85,6 @@ export function ChatWindow({
   }, [chatId, onDeleteChat])
 
   const { showToast } = useToast()
-  const { encryptAction, encryptFileForUpload } = useChatEncryption(otherUserId)
 
   // Upload files when the sender's new message arrives via WebSocket broadcast
   useEffect(() => {
@@ -128,40 +114,24 @@ export function ChatWindow({
     const doUpload = async () => {
       setUploading(true)
       const formData = new FormData()
-      const fileIVs: Record<string, string> = {}
-      const originalTypes: Record<string, string> = {}
-      const originalNames: Record<string, string> = {}
 
       for (const file of files) {
-        const encrypted = await encryptFileForUpload(file, uploadChatId)
-        const encFileName = file.name + '.enc'
-        formData.append('attachments', encrypted.blob, encFileName)
-        fileIVs[encFileName] = encrypted.iv
-        originalTypes[encFileName] = encrypted.originalType
-        originalNames[encFileName] = encrypted.originalName
+        formData.append('attachments', file, file.name)
       }
-
-      formData.append('file_ivs', JSON.stringify(fileIVs))
-      formData.append('original_types', JSON.stringify(originalTypes))
-      formData.append('original_names', JSON.stringify(originalNames))
 
       try {
         await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
         onMessagesUpdate?.()
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith('E2E_')) {
-          showToast(getEncryptionErrorMessage(err), 'error')
-        } else {
-          console.error('Ошибка загрузки вложений:', err)
-          showToast('Не удалось загрузить вложения', 'error')
-        }
+        console.error('Ошибка загрузки вложений:', err)
+        showToast('Не удалось загрузить вложения', 'error')
       } finally {
         setUploading(false)
       }
     }
 
     doUpload().catch(console.error)
-  }, [messages, currentUserId, encryptFileForUpload, onMessagesUpdate, showToast])
+  }, [messages, currentUserId, onMessagesUpdate, showToast])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -183,14 +153,7 @@ export function ChatWindow({
     }
 
     if (editingMessageId) {
-      let editAction
-      try {
-        editAction = await encryptAction({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
-      } catch (err) {
-        showToast(getEncryptionErrorMessage(err), 'error')
-        return
-      }
-      const success = send(editAction)
+      const success = send({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
       if (success) {
         setMessageText('')
         setEditingMessageId(null)
@@ -205,21 +168,13 @@ export function ChatWindow({
       pendingUploadRef.current = { chatId, files: [...selectedFiles] }
     }
 
-    let sendAction
-    try {
-      sendAction = await encryptAction({
-        action: 'send',
-        chat_id: chatId,
-        text: text || ' ',
-        reply_to_id: replyToId ?? undefined,
-      })
-    } catch (err) {
-      showToast(getEncryptionErrorMessage(err), 'error')
-      pendingUploadRef.current = null
-      return
-    }
     setSending(true)
-    const success = send(sendAction)
+    const success = send({
+      action: 'send',
+      chat_id: chatId,
+      text: text || ' ',
+      reply_to_id: replyToId ?? undefined,
+    })
 
     if (success) {
       setMessageText('')
@@ -356,10 +311,9 @@ export function ChatWindow({
         </div>
       </div>
 
-      {isSearchOpen && otherUserId && (
+      {isSearchOpen && (
         <ChatSearch
           chatId={chatId}
-          otherUserId={otherUserId}
           onResultClick={(messageId) => {
             setIsSearchOpen(false)
             // Scroll to message — the MessageList component should handle this
@@ -377,9 +331,7 @@ export function ChatWindow({
       <MessageList
         messages={messages}
         currentUserId={currentUserId}
-        otherUserId={otherUserId}
         otherUsername={otherUsername}
-        chatId={chatId}
         loading={loading}
         error={error}
         onReply={handleReply}

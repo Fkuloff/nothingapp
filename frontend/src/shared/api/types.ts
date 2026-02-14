@@ -42,7 +42,6 @@ export type ChatItem = {
   other_user_name: string
   avatar_url?: string
   last_message?: string
-  last_message_iv?: string
   unread_count: number
   updated_at: string
 }
@@ -64,7 +63,6 @@ export type Message = {
   chat_id: number
   user_id: number
   text: string
-  iv?: string // AES-GCM nonce for E2E decryption (absent = plaintext/legacy)
   reply_to_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
@@ -85,9 +83,6 @@ export type Attachment = {
   width?: number
   height?: number
   duration?: number
-  iv?: string // AES-GCM nonce for E2E decryption (absent = unencrypted)
-  original_type?: string // Original MIME type before encryption
-  original_name?: string // Original filename before encryption
   created_at?: string
 }
 
@@ -132,13 +127,12 @@ export type ApiError = {
   error: string
 }
 
-// WebSocket message types (client → server)
+// WebSocket message types (client -> server)
 // All messages must include chat_id since we use a global WebSocket connection
 export type WSMessageSend = {
   action: 'send'
   chat_id: number
   text: string
-  iv?: string // AES-GCM nonce (present = E2E encrypted)
   reply_to_id?: number
 }
 
@@ -147,7 +141,6 @@ export type WSMessageEdit = {
   chat_id: number
   message_id: number
   text: string
-  iv?: string // AES-GCM nonce (present = E2E encrypted)
 }
 
 export type WSMessageDelete = {
@@ -163,14 +156,13 @@ export type WSMessageMarkRead = {
 
 export type WSMessageAction = WSMessageSend | WSMessageEdit | WSMessageDelete | WSMessageMarkRead
 
-// WebSocket events (server → client)
+// WebSocket events (server -> client)
 export type WSEventNew = {
   action: 'new'
   id: number
   chat_id: number
   user_id: number
   text: string
-  iv?: string // AES-GCM nonce (present = E2E encrypted)
   reply_to_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
@@ -183,7 +175,6 @@ export type WSEventEdit = {
   id: number
   chat_id: number
   text: string
-  iv?: string // AES-GCM nonce (present = E2E encrypted)
   edited_at?: string
 }
 
