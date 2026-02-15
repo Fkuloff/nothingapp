@@ -897,6 +897,23 @@ textarea::placeholder,
   word-break: break-word;
 }
 
+/* Emoji-only messages (stickers) — no bubble, large emoji */
+.message--emoji-only {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: var(--space-xs) 0;
+}
+
+.message--emoji-only .message__header {
+  opacity: 0.6;
+}
+
+.message-text--emoji-only {
+  font-size: 3rem;
+  line-height: 1.2;
+}
+
 .edited-indicator {
   font-size: 0.75rem;
   color: var(--text-tertiary);
@@ -989,7 +1006,7 @@ textarea::placeholder,
   align-items: center;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
+  border-radius: 24px;
   padding: var(--space-xs) var(--space-sm);
 }
 
@@ -1125,14 +1142,15 @@ textarea::placeholder,
 }
 
 .composer-input {
-  background: transparent;
-  border: none;
+  background: transparent !important;
+  border: none !important;
   color: var(--text-primary);
-  border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
-  font-size: 1rem;
+  border-radius: 0 !important;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.95rem;
   transition: var(--transition);
-  min-height: 52px;
+  min-height: 42px;
+  box-shadow: none !important;
 }
 
 .composer-input::placeholder {
@@ -1141,7 +1159,9 @@ textarea::placeholder,
 
 .composer-input:focus {
   outline: none;
-  box-shadow: none;
+  box-shadow: none !important;
+  background: transparent !important;
+  border: none !important;
 }
 
 /* ============================================
@@ -3011,6 +3031,11 @@ textarea::placeholder,
 
   .telegram-layout.chat-active .telegram-chat-area {
     display: flex !important;
+  }
+
+  /* Keep column layout on mobile when emoji panel is open */
+  .chat-window--emoji-open {
+    flex-direction: column;
   }
 }
 

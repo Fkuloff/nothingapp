@@ -17,7 +17,11 @@ export function useRecentEmojis() {
     setRecentEmojis((prev) => {
       const filtered = prev.filter((e) => e !== emoji)
       const updated = [emoji, ...filtered].slice(0, MAX_RECENT)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+      } catch {
+        // localStorage may be full or unavailable (private browsing)
+      }
       return updated
     })
   }, [])
