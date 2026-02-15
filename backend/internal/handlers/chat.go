@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"time"
 
 	"messenger/internal/models"
@@ -221,8 +222,8 @@ func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
 	})
 }
 
-// ClearChatAPI clears all messages in a chat
-func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
+// chatAction executes a chat operation (clear/delete) with shared validation logic
+func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context, chatID, userID uint) error, failMsg, successMsg string) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -234,41 +235,26 @@ func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
 		return
 	}
 
-	if err := h.chatService.ClearChat(c.Request.Context(), chatID, userID); err != nil {
+	if err := action(c.Request.Context(), chatID, userID); err != nil {
 		if err.Error() == "access denied" {
 			sendForbidden(c, "Access denied")
 		} else {
-			sendInternalError(c, "Failed to clear chat")
+			sendInternalError(c, failMsg)
 		}
 		return
 	}
 
-	sendSuccess(c, gin.H{"message": "Chat cleared"})
+	sendSuccess(c, gin.H{"message": successMsg})
+}
+
+// ClearChatAPI clears all messages in a chat
+func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
+	h.chatAction(c, h.chatService.ClearChat, "Failed to clear chat", "Chat cleared")
 }
 
 // DeleteChatAPI deletes a chat
 func (h *ChatHandler) DeleteChatAPI(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-
-	chatID, err := parseUintParam(c, "id")
-	if err != nil {
-		sendBadRequest(c, "Invalid chat ID")
-		return
-	}
-
-	if err := h.chatService.DeleteChat(c.Request.Context(), chatID, userID); err != nil {
-		if err.Error() == "access denied" {
-			sendForbidden(c, "Access denied")
-		} else {
-			sendInternalError(c, "Failed to delete chat")
-		}
-		return
-	}
-
-	sendSuccess(c, gin.H{"message": "Chat deleted"})
+	h.chatAction(c, h.chatService.DeleteChat, "Failed to delete chat", "Chat deleted")
 }
 
 // GetChatMessagesAPI returns chat messages for external UI
