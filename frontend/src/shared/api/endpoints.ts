@@ -9,6 +9,8 @@ export const endpoints = {
   chats: {
     list: '/api/chats',
     create: '/api/chats',
+    delete: (chatId: number | string) => `/api/chats/${chatId}`,
+    clear: (chatId: number | string) => `/api/chats/${chatId}/clear`,
     messages: (chatId: number | string) => `/api/chats/${chatId}/messages`,
   },
   contacts: {
@@ -35,11 +37,6 @@ export const endpoints = {
     subscribe: '/api/push/subscribe',
     unsubscribe: '/api/push/unsubscribe',
     status: '/api/push/status',
-  },
-  keys: {
-    upload: '/api/keys',
-    get: (userId: number | string) => `/api/keys/${userId}`,
-    backup: '/api/keys/backup',
   },
   ws: {
     global: '/ws',

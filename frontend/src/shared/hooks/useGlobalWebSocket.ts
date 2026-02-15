@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback,useEffect, useRef, useState } from 'react'
+
 import { endpoints } from '../api/endpoints'
 import { getAuthToken } from '../api/httpClient'
-import type { WSMessageAction, WSEvent } from '../api/types'
+import type { WSEvent,WSMessageAction } from '../api/types'
 
 type UseGlobalWebSocketProps = {
   onMessage: (event: WSEvent) => void

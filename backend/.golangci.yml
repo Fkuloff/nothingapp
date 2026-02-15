@@ -285,15 +285,6 @@ issues:
         - revive
         - unused
 
-    # Migration tool: allow some complexity (CLI utility)
-    - path: cmd/migrate/
-      linters:
-        - gocyclo
-        - gocognit
-        - nestif
-        - errorlint  # Old migration code, not critical
-        - gocritic   # CLI tool with different patterns
-
     # Main functions: often have initialization complexity
     - path: cmd/.*/main\.go
       linters:
@@ -345,12 +336,6 @@ issues:
     - text: "Error return value of .*(Close|Sync|Flush). is not checked"
       linters:
         - errcheck
-
-    # Exclude octal literal warnings for file permissions (0600 is clearer than 0o600)
-    - text: "octalLiteral: use new octal literal style"
-      path: cmd/migrate/
-      linters:
-        - gocritic
 
     # Allow ST1003 violations for database field names
     - text: "ST1003: should not use underscores in Go names"

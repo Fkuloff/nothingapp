@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { httpPost, setAuthToken } from '../shared/api/httpClient'
-import { endpoints } from '../shared/api/endpoints'
+
 import { useAuthContext } from '../features/auth/AuthContext'
+import { endpoints } from '../shared/api/endpoints'
+import { httpPost, setAuthToken } from '../shared/api/httpClient'
 import type { AuthRegisterResponse } from '../shared/api/types'
 
 export default function RegisterPage() {
@@ -18,10 +19,23 @@ export default function RegisterPage() {
     event.preventDefault()
     setSubmitting(true)
     setError(null)
+
+    const trimmedName = name.trim()
+    if (trimmedName.length < 2) {
+      setError('Имя должно содержать минимум 2 символа (без учёта пробелов)')
+      setSubmitting(false)
+      return
+    }
+    if (password.trim().length === 0) {
+      setError('Пароль не может состоять только из пробелов')
+      setSubmitting(false)
+      return
+    }
+
     try {
       const res = await httpPost<AuthRegisterResponse>(endpoints.auth.register, {
         username,
-        name,
+        name: trimmedName,
         password,
       })
       setAuthToken(res.token)

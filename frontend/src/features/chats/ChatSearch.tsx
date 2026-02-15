@@ -1,8 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useEffect,useRef, useState } from 'react'
+
 import { getChatMessages } from '../../shared/api/chatsApi'
-import { getOrDeriveChatKey } from '../../shared/crypto/keyExchange'
-import { decryptText } from '../../shared/crypto/encryption'
-import { hasIdentityKeys } from '../../shared/crypto/keyStore'
 
 type SearchResult = {
   messageId: number
@@ -14,16 +12,14 @@ type SearchResult = {
 
 type Props = {
   chatId: number
-  otherUserId: number
   onResultClick: (messageId: number) => void
   onClose: () => void
 }
 
-export function ChatSearch({ chatId, otherUserId, onResultClick, onClose }: Props) {
+export function ChatSearch({ chatId, onResultClick, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
-  const [totalDecrypted, setTotalDecrypted] = useState(0)
   const debounceRef = useRef<number | undefined>(undefined)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -39,7 +35,6 @@ export function ChatSearch({ chatId, otherUserId, onResultClick, onClose }: Prop
       }
 
       setSearching(true)
-      setTotalDecrypted(0)
 
       try {
         // Load all messages for this chat
@@ -47,32 +42,14 @@ export function ChatSearch({ chatId, otherUserId, onResultClick, onClose }: Prop
         const q = searchQuery.toLowerCase()
         const found: SearchResult[] = []
 
-        // Get decryption key if available
-        let key: CryptoKey | null = null
-        if (await hasIdentityKeys()) {
-          key = await getOrDeriveChatKey(chatId, otherUserId)
-        }
-
-        // Decrypt and search
         for (const msg of messages) {
           if (msg.is_deleted) continue
 
-          let text = msg.text
-          if (msg.iv && key) {
-            try {
-              text = await decryptText(msg.text, msg.iv, key)
-            } catch {
-              continue // Skip messages we can't decrypt
-            }
-          }
-
-          setTotalDecrypted((prev) => prev + 1)
-
           // Search in message text
-          if (text.toLowerCase().includes(q)) {
+          if (msg.text.toLowerCase().includes(q)) {
             found.push({
               messageId: msg.id,
-              text,
+              text: msg.text,
               createdAt: msg.created_at,
               matchType: 'text',
             })
@@ -80,11 +57,11 @@ export function ChatSearch({ chatId, otherUserId, onResultClick, onClose }: Prop
 
           // Search in attachment filenames
           for (const att of msg.attachments || []) {
-            const name = att.original_name || att.file_name
+            const name = att.file_name
             if (name.toLowerCase().includes(q)) {
               found.push({
                 messageId: msg.id,
-                text,
+                text: msg.text,
                 createdAt: msg.created_at,
                 matchType: 'filename',
                 fileName: name,
@@ -101,7 +78,7 @@ export function ChatSearch({ chatId, otherUserId, onResultClick, onClose }: Prop
         setSearching(false)
       }
     },
-    [chatId, otherUserId],
+    [chatId],
   )
 
   const handleQueryChange = useCallback(
@@ -155,7 +132,7 @@ export function ChatSearch({ chatId, otherUserId, onResultClick, onClose }: Prop
 
       {searching && (
         <div className="chat-search__status">
-          Поиск... (расшифровано {totalDecrypted} сообщений)
+          Поиск...
         </div>
       )}
 

@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import { useAuthContext } from '../auth/AuthContext'
-import { useTheme } from '../../shared/hooks/useTheme'
-import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
-import { ProfileModal } from '../profile/ProfileModal'
-import { ContactsModal } from '../contacts/ContactsModal'
-import { SettingsModal } from '../settings/SettingsModal'
+import { useLocation,useNavigate } from 'react-router-dom'
+
 import { createChat } from '../../shared/api/chatsApi'
+import { removeContact } from '../../shared/api/contactsApi'
 import type { UserListItem } from '../../shared/api/types'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { useTheme } from '../../shared/hooks/useTheme'
+import { useAuthContext } from '../auth/AuthContext'
+import { ContactsModal } from '../contacts/ContactsModal'
+import { ProfileModal } from '../profile/ProfileModal'
+import { SettingsModal } from '../settings/SettingsModal'
 
 type Props = {
   isOpen: boolean
@@ -58,6 +60,10 @@ export function SlideMenu({ isOpen, onClose }: Props) {
     }
   }
 
+  const handleRemoveContact = async (userId: number) => {
+    await removeContact(userId)
+  }
+
   const handleOpenSettings = () => {
     setSettingsModalOpen(true)
     onClose()
@@ -73,6 +79,7 @@ export function SlideMenu({ isOpen, onClose }: Props) {
         isOpen={contactsModalOpen}
         onClose={() => setContactsModalOpen(false)}
         onSelectContact={handleSelectContact}
+        onRemoveContact={handleRemoveContact}
       />
 
       {/* Settings Modal */}

@@ -20,9 +20,6 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	if len(msgData.Text) > MaxMessageSize {
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
-	if msgData.IV == "" {
-		return &wsError{message: "E2E encryption required: missing IV"}
-	}
 
 	// Check access to chat and get recipient ID
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
@@ -41,7 +38,7 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 
 	// ATOMIC: Send message and create unread record in single transaction
 	// This prevents TOCTOU race where user comes online between presence check and unread save
-	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.IV, msgData.ReplyToID, isRecipientOffline)
+	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
 	if err != nil {
 		h.logger.Error("error sending message",
 			zap.Error(err),
@@ -61,7 +58,6 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		"chat_id":     msgData.ChatID,
 		"user_id":     userID,
 		"text":        msgData.Text,
-		"iv":          msgData.IV,
 		"reply_to_id": replyToIDVal,
 		"id":          message.ID,
 		"created_at":  message.CreatedAt,
@@ -84,11 +80,13 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		)
 	}
 
-	// Send push notification to recipient regardless of online status.
-	// The Service Worker will suppress the notification if the app tab is visible.
-	// Use generic body since message is E2E encrypted and server cannot read it.
+	// Send push notification with actual message text (truncated to 200 runes)
 	if h.pushService != nil && h.pushService.IsEnabled() {
-		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, "Новое сообщение")
+		pushText := msgData.Text
+		if runes := []rune(pushText); len(runes) > 200 {
+			pushText = string(runes[:200]) + "..."
+		}
+		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, pushText)
 	}
 
 	return nil
@@ -152,9 +150,6 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 	if len(msgData.Text) > MaxMessageSize {
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
-	if msgData.IV == "" {
-		return &wsError{message: "E2E encryption required: missing IV"}
-	}
 
 	// Check access to chat
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
@@ -162,7 +157,7 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text, msgData.IV)
+	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text)
 	if err != nil {
 		h.logger.Error("error editing message",
 			zap.Error(err),
@@ -177,7 +172,6 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		"chat_id": msgData.ChatID,
 		"id":      msgData.MessageID,
 		"text":    msgData.Text,
-		"iv":      msgData.IV,
 		"user_id": userID,
 	}
 	msgJSON, err := json.Marshal(broadcastData)

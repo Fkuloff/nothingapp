@@ -149,6 +149,29 @@ func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 	sendSuccess(c, gin.H{"users": response})
 }
 
+// UpdateProfileAPI updates current user's profile
+func (h *ProfileHandler) UpdateProfileAPI(c *gin.Context) {
+	currentUserID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		sendBadRequest(c, "Name is required")
+		return
+	}
+
+	if err := h.userService.UpdateProfile(c.Request.Context(), currentUserID, req.Name); err != nil {
+		sendBadRequest(c, err.Error())
+		return
+	}
+
+	sendSuccess(c, gin.H{"message": "Profile updated"})
+}
+
 // GetProfileAPI returns profile info for current or specified user
 func (h *ProfileHandler) GetProfileAPI(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)

@@ -42,6 +42,11 @@ func (r *UserRepo) UpdateAvatar(ctx context.Context, userID uint, avatarURL *str
 	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("avatar_url", avatarURL).Error
 }
 
+// UpdateName updates a user's display name
+func (r *UserRepo) UpdateName(ctx context.Context, userID uint, name string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("name", name).Error
+}
+
 // SearchByUsernameOrName searches users by username or name (case-insensitive, partial match)
 func (r *UserRepo) SearchByUsernameOrName(ctx context.Context, query string) ([]*models.User, error) {
 	var users []*models.User

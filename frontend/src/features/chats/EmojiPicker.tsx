@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+
 import { EMOJIS } from '../../shared/constants'
 
 type Props = {

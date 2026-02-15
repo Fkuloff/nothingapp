@@ -1,11 +1,9 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import type { Message, Attachment } from '../../shared/api/types'
+import { useCallback, useEffect, useMemo,useState } from 'react'
+
 import { endpoints } from '../../shared/api/endpoints'
-import { getAuthToken } from '../../shared/api/httpClient'
-import { formatMessageTime, formatFileSize } from '../../shared/utils'
+import type { Attachment,Message } from '../../shared/api/types'
+import { formatFileSize,formatMessageTime } from '../../shared/utils'
 import { ImageLightbox } from './ImageLightbox'
-import { decryptFile } from '../../shared/crypto/encryption'
-import { getOrDeriveChatKey } from '../../shared/crypto/keyExchange'
 
 type Props = {
   message: Message
@@ -15,8 +13,6 @@ type Props = {
   onReply: (msgId: number) => void
   onEdit: (msgId: number, text: string) => void
   onDelete: (msgId: number) => void
-  chatId?: number
-  otherUserId?: number
 }
 
 type ContextMenuState = {
@@ -27,118 +23,39 @@ type ContextMenuState = {
 
 type AttachmentViewProps = {
   att: Attachment
-  chatId?: number
-  otherUserId?: number
   onImageClick: (src: string, alt: string) => void
 }
 
-/**
- * Fetches and decrypts an encrypted attachment, returning an Object URL.
- * For unencrypted attachments, returns the direct API URL.
- */
-function useDecryptedUrl(att: Attachment, chatId?: number, otherUserId?: number) {
-  const isEncrypted = Boolean(att.iv && att.id)
-  const directUrl = useMemo(
-    () => (isEncrypted ? null : endpoints.attachments.get(att.id)),
-    [att.id, isEncrypted],
-  )
-
-  const [decryptedUrl, setDecryptedUrl] = useState<string | null>(null)
-  const [decryptError, setDecryptError] = useState(false)
-  const urlRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (!isEncrypted || !chatId || !otherUserId) return
-
-    let cancelled = false
-
-    const decrypt = async () => {
-      const key = await getOrDeriveChatKey(chatId, otherUserId)
-      if (!key || cancelled) return
-
-      const BASE_URL = import.meta.env.VITE_USE_PROXY === 'true'
-        ? ''
-        : import.meta.env.VITE_API_BASE_URL ?? ''
-      const token = getAuthToken()
-      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {}
-
-      const response = await fetch(`${BASE_URL}${endpoints.attachments.get(att.id)}`, {
-        credentials: 'include',
-        headers,
-      })
-      if (!response.ok || cancelled) return
-
-      const encryptedData = await response.arrayBuffer()
-      if (cancelled) return
-
-      const decrypted = await decryptFile(encryptedData, att.iv!, key)
-      if (cancelled) return
-
-      const mimeType = att.original_type || att.mime_type
-      const blob = new Blob([decrypted], { type: mimeType })
-      const blobUrl = URL.createObjectURL(blob)
-      urlRef.current = blobUrl
-      setDecryptedUrl(blobUrl)
-    }
-
-    decrypt().catch(() => {
-      if (!cancelled) setDecryptError(true)
-    })
-
-    return () => {
-      cancelled = true
-      if (urlRef.current) {
-        URL.revokeObjectURL(urlRef.current)
-        urlRef.current = null
-      }
-    }
-  }, [att.id, att.iv, att.mime_type, att.original_type, chatId, otherUserId, isEncrypted])
-
-  const loading = isEncrypted && !decryptedUrl && !decryptError
-  return { url: isEncrypted ? decryptedUrl : directUrl, loading }
-}
-
-function AttachmentView({ att, chatId, otherUserId, onImageClick }: AttachmentViewProps) {
-  const { url, loading } = useDecryptedUrl(att, chatId, otherUserId)
+function AttachmentView({ att, onImageClick }: AttachmentViewProps) {
+  const url = useMemo(() => endpoints.attachments.get(att.id), [att.id])
 
   if (!att.id) return null
 
-  // Use original metadata for encrypted attachments
-  const displayName = att.original_name || att.file_name
-  const displayType = att.original_type || att.mime_type
-  const fileType = att.original_type
-    ? (att.original_type.startsWith('image/') ? 'image' : att.original_type.startsWith('video/') ? 'video' : 'document')
-    : att.file_type
-
-  if (loading || !url) {
-    return <div className="attachment-loading">Расшифровка...</div>
-  }
-
-  if (fileType === 'image') {
+  if (att.file_type === 'image') {
     return (
       <button
         type="button"
         className="attachment-image-btn"
-        onClick={() => onImageClick(url, displayName)}
+        onClick={() => onImageClick(url, att.file_name)}
       >
-        <img src={url} alt={displayName} loading="lazy" />
+        <img src={url} alt={att.file_name} loading="lazy" />
       </button>
     )
   }
 
-  if (fileType === 'video') {
+  if (att.file_type === 'video') {
     return (
       <video controls>
-        <source src={url} type={displayType} />
+        <source src={url} type={att.mime_type} />
       </video>
     )
   }
 
   return (
-    <a href={url} download={displayName} className="attachment-document">
+    <a href={url} download={att.file_name} className="attachment-document">
       <span className="attachment-icon">📄</span>
       <div className="attachment-info">
-        <span className="attachment-name">{displayName}</span>
+        <span className="attachment-name">{att.file_name}</span>
         <span className="attachment-size">{formatFileSize(att.file_size)}</span>
       </div>
     </a>
@@ -153,8 +70,6 @@ export function MessageItem({
   onReply,
   onEdit,
   onDelete,
-  chatId,
-  otherUserId,
 }: Props) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -275,8 +190,6 @@ export function MessageItem({
                       <div key={att.id} className="attachment-item">
                         <AttachmentView
                           att={att}
-                          chatId={chatId}
-                          otherUserId={otherUserId}
                           onImageClick={handleImageClick}
                         />
                       </div>

@@ -85,7 +85,7 @@ func (h *UserHandler) GetAvatar(c *gin.Context) {
 	defer reader.Close()
 
 	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "public, max-age=3600")
+	c.Header("Cache-Control", "no-cache")
 	c.Status(http.StatusOK)
 
 	if _, copyErr := io.Copy(c.Writer, reader); copyErr != nil {

@@ -1,25 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import type { Message, WSMessageAction } from '../../shared/api/types'
-import { httpPost } from '../../shared/api/httpClient'
+import { useCallback, useEffect, useRef, useState } from 'react'
+
 import { endpoints } from '../../shared/api/endpoints'
-import { MessageList } from './MessageList'
-import { MessageComposer } from './MessageComposer'
+import { httpPost } from '../../shared/api/httpClient'
+import type { Message, WSMessageAction } from '../../shared/api/types'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
-import { useChatEncryption } from '../../shared/hooks/useChatEncryption'
-
-function getEncryptionErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    if (err.message === 'E2E_NO_KEYS') {
-      return 'Ключи шифрования не настроены. Откройте Настройки → Ключи шифрования.'
-    }
-    if (err.message === 'E2E_NO_CHAT_KEY') {
-      return 'Не удалось установить защищённое соединение. У собеседника нет ключей шифрования.'
-    }
-  }
-  return 'Ошибка шифрования. Сообщение не отправлено.'
-}
+import { MessageComposer } from './MessageComposer'
+import { MessageList } from './MessageList'
 
 type Props = {
   chatId?: number
@@ -36,6 +24,8 @@ type Props = {
   send: (data: WSMessageAction) => boolean
   isMobile?: boolean
   onBackToList?: () => void
+  onClearChat?: (chatId: number) => void
+  onDeleteChat?: (chatId: number) => void
 }
 
 export function ChatWindow({
@@ -53,24 +43,62 @@ export function ChatWindow({
   send,
   isMobile,
   onBackToList,
+  onClearChat,
+  onDeleteChat,
 }: Props) {
   const [messageText, setMessageText] = useState('')
   const [replyToId, setReplyToId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [sending, setSending] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
 
+  // Close kebab menu on outside click
+  useEffect(() => {
+    if (!isMenuOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setIsMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [isMenuOpen])
+
+  const handleClearChat = useCallback(() => {
+    if (!chatId) return
+    if (!confirm('Очистить историю сообщений?')) return
+    setIsMenuOpen(false)
+    onClearChat?.(chatId)
+  }, [chatId, onClearChat])
+
+  const handleDeleteChat = useCallback(() => {
+    if (!chatId) return
+    if (!confirm('Удалить чат? Это действие нельзя отменить.')) return
+    setIsMenuOpen(false)
+    onDeleteChat?.(chatId)
+  }, [chatId, onDeleteChat])
+
   const { showToast } = useToast()
-  const { encryptAction, encryptFileForUpload } = useChatEncryption(otherUserId)
 
   // Upload files when the sender's new message arrives via WebSocket broadcast
   useEffect(() => {
     const prevLen = prevMessagesLenRef.current
     prevMessagesLenRef.current = messages.length
+
+    // Clear sending state when a new message from current user arrives
+    if (messages.length > prevLen) {
+      const newMessage = messages[messages.length - 1]
+      if (newMessage && newMessage.user_id === currentUserId) {
+        setSending(false)
+      }
+    }
 
     if (!pendingUploadRef.current || messages.length <= prevLen) return
 
@@ -87,40 +115,24 @@ export function ChatWindow({
     const doUpload = async () => {
       setUploading(true)
       const formData = new FormData()
-      const fileIVs: Record<string, string> = {}
-      const originalTypes: Record<string, string> = {}
-      const originalNames: Record<string, string> = {}
 
       for (const file of files) {
-        const encrypted = await encryptFileForUpload(file, uploadChatId)
-        const encFileName = file.name + '.enc'
-        formData.append('attachments', encrypted.blob, encFileName)
-        fileIVs[encFileName] = encrypted.iv
-        originalTypes[encFileName] = encrypted.originalType
-        originalNames[encFileName] = encrypted.originalName
+        formData.append('attachments', file, file.name)
       }
-
-      formData.append('file_ivs', JSON.stringify(fileIVs))
-      formData.append('original_types', JSON.stringify(originalTypes))
-      formData.append('original_names', JSON.stringify(originalNames))
 
       try {
         await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
         onMessagesUpdate?.()
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith('E2E_')) {
-          showToast(getEncryptionErrorMessage(err), 'error')
-        } else {
-          console.error('Ошибка загрузки вложений:', err)
-          showToast('Не удалось загрузить вложения', 'error')
-        }
+        console.error('Ошибка загрузки вложений:', err)
+        showToast('Не удалось загрузить вложения', 'error')
       } finally {
         setUploading(false)
       }
     }
 
     doUpload().catch(console.error)
-  }, [messages, currentUserId, encryptFileForUpload, onMessagesUpdate, showToast])
+  }, [messages, currentUserId, onMessagesUpdate, showToast])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -142,14 +154,7 @@ export function ChatWindow({
     }
 
     if (editingMessageId) {
-      let editAction
-      try {
-        editAction = await encryptAction({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
-      } catch (err) {
-        showToast(getEncryptionErrorMessage(err), 'error')
-        return
-      }
-      const success = send(editAction)
+      const success = send({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
       if (success) {
         setMessageText('')
         setEditingMessageId(null)
@@ -164,20 +169,13 @@ export function ChatWindow({
       pendingUploadRef.current = { chatId, files: [...selectedFiles] }
     }
 
-    let sendAction
-    try {
-      sendAction = await encryptAction({
-        action: 'send',
-        chat_id: chatId,
-        text: text || ' ',
-        reply_to_id: replyToId ?? undefined,
-      })
-    } catch (err) {
-      showToast(getEncryptionErrorMessage(err), 'error')
-      pendingUploadRef.current = null
-      return
-    }
-    const success = send(sendAction)
+    setSending(true)
+    const success = send({
+      action: 'send',
+      chat_id: chatId,
+      text: text || ' ',
+      reply_to_id: replyToId ?? undefined,
+    })
 
     if (success) {
       setMessageText('')
@@ -185,6 +183,7 @@ export function ChatWindow({
       setSelectedFiles([])
       // Files will be uploaded by the useEffect when the WS broadcast arrives
     } else {
+      setSending(false)
       showToast('Не удалось отправить сообщение, повторите.', 'error')
       pendingUploadRef.current = null
     }
@@ -277,16 +276,45 @@ export function ChatWindow({
               <path d="m21 21-4.35-4.35" />
             </svg>
           </button>
+          <div className="chat-menu" ref={menuRef}>
+            <button
+              className="chat-header__menu-btn"
+              onClick={() => setIsMenuOpen((v) => !v)}
+              aria-label="Меню чата"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                <circle cx="12" cy="5" r="1.5" />
+                <circle cx="12" cy="12" r="1.5" />
+                <circle cx="12" cy="19" r="1.5" />
+              </svg>
+            </button>
+            {isMenuOpen && (
+              <div className="chat-menu__dropdown">
+                <button className="chat-menu__item" onClick={handleClearChat}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                    <path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24" />
+                  </svg>
+                  Очистить чат
+                </button>
+                <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  Удалить чат
+                </button>
+              </div>
+            )}
+          </div>
           {!isConnected && (
             <span className="badge bg-warning text-dark">Reconnecting</span>
           )}
         </div>
       </div>
 
-      {isSearchOpen && otherUserId && (
+      {isSearchOpen && (
         <ChatSearch
           chatId={chatId}
-          otherUserId={otherUserId}
           onResultClick={(messageId) => {
             setIsSearchOpen(false)
             // Scroll to message — the MessageList component should handle this
@@ -304,9 +332,7 @@ export function ChatWindow({
       <MessageList
         messages={messages}
         currentUserId={currentUserId}
-        otherUserId={otherUserId}
         otherUsername={otherUsername}
-        chatId={chatId}
         loading={loading}
         error={error}
         onReply={handleReply}
@@ -321,6 +347,7 @@ export function ChatWindow({
         messageText={messageText}
         selectedFiles={selectedFiles}
         uploading={uploading}
+        sending={sending}
         onMessageTextChange={setMessageText}
         onSubmit={handleSubmit}
         onFileSelect={handleFileSelect}

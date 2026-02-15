@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"messenger/internal/crypto"
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,7 @@ type WebSocketHandler struct {
 	pushService     *services.PushNotificationService
 	userService     *services.UserService
 	logger          *zap.Logger
+	encryptor       *crypto.MessageEncryptor
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
 	broadcastPool   *WorkerPool // Limits concurrent broadcast goroutines
@@ -47,6 +49,7 @@ func NewWebSocketHandler(
 	pushService *services.PushNotificationService,
 	userService *services.UserService,
 	logger *zap.Logger,
+	encryptor *crypto.MessageEncryptor,
 ) *WebSocketHandler {
 	return &WebSocketHandler{
 		chatService:     chatService,
@@ -54,6 +57,7 @@ func NewWebSocketHandler(
 		pushService:     pushService,
 		userService:     userService,
 		logger:          logger,
+		encryptor:       encryptor,
 		clients:         make(map[uint][]*wsClient),
 		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency
 	}
@@ -512,6 +516,54 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	)
 }
 
+// broadcastChatEvent notifies the other chat participant about chat-level operations (clear/delete).
+// Called from ChatHandler via callback before the destructive DB operation executes.
+func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, action string) {
+	ctx := context.Background()
+
+	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
+	if err != nil {
+		h.logger.Error("failed to find chat for event broadcast",
+			zap.Error(err),
+			zap.Uint("chat_id", chatID),
+			zap.String("action", action),
+		)
+		return
+	}
+
+	// Determine the other participant
+	otherUserID := chat.User1ID
+	if chat.User1ID == initiatorUserID {
+		otherUserID = chat.User2ID
+	}
+
+	eventData := map[string]any{
+		"action":  action,
+		"chat_id": chatID,
+		"user_id": initiatorUserID,
+	}
+	msgJSON, err := json.Marshal(eventData)
+	if err != nil {
+		h.logger.Error("failed to marshal chat event",
+			zap.Error(err),
+			zap.Uint("chat_id", chatID),
+		)
+		return
+	}
+
+	// Send only to the other participant (initiator updates via REST response)
+	if h.presenceService.IsUserOnline(otherUserID) {
+		h.broadcastToUser(otherUserID, msgJSON)
+	}
+
+	h.logger.Info("broadcasted chat event",
+		zap.String("action", action),
+		zap.Uint("chat_id", chatID),
+		zap.Uint("initiator", initiatorUserID),
+		zap.Uint("other_user", otherUserID),
+	)
+}
+
 // sendPendingMessages sends all unread messages to a newly connected user
 func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(client.ctx, userID)
@@ -546,12 +598,19 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			replyToIDVal = *unread.Message.ReplyToID
 		}
 
+		// Decrypt message text from DB before broadcasting
+		text := unread.Message.Text
+		if unread.Message.IV != "" {
+			if plaintext, err := h.encryptor.Decrypt(text, unread.Message.IV); err == nil {
+				text = plaintext
+			}
+		}
+
 		broadcastData := map[string]any{
 			"action":      "new",
 			"chat_id":     unread.ChatID,
 			"user_id":     unread.Message.UserID,
-			"text":        unread.Message.Text,
-			"iv":          unread.Message.IV,
+			"text":        text,
 			"reply_to_id": replyToIDVal,
 			"id":          unread.Message.ID,
 			"created_at":  unread.Message.CreatedAt,

@@ -185,6 +185,15 @@ func (s *UserService) SearchUsers(ctx context.Context, query string) ([]*models.
 	return users, nil
 }
 
+// UpdateProfile updates user's display name
+func (s *UserService) UpdateProfile(ctx context.Context, userID uint, name string) error {
+	name = strings.TrimSpace(name)
+	if len(name) < 2 || len(name) > 50 {
+		return fmt.Errorf("name must be 2-50 characters")
+	}
+	return s.userRepo.UpdateName(ctx, userID, name)
+}
+
 // GetAvatarURL returns a public URL for the given avatar key
 // Avatars use public URLs since they don't need access control
 func (s *UserService) GetAvatarURL(avatarKey *string) *string {
@@ -209,8 +218,8 @@ func (s *UserService) RefreshUserAvatarURL(user *models.User) {
 	if user == nil || user.AvatarURL == nil || *user.AvatarURL == "" {
 		return
 	}
-	// Return API endpoint URL instead of direct S3 URL
-	url := fmt.Sprintf("/api/avatars/%d", user.ID)
+	// Return API endpoint URL with cache-busting timestamp
+	url := fmt.Sprintf("/api/avatars/%d?v=%d", user.ID, user.UpdatedAt.UnixMilli())
 	user.AvatarURL = &url
 }
 

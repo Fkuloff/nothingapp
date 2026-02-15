@@ -1,5 +1,6 @@
-import { lazy, Suspense, type ComponentType } from 'react'
+import { type ComponentType,lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
+
 import AppLayout from '../App'
 import { ProtectedRoute } from '../features/auth/ProtectedRoute'
 

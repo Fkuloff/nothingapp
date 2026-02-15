@@ -12,13 +12,6 @@ export function getFileIcon(file: File): string {
 }
 
 /**
- * Check if a file is an image
- */
-export function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/')
-}
-
-/**
  * Format file size in human-readable format
  */
 export function formatFileSize(bytes: number): string {

@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"messenger/internal/config"
+	"messenger/internal/crypto"
 	"messenger/internal/repositories"
 	"messenger/internal/services"
 	"messenger/internal/storage"
@@ -19,6 +20,7 @@ func SetupRoutes(
 	fileStorage storage.Storage,
 	logger *zap.Logger,
 	cfg *config.Config,
+	msgEncryptor *crypto.MessageEncryptor,
 ) error {
 	// Initialize repositories
 	userRepo := repositories.NewUserRepo(db)
@@ -28,18 +30,15 @@ func SetupRoutes(
 	attachmentRepo := repositories.NewAttachmentRepo(db)
 	unreadMessageRepo := repositories.NewUnreadMessageRepo(db)
 	pushSubRepo := repositories.NewPushSubscriptionRepo(db)
-	userKeyRepo := repositories.NewUserKeyRepo(db)
-	keyBackupRepo := repositories.NewKeyBackupRepo(db)
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
-	chatService := services.NewChatService(db, logger, chatRepo, messageRepo, unreadMessageRepo)
+	chatService := services.NewChatService(db, logger, chatRepo, messageRepo, unreadMessageRepo, fileStorage, msgEncryptor)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(logger, attachmentRepo, messageRepo, fileStorage)
 	userService := services.NewUserService(logger, userRepo, fileStorage)
 	presenceService := services.NewPresenceService(logger)
 	pushService := services.NewPushNotificationService(logger, pushSubRepo, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
-	keyService := services.NewKeyService(logger, userKeyRepo, keyBackupRepo)
 
 	// Initialize handlers
 	authHandler := NewAuthHandler(authService, userService, secret)
@@ -47,14 +46,16 @@ func SetupRoutes(
 	profileHandler := NewProfileHandler(userService, contactService, logger)
 	attachmentHandler := NewAttachmentHandler(attachmentService, chatService)
 	userHandler := NewUserHandler(userService)
-	wsHandler := NewWebSocketHandler(chatService, presenceService, pushService, userService, logger)
+	wsHandler := NewWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor)
 	fileHandler := NewFileHandler(fileStorage, logger)
 	pushHandler := NewPushHandler(pushService, logger)
-	keyHandler := NewKeyHandler(keyService)
 	healthHandler := NewHealthHandler(db)
 
 	// Configure presence service to broadcast status changes via WebSocket
 	presenceService.SetOnChangeCallback(wsHandler.broadcastPresenceChange)
+
+	// Configure chat handler to broadcast chat events (clear/delete) via WebSocket
+	chatHandler.SetOnChatEventCallback(wsHandler.broadcastChatEvent)
 
 	// Public endpoints (no JWT middleware)
 	router.GET("/health", healthHandler.GetHealth)
@@ -81,7 +82,6 @@ func SetupRoutes(
 	registerProfileRoutes(api, profileHandler)
 	registerUserRoutes(api, userHandler, wsHandler, fileHandler)
 	registerPushRoutes(api, pushHandler)
-	registerKeyRoutes(api, keyHandler)
 
 	return nil
 }
@@ -98,13 +98,16 @@ func registerChatRoutes(api *gin.RouterGroup, chatHandler *ChatHandler, attachme
 	chats.GET("", chatHandler.ListChatsAPI)
 	chats.POST("", chatHandler.CreateChatAPI)
 	chats.GET("/:id", chatHandler.GetChatData)
+	chats.DELETE("/:id", chatHandler.DeleteChatAPI)
+	chats.POST("/:id/clear", chatHandler.ClearChatAPI)
 	chats.GET("/:id/messages", chatHandler.GetChatMessagesAPI)
-	chats.POST("/:chat_id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
+	chats.POST("/:id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
 }
 
 func registerProfileRoutes(api *gin.RouterGroup, h *ProfileHandler) {
 	profile := api.Group("/profile")
 	profile.GET("", h.GetProfileAPI)
+	profile.PUT("", h.UpdateProfileAPI)
 	profile.GET("/:user_id", h.GetProfileAPI)
 
 	contacts := api.Group("/contacts")
@@ -128,17 +131,6 @@ func registerUserRoutes(api *gin.RouterGroup, userHandler *UserHandler, wsHandle
 	presence.GET("/:user_id", wsHandler.GetUserPresenceAPI)
 
 	api.GET("/files/:filename", fileHandler.ServeFile)
-}
-
-func registerKeyRoutes(api *gin.RouterGroup, h *KeyHandler) {
-	keys := api.Group("/keys")
-	keys.PUT("", h.UploadPublicKey)
-	// Static routes MUST be registered before parameterized routes
-	// to avoid /keys/backup being matched by /keys/:user_id
-	keys.PUT("/backup", h.SaveKeyBackup)
-	keys.GET("/backup", h.GetKeyBackup)
-	keys.DELETE("/backup", h.DeleteKeyBackup)
-	keys.GET("/:user_id", h.GetPublicKey)
 }
 
 func registerPushRoutes(api *gin.RouterGroup, h *PushHandler) {

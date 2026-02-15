@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"time"
 
 	"messenger/internal/models"
@@ -15,6 +16,13 @@ import (
 type ChatHandler struct {
 	chatService *services.ChatService
 	userService *services.UserService
+	onChatEvent func(chatID, initiatorUserID uint, action string)
+}
+
+// SetOnChatEventCallback registers a callback for chat-level events (clear/delete).
+// Called by WebSocketHandler to enable real-time sync between participants.
+func (h *ChatHandler) SetOnChatEventCallback(cb func(chatID, initiatorUserID uint, action string)) {
+	h.onChatEvent = cb
 }
 
 func NewChatHandler(
@@ -32,7 +40,6 @@ type messageResponse struct {
 	ChatID      uint                `json:"chat_id"`
 	UserID      uint                `json:"user_id"`
 	Text        string              `json:"text"`
-	IV          string              `json:"iv,omitempty"` // AES-GCM nonce; empty = plaintext
 	IsDeleted   bool                `json:"is_deleted"`
 	CreatedAt   time.Time           `json:"created_at"`
 	ReplyToID   *uint               `json:"reply_to_id"`
@@ -52,7 +59,6 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 			ChatID:      msg.ChatID,
 			UserID:      msg.UserID,
 			Text:        msg.Text,
-			IV:          msg.IV,
 			ReplyToID:   msg.ReplyToID,
 			EditedAt:    msg.EditedAt,
 			IsDeleted:   msg.IsDeleted,
@@ -63,27 +69,22 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 	return result
 }
 
-// formatLastMessage extracts display text and IV from the last message in a chat.
-func formatLastMessage(lastMsg *models.Message, err error) (text, iv string) {
+// formatLastMessage extracts display text from the last message in a chat.
+func formatLastMessage(lastMsg *models.Message, err error) string {
 	if err != nil || lastMsg == nil {
-		return "", ""
+		return ""
 	}
 
 	if lastMsg.IsDeleted {
-		return "Message deleted", ""
+		return "Сообщение удалено"
 	}
 
-	text = lastMsg.Text
-	iv = lastMsg.IV
-
-	// Truncate plaintext previews only (encrypted messages are truncated client-side)
-	if iv == "" {
-		if runes := []rune(text); len(runes) > MaxChatListPreview {
-			text = string(runes[:MaxChatListPreview])
-		}
+	text := lastMsg.Text
+	if runes := []rune(text); len(runes) > MaxChatListPreview {
+		text = string(runes[:MaxChatListPreview])
 	}
 
-	return text, iv
+	return text
 }
 
 // GetChatData returns chat data with messages in JSON format for dynamic loading
@@ -153,7 +154,7 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		h.userService.RefreshUserAvatarURL(otherUser)
 
 		lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID)
-		lastMessageText, lastMessageIV := formatLastMessage(lastMsg, err)
+		lastMessageText := formatLastMessage(lastMsg, err)
 
 		items = append(items, chatListItem{
 			ID:            chat.ID,
@@ -161,7 +162,6 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 			OtherUserName: otherUser.GetDisplayName(),
 			AvatarURL:     otherUser.AvatarURL,
 			LastMessage:   lastMessageText,
-			LastMessageIV: lastMessageIV,
 			UnreadCount:   int(unreadCounts[chat.ID]),
 			UpdatedAt:     chat.UpdatedAt,
 		})
@@ -227,6 +227,55 @@ func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
 		"user2_id":   chat.User2ID,
 		"created_at": chat.CreatedAt,
 	})
+}
+
+// chatAction executes a chat operation (clear/delete) with shared validation logic.
+// Broadcasts the event to the other participant BEFORE the destructive DB action,
+// because DeleteChat hard-deletes the chat record (FindChatByIDLight would fail after).
+func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context, chatID, userID uint) error, failMsg, successMsg, eventAction string) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	chatID, err := parseUintParam(c, "id")
+	if err != nil {
+		sendBadRequest(c, "Invalid chat ID")
+		return
+	}
+
+	// Pre-validate access before broadcasting to avoid spurious events
+	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
+	if err != nil || !chat.HasUser(userID) {
+		sendForbidden(c, "Access denied")
+		return
+	}
+
+	// Broadcast BEFORE destructive action (chat record must exist for participant lookup)
+	if h.onChatEvent != nil {
+		h.onChatEvent(chatID, userID, eventAction)
+	}
+
+	if err := action(c.Request.Context(), chatID, userID); err != nil {
+		if err.Error() == "access denied" {
+			sendForbidden(c, "Access denied")
+		} else {
+			sendInternalError(c, failMsg)
+		}
+		return
+	}
+
+	sendSuccess(c, gin.H{"message": successMsg})
+}
+
+// ClearChatAPI clears all messages in a chat
+func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
+	h.chatAction(c, h.chatService.ClearChat, "Failed to clear chat", "Chat cleared", "chat_cleared")
+}
+
+// DeleteChatAPI deletes a chat
+func (h *ChatHandler) DeleteChatAPI(c *gin.Context) {
+	h.chatAction(c, h.chatService.DeleteChat, "Failed to delete chat", "Chat deleted", "chat_deleted")
 }
 
 // GetChatMessagesAPI returns chat messages for external UI

@@ -1,5 +1,5 @@
-import { httpGet } from './httpClient'
 import { endpoints } from './endpoints'
+import { httpGet } from './httpClient'
 
 export type UserPresenceResponse = {
   user_id: number

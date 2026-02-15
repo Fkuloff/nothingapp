@@ -26,7 +26,6 @@ func TestFileValidator_ValidateAttachment(t *testing.T) {
 	tests := []struct {
 		name      string
 		fh        *multipart.FileHeader
-		encrypted bool
 		wantErr   bool
 		errSubstr string
 	}{
@@ -87,30 +86,11 @@ func TestFileValidator_ValidateAttachment(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "filename must have an extension",
 		},
-		{
-			name:      "encrypted file with octet-stream passes",
-			fh:        newFileHeader("photo.jpg.enc", "application/octet-stream", 5*1024*1024),
-			encrypted: true,
-			wantErr:   false,
-		},
-		{
-			name:      "encrypted file oversized",
-			fh:        newFileHeader("photo.jpg.enc", "application/octet-stream", MaxFileSize+1),
-			encrypted: true,
-			wantErr:   true,
-			errSubstr: "file too large",
-		},
-		{
-			name:      "encrypted file skips MIME check",
-			fh:        newFileHeader("script.exe.enc", "application/octet-stream", 1024),
-			encrypted: true,
-			wantErr:   false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := v.ValidateAttachment(tt.fh, tt.encrypted)
+			err := v.ValidateAttachment(tt.fh)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ValidateAttachment() error = %v, wantErr %v", err, tt.wantErr)
 			}
