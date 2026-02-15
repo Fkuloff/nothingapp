@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
-import { useParams, Link, useOutletContext } from 'react-router-dom'
-import { useAuthContext } from '../features/auth/AuthContext'
-import { httpGet, httpPost } from '../shared/api/httpClient'
-import type { UserProfile, AvatarUploadResponse } from '../shared/api/types'
-import { endpoints } from '../shared/api/endpoints'
-import { useToast } from '../shared/components/ToastContext'
-import { addContact, removeContact } from '../shared/api/contactsApi'
-import { HamburgerButton } from '../features/menu/HamburgerButton'
+import { useCallback,useEffect, useState } from 'react'
+import { Link, useOutletContext,useParams } from 'react-router-dom'
+
 import type { OutletContextType } from '../App'
+import { useAuthContext } from '../features/auth/AuthContext'
+import { HamburgerButton } from '../features/menu/HamburgerButton'
+import { addContact, removeContact } from '../shared/api/contactsApi'
+import { endpoints } from '../shared/api/endpoints'
+import { httpGet, httpPost } from '../shared/api/httpClient'
+import type { AvatarUploadResponse,UserProfile } from '../shared/api/types'
+import { useToast } from '../shared/components/ToastContext'
+import { useConfirmAction } from '../shared/hooks/useConfirmAction'
 
 export default function ProfilePage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()
@@ -18,6 +20,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const { confirming: confirmingRemove, startConfirm, cancelConfirm } = useConfirmAction()
 
   const isOwnProfile = !userId || userId === String(currentUser?.id)
   const displayUser = isOwnProfile ? currentUser : profile
@@ -97,17 +100,18 @@ export default function ProfilePage() {
     }
   }
 
-  const handleRemoveContact = async () => {
+  const handleRemoveContact = useCallback(async () => {
     if (!profile?.id) return
 
     try {
       await removeContact(profile.id)
       showToast('Удалено из контактов', 'success')
       setProfile((prev) => (prev ? { ...prev, is_contact: false } : prev))
+      cancelConfirm()
     } catch (err) {
       showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось удалить контакт'), 'error')
     }
-  }
+  }, [profile?.id, showToast, cancelConfirm])
 
   if (loading) {
     return (
@@ -227,12 +231,32 @@ export default function ProfilePage() {
             <div className="profile-actions">
               {!isOwnProfile && (
                 profile?.is_contact ? (
-                  <button
-                    onClick={handleRemoveContact}
-                    className="btn btn-outline-danger"
-                  >
-                    Удалить из контактов
-                  </button>
+                  confirmingRemove ? (
+                    <div className="profile-confirm-inline">
+                      <span className="profile-confirm-inline__text">Удалить из контактов?</span>
+                      <div className="profile-confirm-inline__actions">
+                        <button
+                          onClick={handleRemoveContact}
+                          className="contact-card__confirm-btn contact-card__confirm-btn--delete"
+                        >
+                          Удалить
+                        </button>
+                        <button
+                          onClick={cancelConfirm}
+                          className="contact-card__confirm-btn contact-card__confirm-btn--cancel"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={startConfirm}
+                      className="btn btn-outline-danger"
+                    >
+                      Удалить из контактов
+                    </button>
+                  )
                 ) : (
                   <button
                     onClick={handleAddContact}

@@ -86,18 +86,6 @@ export type Attachment = {
   created_at?: string
 }
 
-// Contacts
-export type ContactsResponse = {
-  contacts: Contact[]
-}
-
-export type Contact = {
-  id: number
-  user_id: number
-  contact_user_id: number
-  created_at: string
-}
-
 // User list item (used in contacts list, search results)
 export type UserListItem = {
   id: number
@@ -191,4 +179,16 @@ export type WSEventPresenceChanged = {
   is_online: boolean
 }
 
-export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | WSEventPresenceChanged | ApiError
+export type WSEventChatCleared = {
+  action: 'chat_cleared'
+  chat_id: number
+  user_id: number
+}
+
+export type WSEventChatDeleted = {
+  action: 'chat_deleted'
+  chat_id: number
+  user_id: number
+}
+
+export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | WSEventPresenceChanged | WSEventChatCleared | WSEventChatDeleted | ApiError

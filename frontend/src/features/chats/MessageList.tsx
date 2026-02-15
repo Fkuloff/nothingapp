@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+
 import type { Message } from '../../shared/api/types'
 import { MessageItem } from './MessageItem'
 

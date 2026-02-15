@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Message, WSMessageAction } from '../../shared/api/types'
-import { httpPost } from '../../shared/api/httpClient'
+
 import { endpoints } from '../../shared/api/endpoints'
-import { MessageList } from './MessageList'
-import { MessageComposer } from './MessageComposer'
+import { httpPost } from '../../shared/api/httpClient'
+import type { Message, WSMessageAction } from '../../shared/api/types'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
+import { MessageComposer } from './MessageComposer'
+import { MessageList } from './MessageList'
 
 type Props = {
   chatId?: number

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+
+import type { OutletContextType } from '../App'
+import { useAuthContext } from '../features/auth/AuthContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
-import type { ChatItem, Message, WSEvent } from '../shared/api/types'
-import { useAuthContext } from '../features/auth/AuthContext'
-import { getCurrentUserChats, getChatMessages, deleteChat, clearChat } from '../shared/api/chatsApi'
+import { clearChat,deleteChat, getChatMessages, getCurrentUserChats } from '../shared/api/chatsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
+import type { ChatItem, Message, WSEvent } from '../shared/api/types'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
-import type { OutletContextType } from '../App'
 
 export default function ChatsPage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()
@@ -125,6 +126,28 @@ export default function ChatsPage() {
         setMessages((prev) =>
           prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
         )
+        return
+      }
+
+      if (event.action === 'chat_cleared') {
+        if (event.chat_id === activeChatId) {
+          setMessages([])
+        }
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === event.chat_id ? { ...c, last_message: '', unread_count: 0 } : c
+          )
+        )
+        return
+      }
+
+      if (event.action === 'chat_deleted') {
+        setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
+        if (event.chat_id === activeChatId) {
+          setActiveChatId(null)
+          setMessages([])
+        }
+        return
       }
     },
     [activeChatId, user?.id]
@@ -209,10 +232,6 @@ export default function ChatsPage() {
       }
     }
   }, [activeChatId, loadMessages, isConnected, send])
-
-  const handleChatCreated = () => {
-    loadChats()
-  }
 
   const handleMessagesUpdate = useCallback(() => {
     if (activeChatId) {
@@ -308,7 +327,7 @@ export default function ChatsPage() {
             chats={filteredChats}
             activeChatId={activeChatId ?? undefined}
             onSelect={(id) => setActiveChatId(id)}
-            onChatCreated={handleChatCreated}
+
             loading={loadingChats}
             error={chatsError}
           />

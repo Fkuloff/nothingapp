@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { httpPost, setAuthToken } from '../shared/api/httpClient'
-import { endpoints } from '../shared/api/endpoints'
+
 import { useAuthContext } from '../features/auth/AuthContext'
+import { endpoints } from '../shared/api/endpoints'
+import { httpPost, setAuthToken } from '../shared/api/httpClient'
 import type { AuthRegisterResponse } from '../shared/api/types'
 
 export default function RegisterPage() {

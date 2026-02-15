@@ -1,5 +1,5 @@
-import { httpGet, httpPost } from './httpClient'
 import { endpoints } from './endpoints'
+import { httpGet, httpPost } from './httpClient'
 
 type VAPIDKeyResponse = {
   vapid_public_key: string

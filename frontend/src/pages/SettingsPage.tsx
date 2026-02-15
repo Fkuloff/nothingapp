@@ -1,8 +1,9 @@
 import { useOutletContext } from 'react-router-dom'
-import { useTheme } from '../shared/hooks/useTheme'
-import { PushToggle } from '../shared/components/PushToggle'
-import { HamburgerButton } from '../features/menu/HamburgerButton'
+
 import type { OutletContextType } from '../App'
+import { HamburgerButton } from '../features/menu/HamburgerButton'
+import { PushToggle } from '../shared/components/PushToggle'
+import { useTheme } from '../shared/hooks/useTheme'
 
 export default function SettingsPage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()

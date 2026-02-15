@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+
 import { endpoints } from '../../shared/api/endpoints'
 import { getAuthToken } from '../../shared/api/httpClient'
-import type { WSMessageAction, WSEvent } from '../../shared/api/types'
+import type { WSEvent,WSMessageAction } from '../../shared/api/types'
 
 type UseWebSocketProps = {
   chatId: number

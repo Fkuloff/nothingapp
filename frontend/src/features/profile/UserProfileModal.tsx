@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
-import { httpGet, httpPost } from '../../shared/api/httpClient'
+import { useCallback,useEffect, useState } from 'react'
+
+import { removeContact } from '../../shared/api/contactsApi'
 import { endpoints } from '../../shared/api/endpoints'
-import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
-import { useToast } from '../../shared/components/ToastContext'
+import { httpGet, httpPost } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
+import { CloseIcon } from '../../shared/components/Icons'
+import { useToast } from '../../shared/components/ToastContext'
+import { useConfirmAction } from '../../shared/hooks/useConfirmAction'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
   isOpen: boolean
@@ -20,6 +24,7 @@ export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl,
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(false)
   const [addingContact, setAddingContact] = useState(false)
+  const { confirming: confirmingRemove, startConfirm, cancelConfirm } = useConfirmAction()
 
   useEffect(() => {
     if (!isOpen || !userId) return
@@ -39,6 +44,24 @@ export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl,
 
     loadProfile()
   }, [isOpen, userId, showToast])
+
+  // Reset confirmation state when modal closes
+  useEffect(() => {
+    if (!isOpen) cancelConfirm()
+  }, [isOpen, cancelConfirm])
+
+  const handleRemoveContact = useCallback(async () => {
+    if (!profile?.id) return
+
+    try {
+      await removeContact(profile.id)
+      setProfile((prev) => (prev ? { ...prev, is_contact: false } : prev))
+      cancelConfirm()
+      showToast('Удалено из контактов', 'success')
+    } catch (err) {
+      showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось удалить контакт'), 'error')
+    }
+  }, [profile?.id, showToast, cancelConfirm])
 
   const handleAddContact = async () => {
     if (!profile?.id) return
@@ -62,10 +85,7 @@ export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl,
       <div className="profile-modal user-profile-modal" role="dialog" aria-modal="true">
         <div className="profile-modal__header-actions">
           <button className="profile-modal__action-btn" onClick={onClose} aria-label="Закрыть">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <CloseIcon />
           </button>
         </div>
 
@@ -110,13 +130,39 @@ export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl,
             )}
 
             {profile?.is_contact && (
-              <div className="user-profile-modal__contact-badge">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-                <span>В контактах</span>
-              </div>
+              confirmingRemove ? (
+                <div className="user-profile-modal__confirm-remove">
+                  <span className="user-profile-modal__confirm-text">Удалить из контактов?</span>
+                  <div className="user-profile-modal__confirm-actions">
+                    <button
+                      onClick={handleRemoveContact}
+                      className="contact-card__confirm-btn contact-card__confirm-btn--delete"
+                    >
+                      Удалить
+                    </button>
+                    <button
+                      onClick={cancelConfirm}
+                      className="contact-card__confirm-btn contact-card__confirm-btn--cancel"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="user-profile-modal__contact-badge user-profile-modal__contact-badge--clickable"
+                  onClick={startConfirm}
+                  role="button"
+                  tabIndex={0}
+                  title="Нажмите, чтобы удалить из контактов"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                  <span>В контактах</span>
+                </div>
+              )
             )}
           </>
         )}

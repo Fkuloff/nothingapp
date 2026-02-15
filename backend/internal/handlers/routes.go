@@ -54,6 +54,9 @@ func SetupRoutes(
 	// Configure presence service to broadcast status changes via WebSocket
 	presenceService.SetOnChangeCallback(wsHandler.broadcastPresenceChange)
 
+	// Configure chat handler to broadcast chat events (clear/delete) via WebSocket
+	chatHandler.SetOnChatEventCallback(wsHandler.broadcastChatEvent)
+
 	// Public endpoints (no JWT middleware)
 	router.GET("/health", healthHandler.GetHealth)
 	router.POST("/api/auth/register", authHandler.RegisterAPI)

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getVAPIDKey, subscribePush, unsubscribePush, getPushStatus } from '../api/pushApi'
+import { useCallback,useEffect, useState } from 'react'
+
+import { getPushStatus,getVAPIDKey, subscribePush, unsubscribePush } from '../api/pushApi'
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)

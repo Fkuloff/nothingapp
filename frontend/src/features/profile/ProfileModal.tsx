@@ -1,10 +1,12 @@
-import { useEffect, useState, useRef } from 'react'
-import { useAuthContext } from '../auth/AuthContext'
-import { httpPost, httpPut } from '../../shared/api/httpClient'
+import { useEffect, useRef,useState } from 'react'
+
 import { endpoints } from '../../shared/api/endpoints'
-import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
-import { useToast } from '../../shared/components/ToastContext'
+import { httpPost, httpPut } from '../../shared/api/httpClient'
 import type { AvatarUploadResponse } from '../../shared/api/types'
+import { CloseIcon } from '../../shared/components/Icons'
+import { useToast } from '../../shared/components/ToastContext'
+import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { useAuthContext } from '../auth/AuthContext'
 
 type Props = {
   isOpen: boolean
@@ -92,10 +94,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
             </svg>
           </button>
           <button className="profile-modal__action-btn" onClick={onClose} aria-label="Закрыть">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <CloseIcon />
           </button>
         </div>
 

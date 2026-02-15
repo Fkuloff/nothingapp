@@ -16,6 +16,13 @@ import (
 type ChatHandler struct {
 	chatService *services.ChatService
 	userService *services.UserService
+	onChatEvent func(chatID, initiatorUserID uint, action string)
+}
+
+// SetOnChatEventCallback registers a callback for chat-level events (clear/delete).
+// Called by WebSocketHandler to enable real-time sync between participants.
+func (h *ChatHandler) SetOnChatEventCallback(cb func(chatID, initiatorUserID uint, action string)) {
+	h.onChatEvent = cb
 }
 
 func NewChatHandler(
@@ -222,8 +229,10 @@ func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
 	})
 }
 
-// chatAction executes a chat operation (clear/delete) with shared validation logic
-func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context, chatID, userID uint) error, failMsg, successMsg string) {
+// chatAction executes a chat operation (clear/delete) with shared validation logic.
+// Broadcasts the event to the other participant BEFORE the destructive DB action,
+// because DeleteChat hard-deletes the chat record (FindChatByIDLight would fail after).
+func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context, chatID, userID uint) error, failMsg, successMsg, eventAction string) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -233,6 +242,18 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 	if err != nil {
 		sendBadRequest(c, "Invalid chat ID")
 		return
+	}
+
+	// Pre-validate access before broadcasting to avoid spurious events
+	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
+	if err != nil || !chat.HasUser(userID) {
+		sendForbidden(c, "Access denied")
+		return
+	}
+
+	// Broadcast BEFORE destructive action (chat record must exist for participant lookup)
+	if h.onChatEvent != nil {
+		h.onChatEvent(chatID, userID, eventAction)
 	}
 
 	if err := action(c.Request.Context(), chatID, userID); err != nil {
@@ -249,12 +270,12 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 
 // ClearChatAPI clears all messages in a chat
 func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
-	h.chatAction(c, h.chatService.ClearChat, "Failed to clear chat", "Chat cleared")
+	h.chatAction(c, h.chatService.ClearChat, "Failed to clear chat", "Chat cleared", "chat_cleared")
 }
 
 // DeleteChatAPI deletes a chat
 func (h *ChatHandler) DeleteChatAPI(c *gin.Context) {
-	h.chatAction(c, h.chatService.DeleteChat, "Failed to delete chat", "Chat deleted")
+	h.chatAction(c, h.chatService.DeleteChat, "Failed to delete chat", "Chat deleted", "chat_deleted")
 }
 
 // GetChatMessagesAPI returns chat messages for external UI

@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
+
 import type { Message } from '../../shared/api/types'
+import { formatFileSize,getFileIcon } from '../../shared/utils'
 import { EmojiPicker } from './EmojiPicker'
-import { getFileIcon, formatFileSize } from '../../shared/utils'
 
 type Props = {
   messages: Message[]

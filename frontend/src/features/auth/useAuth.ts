@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+
+import { endpoints } from '../../shared/api/endpoints'
 import { getAuthToken, httpGet, setAuthToken } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
-import { endpoints } from '../../shared/api/endpoints'
 
 export function useAuth() {
   const [user, setUser] = useState<UserProfile | null>(null)
