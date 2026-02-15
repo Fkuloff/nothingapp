@@ -1,8 +1,7 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import type { Message } from '../../shared/api/types'
 import { formatFileSize,getFileIcon } from '../../shared/utils'
-import { EmojiPicker } from './EmojiPicker'
 
 type Props = {
   messages: Message[]
@@ -12,11 +11,14 @@ type Props = {
   selectedFiles: File[]
   uploading: boolean
   sending?: boolean
+  showEmojiPanel?: boolean
   onMessageTextChange: (text: string) => void
   onSubmit: (event: React.FormEvent) => void
   onFileSelect: (files: File[]) => void
   onRemoveFile: (index: number) => void
   onCancelDraft: () => void
+  onToggleEmoji: () => void
+  onAddEmoji?: (emoji: string) => void
 }
 
 export function MessageComposer({
@@ -27,38 +29,22 @@ export function MessageComposer({
   selectedFiles,
   uploading,
   sending,
+  showEmojiPanel,
   onMessageTextChange,
   onSubmit,
   onFileSelect,
   onRemoveFile,
   onCancelDraft,
+  onToggleEmoji,
 }: Props) {
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
-  const emojiToggleRef = useRef<HTMLButtonElement>(null)
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
     if (files.length > 0) {
       onFileSelect(files)
     }
-  }
-
-  const handleAddEmoji = (emoji: string) => {
-    const input = messageInputRef.current
-    const start = input?.selectionStart ?? messageText.length
-    const end = input?.selectionEnd ?? messageText.length
-    const next = messageText.slice(0, start) + emoji + messageText.slice(end)
-    onMessageTextChange(next)
-
-    requestAnimationFrame(() => {
-      const pos = start + emoji.length
-      if (input) {
-        input.focus()
-        input.setSelectionRange(pos, pos)
-      }
-    })
   }
 
   const replyToMessage = replyToId ? messages.find((m) => m.id === replyToId) : null
@@ -133,11 +119,10 @@ export function MessageComposer({
         <div className="composer-right">
           <button
             type="button"
-            className="btn icon-btn emoji-toggle-large"
+            className={`btn icon-btn emoji-toggle-large${showEmojiPanel ? ' emoji-toggle-active' : ''}`}
             title="Смайлики"
-            onClick={() => setShowEmojiPicker((prev) => !prev)}
+            onClick={onToggleEmoji}
             disabled={uploading}
-            ref={emojiToggleRef}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="12" r="10" />
@@ -160,13 +145,6 @@ export function MessageComposer({
               </svg>
             )}
           </button>
-          {showEmojiPicker && (
-            <EmojiPicker
-              onSelect={handleAddEmoji}
-              onClose={() => setShowEmojiPicker(false)}
-              toggleRef={emojiToggleRef}
-            />
-          )}
         </div>
       </div>
     </form>
