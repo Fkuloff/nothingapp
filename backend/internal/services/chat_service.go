@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 
+	"messenger/internal/crypto"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
+	"messenger/internal/storage"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -24,6 +26,8 @@ type ChatService struct {
 	chatRepo          *repositories.ChatRepo
 	messageRepo       *repositories.MessageRepo
 	unreadMessageRepo *repositories.UnreadMessageRepo
+	fileStorage       storage.Storage
+	encryptor         *crypto.MessageEncryptor
 }
 
 func NewChatService(
@@ -32,6 +36,8 @@ func NewChatService(
 	chatRepo *repositories.ChatRepo,
 	messageRepo *repositories.MessageRepo,
 	unreadMessageRepo *repositories.UnreadMessageRepo,
+	fileStorage storage.Storage,
+	encryptor *crypto.MessageEncryptor,
 ) *ChatService {
 	return &ChatService{
 		db:                db,
@@ -39,6 +45,8 @@ func NewChatService(
 		chatRepo:          chatRepo,
 		messageRepo:       messageRepo,
 		unreadMessageRepo: unreadMessageRepo,
+		fileStorage:       fileStorage,
+		encryptor:         encryptor,
 	}
 }
 
@@ -100,27 +108,45 @@ func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text
 		replyPtr = &replyToID
 	}
 
+	// Encrypt message text before saving
+	ciphertext, iv, err := s.encryptor.Encrypt(text)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt message: %w", err)
+	}
+
 	// Allow empty text if attachments will be added
 	message := &models.Message{
 		ChatID:    chatID,
 		UserID:    userID,
-		Text:      text,
+		Text:      ciphertext,
+		IV:        iv,
 		ReplyToID: replyPtr,
 	}
 
 	if err := s.messageRepo.Create(ctx, message); err != nil {
 		return nil, fmt.Errorf("create message: %w", err)
 	}
+
+	// Restore plaintext for the caller (e.g. broadcast)
+	message.Text = text
+	message.IV = ""
+
 	return message, nil
 }
 
 // SendMessageAtomic sends a message and creates unread record atomically within a transaction
 // This prevents TOCTOU race conditions where a user could come online between the presence check and unread save
-func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text, iv string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, recipientID uint, text string, replyToID uint, isRecipientOffline bool) (*models.Message, error) {
+	// Encrypt message text before saving
+	ciphertext, iv, err := s.encryptor.Encrypt(text)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt message: %w", err)
+	}
+
 	var message *models.Message
 
 	// Wrap message creation + unread save in a single transaction
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Use transaction-aware repositories
 		chatRepo := s.chatRepo.WithTx(tx)
 		messageRepo := s.messageRepo.WithTx(tx)
@@ -141,7 +167,7 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 		message = &models.Message{
 			ChatID:    chatID,
 			UserID:    userID,
-			Text:      text,
+			Text:      ciphertext,
 			IV:        iv,
 			ReplyToID: replyPtr,
 		}
@@ -166,6 +192,10 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 	if err != nil {
 		return nil, err
 	}
+
+	// Restore plaintext for the caller (e.g. broadcast)
+	message.Text = text
+	message.IV = ""
 
 	return message, nil
 }
@@ -227,6 +257,9 @@ func (s *ChatService) GetMessageByID(ctx context.Context, messageID uint) (*mode
 	if err != nil {
 		return nil, fmt.Errorf("find message: %w", err)
 	}
+	messages := []models.Message{*message}
+	s.decryptMessages(messages)
+	*message = messages[0]
 	return message, nil
 }
 
@@ -235,6 +268,7 @@ func (s *ChatService) GetMessages(ctx context.Context, chatID uint) ([]models.Me
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
+	s.decryptMessages(messages)
 	return messages, nil
 }
 
@@ -244,6 +278,7 @@ func (s *ChatService) GetRecentMessages(ctx context.Context, chatID uint, limit 
 	if err != nil {
 		return nil, fmt.Errorf("get recent messages: %w", err)
 	}
+	s.decryptMessages(messages)
 	return messages, nil
 }
 
@@ -256,6 +291,7 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 	if len(messages) == 0 {
 		return nil, ErrNoMessages
 	}
+	s.decryptMessages(messages)
 	return &messages[0], nil
 }
 
@@ -287,7 +323,7 @@ func (s *ChatService) FindChatByIDLight(ctx context.Context, id uint) (*models.C
 }
 
 // EditMessage allows a user to edit their own message
-func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText, iv string) error {
+func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, newText string) error {
 	// Find the message
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
@@ -309,7 +345,13 @@ func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, n
 		return errors.New("invalid message length")
 	}
 
-	if err := s.messageRepo.UpdateMessage(ctx, messageID, newText, iv); err != nil {
+	// Encrypt before update
+	ciphertext, newIV, err := s.encryptor.Encrypt(newText)
+	if err != nil {
+		return fmt.Errorf("encrypt message: %w", err)
+	}
+
+	if err := s.messageRepo.UpdateMessage(ctx, messageID, ciphertext, newIV); err != nil {
 		return fmt.Errorf("update message: %w", err)
 	}
 
@@ -339,6 +381,100 @@ func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint)
 	}
 
 	return nil
+}
+
+// ClearChat hard-deletes all messages, attachments and unread records in a chat
+func (s *ChatService) ClearChat(ctx context.Context, chatID, userID uint) error {
+	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
+	if err != nil {
+		return errors.New("chat not found")
+	}
+	if !chat.HasUser(userID) {
+		return errors.New("access denied")
+	}
+
+	storageKeys, err := s.purgeMessagesAndAttachments(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	s.deleteStorageFiles(storageKeys)
+	return nil
+}
+
+// DeleteChat hard-deletes a chat and all its messages, attachments, and unread records
+func (s *ChatService) DeleteChat(ctx context.Context, chatID, userID uint) error {
+	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
+	if err != nil {
+		return errors.New("chat not found")
+	}
+	if !chat.HasUser(userID) {
+		return errors.New("access denied")
+	}
+
+	storageKeys, err := s.purgeChat(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	s.deleteStorageFiles(storageKeys)
+	return nil
+}
+
+// purgeMessagesAndAttachments hard-deletes messages, attachments and unread records for a chat.
+// Returns storage keys of deleted attachments for cleanup.
+func (s *ChatService) purgeMessagesAndAttachments(ctx context.Context, chatID uint) ([]string, error) {
+	// Collect attachment storage keys before deleting
+	var storageKeys []string
+	if err := s.db.WithContext(ctx).Model(&models.Attachment{}).
+		Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).
+		Pluck("storage_key", &storageKeys).Error; err != nil {
+		return nil, fmt.Errorf("fetch attachment keys: %w", err)
+	}
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Delete unread messages
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.UnreadMessage{}).Error; err != nil {
+			return fmt.Errorf("delete unread messages: %w", err)
+		}
+		// Delete attachments
+		if err := tx.Unscoped().Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).Delete(&models.Attachment{}).Error; err != nil {
+			return fmt.Errorf("delete attachments: %w", err)
+		}
+		// Clear reply references to avoid FK constraint issues
+		if err := tx.Model(&models.Message{}).Where("chat_id = ? AND reply_to_id IS NOT NULL", chatID).Update("reply_to_id", nil).Error; err != nil {
+			return fmt.Errorf("clear reply references: %w", err)
+		}
+		// Hard-delete messages
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.Message{}).Error; err != nil {
+			return fmt.Errorf("delete messages: %w", err)
+		}
+		return nil
+	})
+
+	return storageKeys, err
+}
+
+// purgeChat hard-deletes a chat and all its data. Returns storage keys for cleanup.
+func (s *ChatService) purgeChat(ctx context.Context, chatID uint) ([]string, error) {
+	storageKeys, err := s.purgeMessagesAndAttachments(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Hard-delete the chat itself (Unscoped bypasses GORM soft-delete)
+	if err := s.db.WithContext(ctx).Unscoped().Delete(&models.Chat{}, chatID).Error; err != nil {
+		return storageKeys, fmt.Errorf("delete chat: %w", err)
+	}
+
+	return storageKeys, nil
+}
+
+// deleteStorageFiles removes files from storage (best-effort, errors are logged)
+func (s *ChatService) deleteStorageFiles(keys []string) {
+	for _, key := range keys {
+		if err := s.fileStorage.Delete(key); err != nil {
+			s.logger.Warn("failed to delete file from storage", zap.Error(err), zap.String("key", key))
+		}
+	}
 }
 
 // GetUnreadMessagesForUser retrieves all unread messages for a user
@@ -373,4 +509,26 @@ func (s *ChatService) GetUnreadCounts(ctx context.Context, userID uint) (map[uin
 		return nil, fmt.Errorf("get unread counts: %w", err)
 	}
 	return counts, nil
+}
+
+// decryptMessages decrypts all messages in a slice (including ReplyTo).
+func (s *ChatService) decryptMessages(messages []models.Message) {
+	for i := range messages {
+		if messages[i].IV != "" && messages[i].Text != "" && !messages[i].IsDeleted {
+			if plaintext, err := s.encryptor.Decrypt(messages[i].Text, messages[i].IV); err == nil {
+				messages[i].Text = plaintext
+			} else {
+				messages[i].Text = "[Ошибка расшифровки]"
+			}
+			messages[i].IV = ""
+		}
+		if messages[i].ReplyTo != nil && messages[i].ReplyTo.IV != "" && !messages[i].ReplyTo.IsDeleted {
+			if plaintext, err := s.encryptor.Decrypt(messages[i].ReplyTo.Text, messages[i].ReplyTo.IV); err == nil {
+				messages[i].ReplyTo.Text = plaintext
+			} else {
+				messages[i].ReplyTo.Text = "[Ошибка расшифровки]"
+			}
+			messages[i].ReplyTo.IV = ""
+		}
+	}
 }

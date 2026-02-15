@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+
 import { useAuth } from './useAuth'
 
 type AuthContextType = ReturnType<typeof useAuth>

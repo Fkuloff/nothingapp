@@ -10,6 +10,8 @@
     "dev:100": "vite --mode dev100",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "knip": "knip",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,7 +29,10 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
     "globals": "^16.5.0",
+    "knip": "^5.83.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.7"

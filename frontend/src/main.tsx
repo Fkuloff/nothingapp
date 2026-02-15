@@ -1,14 +1,16 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import './index.css'
 import './App.css'
-import { AppRouter } from './router/AppRouter'
+
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+
 import { AuthProvider } from './features/auth/AuthContext'
+import { AppRouter } from './router/AppRouter'
 import { ToastProvider } from './shared/components/Toast'
 import { ThemeProvider } from './shared/context/ThemeContext'
 
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
     <ThemeProvider>
       <ToastProvider>

@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+
+import type { OutletContextType } from '../App'
+import { useAuthContext } from '../features/auth/AuthContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
-import type { ChatItem, Message, WSEvent } from '../shared/api/types'
-import { useAuthContext } from '../features/auth/AuthContext'
-import { getCurrentUserChats, getChatMessages } from '../shared/api/chatsApi'
+import { clearChat,deleteChat, getChatMessages, getCurrentUserChats } from '../shared/api/chatsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
+import type { ChatItem, Message, WSEvent } from '../shared/api/types'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
-import { getOrDeriveChatKey } from '../shared/crypto/keyExchange'
-import { decryptText } from '../shared/crypto/encryption'
-import { hasIdentityKeys } from '../shared/crypto/keyStore'
-import type { OutletContextType } from '../App'
 
 export default function ChatsPage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()
@@ -27,6 +25,7 @@ export default function ChatsPage() {
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const chatsRef = useRef<ChatItem[]>([])
+  const loadChatsRef = useRef<() => void>(() => {})
 
   // Keep chatsRef in sync for use in WS handler
   useEffect(() => {
@@ -70,96 +69,56 @@ export default function ChatsPage() {
       const chatId = event.chat_id
 
       if (event.action === 'new') {
-        // Decrypt E2E encrypted messages asynchronously
-        const processNewMessage = async () => {
-          let text = event.text
-          if (event.iv) {
-            try {
-              // Find the other user ID for this chat to derive the key
-              const chat = chatsRef.current.find((c) => c.id === chatId)
-              if (chat && (await hasIdentityKeys())) {
-                const key = await getOrDeriveChatKey(chatId, chat.other_user_id)
-                if (key) {
-                  text = await decryptText(event.text, event.iv, key)
-                }
-              }
-            } catch (err) {
-              console.error('Failed to decrypt new message:', err)
-              text = '[Не удалось расшифровать]'
-            }
+        const text = event.text
+
+        // Update chat list reactively
+        setChats((prevChats) => {
+          const chatIndex = prevChats.findIndex((c) => c.id === chatId)
+          if (chatIndex === -1) {
+            // New chat — reload
+            loadChatsRef.current()
+            return prevChats
           }
 
-          // Update chat list reactively
-          setChats((prevChats) => {
-            const chatIndex = prevChats.findIndex((c) => c.id === chatId)
-            if (chatIndex === -1) {
-              getCurrentUserChats().then(setChats).catch(console.error)
-              return prevChats
-            }
+          const updatedChats = [...prevChats]
+          const chat = { ...updatedChats[chatIndex] }
+          chat.last_message = text || '[Вложение]'
+          chat.updated_at = event.created_at
 
-            const updatedChats = [...prevChats]
-            const chat = { ...updatedChats[chatIndex] }
-            chat.last_message = text || '[Вложение]'
-            chat.updated_at = event.created_at
-
-            if (chatId !== activeChatId && event.user_id !== user?.id) {
-              chat.unread_count = (chat.unread_count || 0) + 1
-            }
-
-            updatedChats[chatIndex] = chat
-            return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-          })
-
-          // Add message to active chat
-          if (chatId === activeChatId) {
-            const newMessage: Message = {
-              id: event.id,
-              chat_id: event.chat_id,
-              user_id: event.user_id,
-              text,
-              iv: event.iv,
-              reply_to_id: event.reply_to_id ?? null,
-              edited_at: event.edited_at ?? null,
-              is_deleted: event.is_deleted,
-              created_at: event.created_at,
-              attachments: [],
-            }
-            setMessages((prev) => [...prev, newMessage])
+          if (chatId !== activeChatId && event.user_id !== user?.id) {
+            chat.unread_count = (chat.unread_count || 0) + 1
           }
+
+          updatedChats[chatIndex] = chat
+          return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        })
+
+        // Add message to active chat
+        if (chatId === activeChatId) {
+          const newMessage: Message = {
+            id: event.id,
+            chat_id: event.chat_id,
+            user_id: event.user_id,
+            text,
+            reply_to_id: event.reply_to_id ?? null,
+            edited_at: event.edited_at ?? null,
+            is_deleted: event.is_deleted,
+            created_at: event.created_at,
+            attachments: [],
+          }
+          setMessages((prev) => [...prev, newMessage])
         }
-
-        processNewMessage().catch(console.error)
         return
       }
 
       if (event.action === 'edit' && chatId === activeChatId) {
-        const processEdit = async () => {
-          let text = event.text
-          if (event.iv) {
-            try {
-              const chat = chatsRef.current.find((c) => c.id === chatId)
-              if (chat && (await hasIdentityKeys())) {
-                const key = await getOrDeriveChatKey(chatId, chat.other_user_id)
-                if (key) {
-                  text = await decryptText(event.text, event.iv, key)
-                }
-              }
-            } catch (err) {
-              console.error('Failed to decrypt edited message:', err)
-              text = '[Не удалось расшифровать]'
-            }
-          }
-
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === event.id
-                ? { ...msg, text, iv: event.iv, edited_at: event.edited_at ?? new Date().toISOString() }
-                : msg
-            )
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === event.id
+              ? { ...msg, text: event.text, edited_at: event.edited_at ?? new Date().toISOString() }
+              : msg
           )
-        }
-
-        processEdit().catch(console.error)
+        )
         return
       }
 
@@ -167,6 +126,28 @@ export default function ChatsPage() {
         setMessages((prev) =>
           prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
         )
+        return
+      }
+
+      if (event.action === 'chat_cleared') {
+        if (event.chat_id === activeChatId) {
+          setMessages([])
+        }
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === event.chat_id ? { ...c, last_message: '', unread_count: 0 } : c
+          )
+        )
+        return
+      }
+
+      if (event.action === 'chat_deleted') {
+        setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
+        if (event.chat_id === activeChatId) {
+          setActiveChatId(null)
+          setMessages([])
+        }
+        return
       }
     },
     [activeChatId, user?.id]
@@ -182,24 +163,6 @@ export default function ChatsPage() {
       setChatsError(null)
       setLoadingChats(true)
       const data = await getCurrentUserChats()
-
-      // Decrypt last_message previews for E2E encrypted chats
-      if (await hasIdentityKeys()) {
-        await Promise.all(
-          data.map(async (chat) => {
-            if (!chat.last_message_iv || !chat.last_message) return
-            try {
-              const key = await getOrDeriveChatKey(chat.id, chat.other_user_id)
-              if (key) {
-                chat.last_message = await decryptText(chat.last_message, chat.last_message_iv, key)
-              }
-            } catch {
-              chat.last_message = '[Зашифрованное сообщение]'
-            }
-          }),
-        )
-      }
-
       const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       setChats(sortedData)
     } catch (err) {
@@ -209,34 +172,13 @@ export default function ChatsPage() {
       setLoadingChats(false)
     }
   }, [])
+  loadChatsRef.current = loadChats
 
   const loadMessages = useCallback(async (chatId: number) => {
     try {
       setMessagesError(null)
       setLoadingMessages(true)
       const data = await getChatMessages(chatId)
-
-      // Decrypt E2E encrypted messages
-      const chat = chatsRef.current.find((c) => c.id === chatId)
-      if (chat && (await hasIdentityKeys())) {
-        const key = await getOrDeriveChatKey(chatId, chat.other_user_id)
-        if (key) {
-          const decrypted = await Promise.all(
-            data.map(async (msg) => {
-              if (!msg.iv || msg.is_deleted) return msg
-              try {
-                const text = await decryptText(msg.text, msg.iv, key)
-                return { ...msg, text }
-              } catch {
-                return { ...msg, text: '[Не удалось расшифровать]' }
-              }
-            }),
-          )
-          setMessages(decrypted)
-          return
-        }
-      }
-
       setMessages(data)
     } catch (err) {
       console.error('Ошибка загрузки сообщений', err)
@@ -291,15 +233,38 @@ export default function ChatsPage() {
     }
   }, [activeChatId, loadMessages, isConnected, send])
 
-  const handleChatCreated = () => {
-    loadChats()
-  }
-
   const handleMessagesUpdate = useCallback(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
     }
   }, [activeChatId, loadMessages])
+
+  const handleClearChat = useCallback(async (chatId: number) => {
+    try {
+      await clearChat(chatId)
+      if (activeChatId === chatId) {
+        setMessages([])
+      }
+      setChats((prev) =>
+        prev.map((c) => c.id === chatId ? { ...c, last_message: '' } : c)
+      )
+    } catch (err) {
+      console.error('Failed to clear chat:', err)
+    }
+  }, [activeChatId])
+
+  const handleDeleteChat = useCallback(async (chatId: number) => {
+    try {
+      await deleteChat(chatId)
+      setChats((prev) => prev.filter((c) => c.id !== chatId))
+      if (activeChatId === chatId) {
+        setActiveChatId(null)
+        setMessages([])
+      }
+    } catch (err) {
+      console.error('Failed to delete chat:', err)
+    }
+  }, [activeChatId])
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId),
@@ -362,7 +327,7 @@ export default function ChatsPage() {
             chats={filteredChats}
             activeChatId={activeChatId ?? undefined}
             onSelect={(id) => setActiveChatId(id)}
-            onChatCreated={handleChatCreated}
+
             loading={loadingChats}
             error={chatsError}
           />
@@ -386,6 +351,8 @@ export default function ChatsPage() {
           send={send}
           isMobile={isMobile}
           onBackToList={() => setActiveChatId(null)}
+          onClearChat={handleClearChat}
+          onDeleteChat={handleDeleteChat}
         />
       </div>
     </div>

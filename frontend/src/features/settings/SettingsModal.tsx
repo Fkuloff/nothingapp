@@ -1,8 +1,7 @@
-import { useTheme } from '../../shared/hooks/useTheme'
+import { CloseIcon } from '../../shared/components/Icons'
 import { PushToggle } from '../../shared/components/PushToggle'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
-import { useAuthContext } from '../auth/AuthContext'
-import { KeyManagement } from './KeyManagement'
+import { useTheme } from '../../shared/hooks/useTheme'
 
 type Props = {
   isOpen: boolean
@@ -12,7 +11,6 @@ type Props = {
 export function SettingsModal({ isOpen, onClose }: Props) {
   const { theme, setTheme } = useTheme()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
-  const { cryptoReady, needsKeyRestore, needsBackupFirst, refreshProfile } = useAuthContext()
 
   if (!isOpen) return null
 
@@ -22,10 +20,7 @@ export function SettingsModal({ isOpen, onClose }: Props) {
         <div className="settings-modal__header">
           <h2 className="settings-modal__title">Настройки</h2>
           <button className="settings-modal__close" onClick={onClose} aria-label="Закрыть">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <CloseIcon />
           </button>
         </div>
 
@@ -71,16 +66,6 @@ export function SettingsModal({ isOpen, onClose }: Props) {
               <span className="settings-modal__option-label">Push-уведомления</span>
               <PushToggle placeholderClass="settings-modal__placeholder" />
             </div>
-          </div>
-
-          <div className="settings-modal__section">
-            <h3 className="settings-modal__section-title">Шифрование</h3>
-            <KeyManagement
-              cryptoReady={cryptoReady}
-              needsKeyRestore={needsKeyRestore}
-              needsBackupFirst={needsBackupFirst}
-              onKeysRestored={refreshProfile}
-            />
           </div>
         </div>
       </div>

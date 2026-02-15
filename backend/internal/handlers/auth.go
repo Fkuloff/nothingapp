@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"messenger/internal/services"
 
@@ -29,6 +30,9 @@ func NewAuthHandler(authService *services.AuthService, userService *services.Use
 func validatePasswordStrength(password string) error {
 	if len(password) < 6 {
 		return errors.New("password must be at least 6 characters")
+	}
+	if strings.TrimSpace(password) == "" {
+		return errors.New("password cannot be only whitespace")
 	}
 	return nil
 }
@@ -99,6 +103,23 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
+
+	// Validate trimmed name length and content
+	if len(req.Name) < 2 {
+		sendBadRequest(c, "Name must be at least 2 characters (excluding spaces)")
+		return
+	}
+	hasAlphanumeric := false
+	for _, r := range req.Name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			hasAlphanumeric = true
+			break
+		}
+	}
+	if !hasAlphanumeric {
+		sendBadRequest(c, "Name must contain at least one letter or digit")
+		return
+	}
 
 	err := h.authService.Register(c.Request.Context(), req.Username, req.Password, req.Name)
 	if err != nil {

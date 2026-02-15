@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"messenger/internal/config"
+	"messenger/internal/crypto"
 	"messenger/internal/handlers"
 	"messenger/internal/logger"
 	"messenger/internal/models"
@@ -35,6 +36,12 @@ func Run() error {
 	log := logger.MustNew(os.Getenv("DEBUG") == "true")
 	defer log.Sync()
 
+	// Initialize message encryptor
+	encryptor, err := crypto.NewMessageEncryptor(cfg.MessageEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("initialize message encryptor: %w", err)
+	}
+
 	// Initialize storage
 	fileStorage, err := storage.NewStorage(cfg.Storage)
 	if err != nil {
@@ -56,7 +63,7 @@ func Run() error {
 	router := setupRouter(log)
 
 	// Setup routes with dependencies
-	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg); err != nil {
+	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg, encryptor); err != nil {
 		return fmt.Errorf("setup routes: %w", err)
 	}
 
@@ -155,8 +162,6 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.Attachment{},
 		&models.UnreadMessage{},
 		&models.PushSubscription{},
-		&models.UserKey{},
-		&models.KeyBackup{},
 	)
 }
 

@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 
+import { CloseIcon } from '../../shared/components/Icons'
+
 type Props = {
   src: string
   alt: string
@@ -32,10 +34,7 @@ export function ImageLightbox({ src, alt, onClose }: Props) {
   return (
     <div className="lightbox-backdrop" onClick={handleBackdropClick}>
       <button className="lightbox-close" onClick={onClose} aria-label="Закрыть">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+        <CloseIcon />
       </button>
       <img src={src} alt={alt} className="lightbox-image" />
     </div>

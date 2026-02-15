@@ -36,8 +36,6 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		&models.Attachment{},
 		&models.Contact{},
 		&models.UnreadMessage{},
-		&models.UserKey{},
-		&models.KeyBackup{},
 		&models.PushSubscription{},
 	)
 	if err != nil {
@@ -52,8 +50,6 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 			"messages",
 			"contacts",
 			"push_subscriptions",
-			"key_backups",
-			"user_keys",
 			"chats",
 			"users",
 		}

@@ -1,12 +1,14 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo,useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
-import { getContacts, addContact, removeContact } from '../shared/api/contactsApi'
-import type { UserListItem } from '../shared/api/types'
+
+import type { OutletContextType } from '../App'
 import { ContactItem } from '../features/contacts/ContactItem'
 import { UserSearchBox } from '../features/contacts/UserSearchBox'
-import { useToast } from '../shared/components/ToastContext'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
-import type { OutletContextType } from '../App'
+import { createChat } from '../shared/api/chatsApi'
+import { addContact, getContacts, removeContact } from '../shared/api/contactsApi'
+import type { UserListItem } from '../shared/api/types'
+import { useToast } from '../shared/components/ToastContext'
 
 export default function ContactsPage() {
   const { setMenuOpen } = useOutletContext<OutletContextType>()
@@ -36,12 +38,18 @@ export default function ContactsPage() {
     loadContacts()
   }, [loadContacts])
 
-  // Start chat with contact (navigate to their profile)
+  // Start chat with contact (create or open existing chat)
   const handleStartChat = useCallback(
-    (userId: number) => {
-      navigate(`/profile/${userId}`)
+    async (userId: number) => {
+      try {
+        const chat = await createChat(userId)
+        navigate(`/?chat=${chat.id}`)
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Не удалось создать чат'
+        showToast(errorMessage, 'error')
+      }
     },
-    [navigate]
+    [navigate, showToast]
   )
 
   // Remove contact
@@ -94,7 +102,7 @@ export default function ContactsPage() {
       {/* Content */}
       <div className="page-content">
         {/* Search box */}
-        <UserSearchBox onAddContact={handleAddContact} existingContactIds={existingContactIds} />
+        <UserSearchBox onAddContact={handleAddContact} onStartChat={handleStartChat} existingContactIds={existingContactIds} />
 
         {/* Error state */}
         {error && !loading && <div className="alert alert-danger alert-sm mt-3">{error}</div>}
@@ -102,16 +110,24 @@ export default function ContactsPage() {
         {/* Contacts list */}
         <div className="mt-3">
           {loading ? (
-            <p className="text-muted small">Загружаем контакты...</p>
+            <div className="contacts-modal__empty">
+              <span className="contacts-modal__spinner" style={{ width: 22, height: 22, borderWidth: 2, display: 'inline-block' }} />
+            </div>
           ) : contacts.length === 0 ? (
-            <div className="telegram-empty-list">
-              <p>Контактов пока нет</p>
-              <p className="text-muted small">
+            <div className="contacts-page-empty">
+              <svg className="contacts-page-empty__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <line x1="19" y1="8" x2="19" y2="14" />
+                <line x1="22" y1="11" x2="16" y2="11" />
+              </svg>
+              <p className="contacts-page-empty__title">Контактов пока нет</p>
+              <p className="contacts-page-empty__hint">
                 Используйте поиск выше, чтобы найти пользователей
               </p>
             </div>
           ) : (
-            <ul className="list-unstyled mb-0">
+            <ul className="contacts-page-list">
               {contacts.map((contact) => (
                 <ContactItem
                   key={contact.id}

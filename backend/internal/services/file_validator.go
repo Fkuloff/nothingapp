@@ -46,20 +46,10 @@ var (
 type FileValidator struct{}
 
 // ValidateAttachment validates a file for attachment upload.
-// When encrypted is true, files have application/octet-stream type and .enc extension — skip MIME checks.
-func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader, encrypted bool) error {
+func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) error {
 	contentType := fileHeader.Header.Get("Content-Type")
 	if contentType == "" {
 		return errors.New("content type not specified")
-	}
-
-	if encrypted {
-		// Encrypted files always arrive as application/octet-stream with .enc suffix.
-		// Validate size only; MIME type and extension were checked client-side before encryption.
-		if fileHeader.Size > MaxFileSize {
-			return fmt.Errorf("file too large (max %d MB)", MaxFileSize/(1024*1024))
-		}
-		return nil
 	}
 
 	// Check if file type is allowed
