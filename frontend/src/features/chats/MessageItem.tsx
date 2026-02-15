@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useMemo,useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
-import type { Attachment,Message } from '../../shared/api/types'
-import { formatFileSize,formatMessageTime } from '../../shared/utils'
+import type { Attachment, Message } from '../../shared/api/types'
+import { formatFileSize, formatMessageTime } from '../../shared/utils'
 import { ImageLightbox } from './ImageLightbox'
+
+// Detect messages containing only 1–3 emojis (sticker-style)
+const EMOJI_REGEX = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F){1,3}$/u
+function isEmojiOnly(text: string): boolean {
+  return EMOJI_REGEX.test(text.trim())
+}
 
 type Props = {
   message: Message
@@ -146,10 +152,12 @@ export function MessageItem({
     }
   }, [contextMenu.visible, closeContextMenu])
 
+  const emojiOnly = !message.is_deleted && isEmojiOnly(message.text)
+
   return (
     <>
       <div
-        className={`message ${isOwn ? 'message-self' : 'message-other'} ${message.is_deleted ? 'deleted' : ''}`}
+        className={`message ${isOwn ? 'message-self' : 'message-other'}${message.is_deleted ? ' deleted' : ''}${emojiOnly ? ' message--emoji-only' : ''}`}
         data-msg-id={message.id}
         data-user-id={message.user_id}
         onContextMenu={handleContextMenu}
@@ -177,7 +185,7 @@ export function MessageItem({
             </span>
           ) : (
             <>
-              <span className="message-text">
+              <span className={`message-text${emojiOnly ? ' message-text--emoji-only' : ''}`}>
                 {message.text || '[Пустое сообщение]'}
                 {message.edited_at && <span className="edited-indicator"> (ред.)</span>}
               </span>

@@ -563,6 +563,20 @@ textarea::placeholder,
   overflow: hidden;
 }
 
+/* When emoji panel is open, switch to row layout */
+.chat-window--emoji-open {
+  flex-direction: row;
+}
+
+.chat-window__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
 .empty-chat-panel {
   align-items: center;
   justify-content: center;
@@ -883,6 +897,23 @@ textarea::placeholder,
   word-break: break-word;
 }
 
+/* Emoji-only messages (stickers) — no bubble, large emoji */
+.message--emoji-only {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: var(--space-xs) 0;
+}
+
+.message--emoji-only .message__header {
+  opacity: 0.6;
+}
+
+.message-text--emoji-only {
+  font-size: 3rem;
+  line-height: 1.2;
+}
+
 .edited-indicator {
   font-size: 0.75rem;
   color: var(--text-tertiary);
@@ -975,7 +1006,7 @@ textarea::placeholder,
   align-items: center;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
+  border-radius: 24px;
   padding: var(--space-xs) var(--space-sm);
 }
 
@@ -1076,13 +1107,6 @@ textarea::placeholder,
   opacity: 0.5;
 }
 
-/* Emoji popover positioned from right */
-.composer-right .emoji-popover {
-  right: 0;
-  left: auto;
-  bottom: 56px;
-}
-
 .icon-btn {
   width: 52px;
   height: 52px;
@@ -1118,14 +1142,15 @@ textarea::placeholder,
 }
 
 .composer-input {
-  background: transparent;
-  border: none;
+  background: transparent !important;
+  border: none !important;
   color: var(--text-primary);
-  border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
-  font-size: 1rem;
+  border-radius: 0 !important;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.95rem;
   transition: var(--transition);
-  min-height: 52px;
+  min-height: 42px;
+  box-shadow: none !important;
 }
 
 .composer-input::placeholder {
@@ -1134,50 +1159,9 @@ textarea::placeholder,
 
 .composer-input:focus {
   outline: none;
-  box-shadow: none;
-}
-
-.emoji-popover {
-  position: absolute;
-  bottom: 52px;
-  left: 0;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: var(--space-xs);
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  box-shadow: var(--shadow-lg);
-  z-index: 100;
-  animation: popIn 0.15s ease-out;
-}
-
-@keyframes popIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.emoji-option {
-  background: transparent;
-  border: none;
-  font-size: 22px;
-  cursor: pointer;
-  transition: var(--transition);
-  line-height: 1;
-  padding: var(--space-xs);
-  border-radius: var(--radius-md);
-}
-
-.emoji-option:hover {
-  transform: scale(1.15);
-  background: var(--bg-hover);
+  box-shadow: none !important;
+  background: transparent !important;
+  border: none !important;
 }
 
 /* ============================================
@@ -3047,6 +3031,11 @@ textarea::placeholder,
 
   .telegram-layout.chat-active .telegram-chat-area {
     display: flex !important;
+  }
+
+  /* Keep column layout on mobile when emoji panel is open */
+  .chat-window--emoji-open {
+    flex-direction: column;
   }
 }
 

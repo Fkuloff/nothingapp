@@ -6,6 +6,7 @@ import type { Message, WSMessageAction } from '../../shared/api/types'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
+import { EmojiPicker } from './EmojiPicker'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
 
@@ -55,6 +56,7 @@ export function ChatWindow({
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [showEmojiPanel, setShowEmojiPanel] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
@@ -221,6 +223,14 @@ export function ChatWindow({
     setMessageText('')
   }
 
+  const handleAddEmoji = useCallback((emoji: string) => {
+    setMessageText((prev) => prev + emoji)
+  }, [])
+
+  const handleToggleEmoji = useCallback(() => {
+    setShowEmojiPanel((prev) => !prev)
+  }, [])
+
   if (!chatId || !otherUsername) {
     return (
       <div className="chat-window glassy empty-chat-panel">
@@ -238,122 +248,133 @@ export function ChatWindow({
   }
 
   return (
-    <div className="chat-window glassy">
-      <div className="chat-header">
-        <div className="chat-header__title">
-          {isMobile && (
-            <button className="back-btn" onClick={onBackToList} aria-label="Назад">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 12H5M12 19l-7-7 7-7" />
-              </svg>
-            </button>
-          )}
-          <button
-            type="button"
-            className="chat-header__link"
-            onClick={() => setIsProfileModalOpen(true)}
-          >
-            <span className="avatar avatar-sm">
-              <img src={otherAvatar || '/img/default-avatar.svg'} alt="avatar" />
-            </span>
-            <div className="chat-header__info">
-              <span className="chat-peer">{otherUsername}</span>
-              <div className="chat-header__meta">
-                <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
-                <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
-              </div>
-            </div>
-          </button>
-        </div>
-        <div className="chat-header__actions">
-          <button
-            className="chat-header__search-btn"
-            onClick={() => setIsSearchOpen(!isSearchOpen)}
-            aria-label="Поиск по сообщениям"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.35-4.35" />
-            </svg>
-          </button>
-          <div className="chat-menu" ref={menuRef}>
+    <div className={`chat-window glassy${showEmojiPanel ? ' chat-window--emoji-open' : ''}`}>
+      <div className="chat-window__main">
+        <div className="chat-header">
+          <div className="chat-header__title">
+            {isMobile && (
+              <button className="back-btn" onClick={onBackToList} aria-label="Назад">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 12H5M12 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
             <button
-              className="chat-header__menu-btn"
-              onClick={() => setIsMenuOpen((v) => !v)}
-              aria-label="Меню чата"
+              type="button"
+              className="chat-header__link"
+              onClick={() => setIsProfileModalOpen(true)}
             >
-              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-                <circle cx="12" cy="5" r="1.5" />
-                <circle cx="12" cy="12" r="1.5" />
-                <circle cx="12" cy="19" r="1.5" />
+              <span className="avatar avatar-sm">
+                <img src={otherAvatar || '/img/default-avatar.svg'} alt="avatar" />
+              </span>
+              <div className="chat-header__info">
+                <span className="chat-peer">{otherUsername}</span>
+                <div className="chat-header__meta">
+                  <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
+                  <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
+                </div>
+              </div>
+            </button>
+          </div>
+          <div className="chat-header__actions">
+            <button
+              className="chat-header__search-btn"
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              aria-label="Поиск по сообщениям"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
               </svg>
             </button>
-            {isMenuOpen && (
-              <div className="chat-menu__dropdown">
-                <button className="chat-menu__item" onClick={handleClearChat}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                    <path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24" />
-                  </svg>
-                  Очистить чат
-                </button>
-                <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                  Удалить чат
-                </button>
-              </div>
+            <div className="chat-menu" ref={menuRef}>
+              <button
+                className="chat-header__menu-btn"
+                onClick={() => setIsMenuOpen((v) => !v)}
+                aria-label="Меню чата"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                  <circle cx="12" cy="5" r="1.5" />
+                  <circle cx="12" cy="12" r="1.5" />
+                  <circle cx="12" cy="19" r="1.5" />
+                </svg>
+              </button>
+              {isMenuOpen && (
+                <div className="chat-menu__dropdown">
+                  <button className="chat-menu__item" onClick={handleClearChat}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                      <path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24" />
+                    </svg>
+                    Очистить чат
+                  </button>
+                  <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                    Удалить чат
+                  </button>
+                </div>
+              )}
+            </div>
+            {!isConnected && (
+              <span className="badge bg-warning text-dark">Reconnecting</span>
             )}
           </div>
-          {!isConnected && (
-            <span className="badge bg-warning text-dark">Reconnecting</span>
-          )}
         </div>
+
+        {isSearchOpen && (
+          <ChatSearch
+            chatId={chatId}
+            onResultClick={(messageId) => {
+              setIsSearchOpen(false)
+              // Scroll to message — the MessageList component should handle this
+              const el = document.getElementById(`msg-${messageId}`)
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                el.classList.add('highlight')
+                setTimeout(() => el.classList.remove('highlight'), 2000)
+              }
+            }}
+            onClose={() => setIsSearchOpen(false)}
+          />
+        )}
+
+        <MessageList
+          messages={messages}
+          currentUserId={currentUserId}
+          otherUsername={otherUsername}
+          loading={loading}
+          error={error}
+          onReply={handleReply}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+
+        <MessageComposer
+          messages={messages}
+          replyToId={replyToId}
+          editingMessageId={editingMessageId}
+          messageText={messageText}
+          selectedFiles={selectedFiles}
+          uploading={uploading}
+          sending={sending}
+          showEmojiPanel={showEmojiPanel}
+          onMessageTextChange={setMessageText}
+          onSubmit={handleSubmit}
+          onFileSelect={handleFileSelect}
+          onRemoveFile={handleRemoveFile}
+          onCancelDraft={handleCancelDraft}
+          onToggleEmoji={handleToggleEmoji}
+        />
       </div>
 
-      {isSearchOpen && (
-        <ChatSearch
-          chatId={chatId}
-          onResultClick={(messageId) => {
-            setIsSearchOpen(false)
-            // Scroll to message — the MessageList component should handle this
-            const el = document.getElementById(`msg-${messageId}`)
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-              el.classList.add('highlight')
-              setTimeout(() => el.classList.remove('highlight'), 2000)
-            }
-          }}
-          onClose={() => setIsSearchOpen(false)}
+      {showEmojiPanel && (
+        <EmojiPicker
+          onSelect={handleAddEmoji}
+          onClose={() => setShowEmojiPanel(false)}
         />
       )}
-
-      <MessageList
-        messages={messages}
-        currentUserId={currentUserId}
-        otherUsername={otherUsername}
-        loading={loading}
-        error={error}
-        onReply={handleReply}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
-
-      <MessageComposer
-        messages={messages}
-        replyToId={replyToId}
-        editingMessageId={editingMessageId}
-        messageText={messageText}
-        selectedFiles={selectedFiles}
-        uploading={uploading}
-        sending={sending}
-        onMessageTextChange={setMessageText}
-        onSubmit={handleSubmit}
-        onFileSelect={handleFileSelect}
-        onRemoveFile={handleRemoveFile}
-        onCancelDraft={handleCancelDraft}
-      />
 
       {otherUserId && (
         <UserProfileModal
