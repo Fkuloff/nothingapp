@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost } from '../../shared/api/httpClient'
-import type { Message, WSMessageAction } from '../../shared/api/types'
+import type { GroupMember, Message, WSMessageAction } from '../../shared/api/types'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
 import { EmojiPicker } from './EmojiPicker'
+import { GroupInfoPanel } from './GroupInfoPanel'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
 
@@ -27,6 +28,14 @@ type Props = {
   onBackToList?: () => void
   onClearChat?: (chatId: number) => void
   onDeleteChat?: (chatId: number) => void
+  // Group props
+  isGroup?: boolean
+  groupName?: string
+  groupMembers?: GroupMember[]
+  onGroupInfoOpen?: () => void
+  onGroupUpdated?: () => void
+  onGroupDeleted?: () => void
+  onGroupLeft?: () => void
 }
 
 export function ChatWindow({
@@ -46,6 +55,12 @@ export function ChatWindow({
   onBackToList,
   onClearChat,
   onDeleteChat,
+  isGroup = false,
+  groupName = '',
+  groupMembers = [],
+  onGroupUpdated,
+  onGroupDeleted,
+  onGroupLeft,
 }: Props) {
   const [messageText, setMessageText] = useState('')
   const [replyToId, setReplyToId] = useState<number | null>(null)
@@ -54,6 +69,7 @@ export function ChatWindow({
   const [uploading, setUploading] = useState(false)
   const [sending, setSending] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [showEmojiPanel, setShowEmojiPanel] = useState(false)
@@ -71,6 +87,7 @@ export function ChatWindow({
     setShowEmojiPanel(false)
     setIsSearchOpen(false)
     setIsMenuOpen(false)
+    setIsGroupInfoOpen(false)
     pendingUploadRef.current = null
   }, [chatId])
 
@@ -196,7 +213,6 @@ export function ChatWindow({
       setMessageText('')
       setReplyToId(null)
       setSelectedFiles([])
-      // Files will be uploaded by the useEffect when the WS broadcast arrives
     } else {
       setSending(false)
       showToast('Не удалось отправить сообщение, повторите.', 'error')
@@ -244,7 +260,10 @@ export function ChatWindow({
     setShowEmojiPanel((prev) => !prev)
   }, [])
 
-  if (!chatId || !otherUsername) {
+  const displayName = isGroup ? groupName : otherUsername
+  const displayAvatar = otherAvatar
+
+  if (!chatId || (!displayName && !isGroup)) {
     return (
       <div className="chat-window glassy empty-chat-panel">
         <div className="empty-hero">
@@ -258,6 +277,14 @@ export function ChatWindow({
         </div>
       </div>
     )
+  }
+
+  const handleHeaderClick = () => {
+    if (isGroup) {
+      setIsGroupInfoOpen(true)
+    } else {
+      setIsProfileModalOpen(true)
+    }
   }
 
   return (
@@ -275,16 +302,22 @@ export function ChatWindow({
             <button
               type="button"
               className="chat-header__link"
-              onClick={() => setIsProfileModalOpen(true)}
+              onClick={handleHeaderClick}
             >
               <span className="avatar avatar-sm">
-                <img src={otherAvatar || '/img/default-avatar.svg'} alt="avatar" />
+                <img src={displayAvatar || '/img/default-avatar.svg'} alt="avatar" />
               </span>
               <div className="chat-header__info">
-                <span className="chat-peer">{otherUsername}</span>
+                <span className="chat-peer">{displayName}</span>
                 <div className="chat-header__meta">
-                  <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
-                  <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
+                  {isGroup ? (
+                    <span className="chat-subtitle">{groupMembers.length} участник(ов)</span>
+                  ) : (
+                    <>
+                      <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
+                      <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
+                    </>
+                  )}
                 </div>
               </div>
             </button>
@@ -320,13 +353,15 @@ export function ChatWindow({
                     </svg>
                     Очистить чат
                   </button>
-                  <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    </svg>
-                    Удалить чат
-                  </button>
+                  {!isGroup && (
+                    <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                      Удалить чат
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -341,7 +376,6 @@ export function ChatWindow({
             chatId={chatId}
             onResultClick={(messageId) => {
               setIsSearchOpen(false)
-              // Scroll to message — the MessageList component should handle this
               const el = document.getElementById(`msg-${messageId}`)
               if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -356,7 +390,9 @@ export function ChatWindow({
         <MessageList
           messages={messages}
           currentUserId={currentUserId}
-          otherUsername={otherUsername}
+          otherUsername={otherUsername || groupName}
+          isGroup={isGroup}
+          groupMembers={groupMembers}
           loading={loading}
           error={error}
           onReply={handleReply}
@@ -389,14 +425,29 @@ export function ChatWindow({
         />
       )}
 
-      {otherUserId && (
+      {!isGroup && otherUserId && (
         <UserProfileModal
           isOpen={isProfileModalOpen}
           onClose={() => setIsProfileModalOpen(false)}
           userId={otherUserId}
-          username={otherUsername}
+          username={otherUsername || ''}
           avatarUrl={otherAvatar}
           isOnline={isOtherUserOnline}
+        />
+      )}
+
+      {isGroup && currentUserId && (
+        <GroupInfoPanel
+          isOpen={isGroupInfoOpen}
+          onClose={() => setIsGroupInfoOpen(false)}
+          chatId={chatId}
+          groupName={groupName}
+          avatarUrl={displayAvatar}
+          members={groupMembers}
+          currentUserId={currentUserId}
+          onGroupUpdated={() => { onGroupUpdated?.() }}
+          onGroupDeleted={() => { setIsGroupInfoOpen(false); onGroupDeleted?.() }}
+          onGroupLeft={() => { setIsGroupInfoOpen(false); onGroupLeft?.() }}
         />
       )}
     </div>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import { getContacts, searchUsers } from '../../shared/api/contactsApi'
+import { addContact, getContacts, searchUsers } from '../../shared/api/contactsApi'
 import type { UserListItem } from '../../shared/api/types'
-import { ChatBubbleIcon,CloseIcon } from '../../shared/components/Icons'
+import { ChatBubbleIcon, CloseIcon, PersonAddIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -21,6 +21,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
   const [startingId, setStartingId] = useState<number | null>(null)
   const [confirmingId, setConfirmingId] = useState<number | null>(null)
   const [removingId, setRemovingId] = useState<number | null>(null)
+  const [addingId, setAddingId] = useState<number | null>(null)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   // Auto-reset confirmation after 5 seconds
@@ -106,6 +107,18 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
     }
   }
 
+  const handleAddContact = async (user: UserListItem) => {
+    setAddingId(user.id)
+    try {
+      await addContact(user.id)
+      setContacts((prev) => [...prev, user])
+    } catch (err) {
+      console.error('Failed to add contact:', err)
+    } finally {
+      setAddingId(null)
+    }
+  }
+
   // Filter existing contacts locally
   const filteredContacts = contacts.filter(
     (c) =>
@@ -185,6 +198,21 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
                 </>
               )}
             </button>
+            {!isContact && (
+              <button
+                className="contacts-modal__action-btn contacts-modal__action-btn--add"
+                onClick={(e) => { e.stopPropagation(); handleAddContact(user) }}
+                disabled={addingId === user.id}
+                tabIndex={0}
+                title="Добавить в контакты"
+              >
+                {addingId === user.id ? (
+                  <span className="contacts-modal__spinner" />
+                ) : (
+                  <PersonAddIcon size={22} />
+                )}
+              </button>
+            )}
             {isContact && onRemoveContact && (
               <button
                 className="contacts-modal__action-btn contacts-modal__action-btn--danger"

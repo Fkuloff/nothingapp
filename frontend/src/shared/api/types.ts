@@ -38,12 +38,19 @@ export type ChatListResponse = {
 
 export type ChatItem = {
   id: number
-  other_user_id: number
-  other_user_name: string
+  is_group: boolean
   avatar_url?: string
   last_message?: string
   unread_count: number
   updated_at: string
+
+  // 1-on-1 fields (omitted for groups)
+  other_user_id?: number
+  other_user_name?: string
+
+  // Group fields (omitted for 1-on-1)
+  group_name?: string
+  member_count?: number
 }
 
 export type ChatCreateResponse = {
@@ -63,11 +70,39 @@ export type Message = {
   chat_id: number
   user_id: number
   text: string
+  type?: 'user' | 'system'
   reply_to_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
   created_at: string
   attachments: Attachment[]
+}
+
+// Group types
+export type GroupMember = {
+  user_id: number
+  username: string
+  name: string
+  avatar_url?: string
+  role: 'creator' | 'admin' | 'member'
+  is_online: boolean
+}
+
+export type GroupCreateResponse = {
+  id: number
+  name: string
+  is_group: boolean
+  members: GroupMember[]
+  created_at: string
+}
+
+export type GroupInfoResponse = {
+  id: number
+  name: string
+  avatar_url?: string
+  creator_id: number
+  members: GroupMember[]
+  created_at: string
 }
 
 // Attachments
@@ -191,4 +226,60 @@ export type WSEventChatDeleted = {
   user_id: number
 }
 
-export type WSEvent = WSEventNew | WSEventEdit | WSEventDelete | WSEventPresenceChanged | WSEventChatCleared | WSEventChatDeleted | ApiError
+// Group WebSocket events (server -> client)
+export type WSEventMemberAdded = {
+  action: 'member_added'
+  chat_id: number
+  actor_id: number
+  members: GroupMember[]
+}
+
+export type WSEventMemberRemoved = {
+  action: 'member_removed'
+  chat_id: number
+  actor_id: number
+  user_id: number
+}
+
+export type WSEventMemberLeft = {
+  action: 'member_left'
+  chat_id: number
+  user_id: number
+}
+
+export type WSEventGroupUpdated = {
+  action: 'group_updated'
+  chat_id: number
+  actor_id: number
+  name?: string
+  avatar_url?: string
+}
+
+export type WSEventRoleChanged = {
+  action: 'role_changed'
+  chat_id: number
+  actor_id: number
+  user_id: number
+  new_role: string
+}
+
+export type WSEventGroupDeleted = {
+  action: 'group_deleted'
+  chat_id: number
+  actor_id: number
+}
+
+export type WSEvent =
+  | WSEventNew
+  | WSEventEdit
+  | WSEventDelete
+  | WSEventPresenceChanged
+  | WSEventChatCleared
+  | WSEventChatDeleted
+  | WSEventMemberAdded
+  | WSEventMemberRemoved
+  | WSEventMemberLeft
+  | WSEventGroupUpdated
+  | WSEventRoleChanged
+  | WSEventGroupDeleted
+  | ApiError

@@ -14,15 +14,21 @@ import (
 // ChatHandler handles HTTP API endpoints for chats
 // WebSocket functionality moved to websocket.go
 type ChatHandler struct {
-	chatService *services.ChatService
-	userService *services.UserService
-	onChatEvent func(chatID, initiatorUserID uint, action string)
+	chatService  *services.ChatService
+	userService  *services.UserService
+	groupService *services.GroupService
+	onChatEvent  func(chatID, initiatorUserID uint, action string)
 }
 
 // SetOnChatEventCallback registers a callback for chat-level events (clear/delete).
 // Called by WebSocketHandler to enable real-time sync between participants.
 func (h *ChatHandler) SetOnChatEventCallback(cb func(chatID, initiatorUserID uint, action string)) {
 	h.onChatEvent = cb
+}
+
+// SetGroupService sets the group service for group chat support in chat handlers.
+func (h *ChatHandler) SetGroupService(gs *services.GroupService) {
+	h.groupService = gs
 }
 
 func NewChatHandler(
@@ -40,6 +46,7 @@ type messageResponse struct {
 	ChatID      uint                `json:"chat_id"`
 	UserID      uint                `json:"user_id"`
 	Text        string              `json:"text"`
+	Type        string              `json:"type"`
 	IsDeleted   bool                `json:"is_deleted"`
 	CreatedAt   time.Time           `json:"created_at"`
 	ReplyToID   *uint               `json:"reply_to_id"`
@@ -54,11 +61,16 @@ type chatListItem = ChatListItem
 func toMessageResponses(messages []models.Message) []messageResponse {
 	result := make([]messageResponse, 0, len(messages))
 	for _, msg := range messages {
+		msgType := string(msg.Type)
+		if msgType == "" {
+			msgType = "user"
+		}
 		result = append(result, messageResponse{
 			ID:          msg.ID,
 			ChatID:      msg.ChatID,
 			UserID:      msg.UserID,
 			Text:        msg.Text,
+			Type:        msgType,
 			ReplyToID:   msg.ReplyToID,
 			EditedAt:    msg.EditedAt,
 			IsDeleted:   msg.IsDeleted,
@@ -100,23 +112,55 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 		return
 	}
 
-	// Check access to chat
 	chat, err := h.chatService.FindChatByID(c.Request.Context(), chatID)
-	if err != nil || !chat.HasUser(userID) {
+	if err != nil {
 		sendForbidden(c, "Access denied")
 		return
 	}
 
-	// Get recent messages
+	// Access check: group or 1-on-1
+	if chat.IsGroup {
+		if h.groupService == nil {
+			sendInternalError(c, "Group service unavailable")
+			return
+		}
+		inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		if !inGroup {
+			sendForbidden(c, "Access denied")
+			return
+		}
+	} else if !chat.HasUser(userID) {
+		sendForbidden(c, "Access denied")
+		return
+	}
+
 	messages, err := h.chatService.GetRecentMessages(c.Request.Context(), chatID, MaxRecentMessages)
 	if err != nil {
 		sendInternalError(c, "Failed to load messages")
 		return
 	}
 
-	// Get other user info
-	otherUser, otherUserID := chat.GetOtherUser(userID)
+	if chat.IsGroup {
+		groupName := ""
+		if chat.GroupName != nil {
+			groupName = *chat.GroupName
+		}
+		memberCount := int64(0)
+		if h.groupService != nil {
+			members, _ := h.groupService.GetGroupMembers(c.Request.Context(), chatID)
+			memberCount = int64(len(members))
+		}
+		sendSuccess(c, gin.H{
+			"chatID":       chatID,
+			"is_group":     true,
+			"group_name":   groupName,
+			"member_count": memberCount,
+			"messages":     toMessageResponses(messages),
+		})
+		return
+	}
 
+	otherUser, otherUserID := chat.GetOtherUser(userID)
 	sendSuccess(c, gin.H{
 		"chatID":        chatID,
 		"otherUserID":   otherUserID,
@@ -125,46 +169,69 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 	})
 }
 
-// ListChatsAPI returns list of chats for external UI
+// ListChatsAPI returns list of chats for external UI (1-on-1 + groups)
 func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
 	}
 
-	// Preload users for display (names, avatars)
 	chats, err := h.chatService.GetUserChats(c.Request.Context(), userID, true)
 	if err != nil {
 		sendInternalError(c, "Failed to load chats")
 		return
 	}
 
-	// Get unread counts for all chats
 	unreadCounts, err := h.chatService.GetUnreadCounts(c.Request.Context(), userID)
 	if err != nil {
-		// Log error but continue - unread counts are not critical
 		unreadCounts = make(map[uint]int64)
 	}
 
 	items := make([]chatListItem, 0, len(chats))
 	for _, chat := range chats {
-		otherUser, otherUserID := chat.GetOtherUser(userID)
+		lastMsg, lErr := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID)
+		lastMessageText := formatLastMessage(lastMsg, lErr)
 
-		// Refresh avatar URL for S3 presigned URLs
-		h.userService.RefreshUserAvatarURL(otherUser)
+		if chat.IsGroup {
+			groupName := ""
+			if chat.GroupName != nil {
+				groupName = *chat.GroupName
+			}
+			var avatarURL *string
+			if chat.AvatarURL != nil && *chat.AvatarURL != "" {
+				url := h.userService.GetAvatarURL(chat.AvatarURL)
+				avatarURL = url
+			}
+			memberCount := 0
+			if h.groupService != nil {
+				cnt, _ := h.groupService.GetParticipantUserIDs(c.Request.Context(), chat.ID)
+				memberCount = len(cnt)
+			}
+			items = append(items, chatListItem{
+				ID:          chat.ID,
+				IsGroup:     true,
+				GroupName:   groupName,
+				MemberCount: memberCount,
+				AvatarURL:   avatarURL,
+				LastMessage: lastMessageText,
+				UnreadCount: int(unreadCounts[chat.ID]),
+				UpdatedAt:   chat.UpdatedAt,
+			})
+		} else {
+			otherUser, otherUserID := chat.GetOtherUser(userID)
+			h.userService.RefreshUserAvatarURL(otherUser)
 
-		lastMsg, err := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID)
-		lastMessageText := formatLastMessage(lastMsg, err)
-
-		items = append(items, chatListItem{
-			ID:            chat.ID,
-			OtherUserID:   otherUserID,
-			OtherUserName: otherUser.GetDisplayName(),
-			AvatarURL:     otherUser.AvatarURL,
-			LastMessage:   lastMessageText,
-			UnreadCount:   int(unreadCounts[chat.ID]),
-			UpdatedAt:     chat.UpdatedAt,
-		})
+			items = append(items, chatListItem{
+				ID:            chat.ID,
+				IsGroup:       false,
+				OtherUserID:   otherUserID,
+				OtherUserName: otherUser.GetDisplayName(),
+				AvatarURL:     otherUser.AvatarURL,
+				LastMessage:   lastMessageText,
+				UnreadCount:   int(unreadCounts[chat.ID]),
+				UpdatedAt:     chat.UpdatedAt,
+			})
+		}
 	}
 
 	sendSuccess(c, gin.H{"chats": items})
@@ -244,9 +311,24 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 		return
 	}
 
-	// Pre-validate access before broadcasting to avoid spurious events
+	// Pre-validate access
 	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
-	if err != nil || !chat.HasUser(userID) {
+	if err != nil {
+		sendForbidden(c, "Access denied")
+		return
+	}
+
+	if chat.IsGroup {
+		if h.groupService == nil {
+			sendInternalError(c, "Group service unavailable")
+			return
+		}
+		inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		if !inGroup {
+			sendForbidden(c, "Access denied")
+			return
+		}
+	} else if !chat.HasUser(userID) {
 		sendForbidden(c, "Access denied")
 		return
 	}
@@ -257,8 +339,9 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 	}
 
 	if err := action(c.Request.Context(), chatID, userID); err != nil {
-		if err.Error() == "access denied" {
-			sendForbidden(c, "Access denied")
+		errMsg := err.Error()
+		if errMsg == "access denied" || errMsg == "admin or creator role required" {
+			sendForbidden(c, errMsg)
 		} else {
 			sendInternalError(c, failMsg)
 		}
@@ -291,8 +374,24 @@ func (h *ChatHandler) GetChatMessagesAPI(c *gin.Context) {
 		return
 	}
 
-	chat, err := h.chatService.FindChatByID(c.Request.Context(), chatID)
-	if err != nil || !chat.HasUser(userID) {
+	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
+	if err != nil {
+		sendForbidden(c, "Access denied")
+		return
+	}
+
+	// Access check
+	if chat.IsGroup {
+		if h.groupService == nil {
+			sendInternalError(c, "Group service unavailable")
+			return
+		}
+		inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		if !inGroup {
+			sendForbidden(c, "Access denied")
+			return
+		}
+	} else if !chat.HasUser(userID) {
 		sendForbidden(c, "Access denied")
 		return
 	}

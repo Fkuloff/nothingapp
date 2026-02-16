@@ -75,3 +75,42 @@ func (r *ChatRepo) FindByIDLight(ctx context.Context, id uint) (*models.Chat, er
 	}
 	return &chat, nil
 }
+
+// FindByIDWithParticipants finds a chat by ID with participants and their user data preloaded
+func (r *ChatRepo) FindByIDWithParticipants(ctx context.Context, id uint) (*models.Chat, error) {
+	var chat models.Chat
+	err := r.db.WithContext(ctx).
+		Preload("Participants").
+		Preload("Participants.User").
+		First(&chat, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &chat, nil
+}
+
+// GetUserChatsIncludingGroups retrieves both 1-on-1 and group chats for a user.
+// groupChatIDs should come from ChatParticipantRepo.GetUserGroupChatIDs.
+func (r *ChatRepo) GetUserChatsIncludingGroups(ctx context.Context, userID uint, groupChatIDs []uint, preloadUsers bool) ([]models.Chat, error) {
+	var chats []models.Chat
+	query := r.db.WithContext(ctx).Order("updated_at DESC")
+
+	if len(groupChatIDs) > 0 {
+		query = query.Where(
+			"(is_group = false AND (user1_id = ? OR user2_id = ?)) OR (id IN (?))",
+			userID, userID, groupChatIDs,
+		)
+	} else {
+		query = query.Where(
+			"is_group = false AND (user1_id = ? OR user2_id = ?)",
+			userID, userID,
+		)
+	}
+
+	if preloadUsers {
+		query = query.Preload("User1").Preload("User2")
+	}
+
+	err := query.Find(&chats).Error
+	return chats, err
+}
