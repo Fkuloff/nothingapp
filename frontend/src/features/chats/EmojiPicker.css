@@ -241,8 +241,8 @@
   .emoji-picker {
     position: relative;
     width: 100%;
-    height: 50vh;
-    max-height: 50vh;
+    height: 50dvh;
+    max-height: 50dvh;
     flex-shrink: 0;
     border-left: none;
     border-top: 1px solid var(--border-color);
@@ -260,7 +260,7 @@
 }
 
 /* Narrow desktop window (not phone) — max 25vh */
-@media (max-width: 768px) and (hover: hover) {
+@media (max-width: 768px) and (pointer: fine) {
   .emoji-picker {
     height: 25vh;
     max-height: 25vh;
