@@ -32,7 +32,6 @@ type Props = {
   isGroup?: boolean
   groupName?: string
   groupMembers?: GroupMember[]
-  onGroupInfoOpen?: () => void
   onGroupUpdated?: () => void
   onGroupDeleted?: () => void
   onGroupLeft?: () => void

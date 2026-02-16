@@ -258,7 +258,7 @@ input[type="search"]::placeholder,
 textarea::placeholder,
 .form-control::placeholder {
   color: var(--text-tertiary) !important;
-  opacity: 1 !important;
+  opacity: 0.7 !important;
 }
 
 /* ============================================
@@ -1281,7 +1281,7 @@ textarea::placeholder,
 .auth-card__form input[type="text"]::placeholder,
 .auth-card__form input[type="password"]::placeholder {
   color: var(--text-tertiary) !important;
-  opacity: 1 !important;
+  opacity: 0.6 !important;
 }
 
 .auth-card__submit {
@@ -3731,52 +3731,6 @@ textarea::placeholder,
 /* ============================================
    CREATE GROUP MODAL
    ============================================ */
-.create-group__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: var(--space-sm) var(--space-xl);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.create-group__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--accent-primary-dim);
-  color: var(--accent-primary);
-  border-radius: var(--radius-full);
-  font-size: 0.8rem;
-  font-weight: 500;
-  animation: chipIn 0.15s ease-out;
-}
-
-@keyframes chipIn {
-  from { opacity: 0; transform: scale(0.85); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.create-group__chip-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--accent-primary);
-  cursor: pointer;
-  border-radius: var(--radius-full);
-  transition: var(--transition-fast);
-}
-
-.create-group__chip-remove:hover {
-  background: var(--accent-primary-subtle);
-  color: var(--text-inverse);
-}
-
 .create-group__checkbox {
   width: 22px;
   height: 22px;
@@ -3829,6 +3783,10 @@ textarea::placeholder,
   flex-direction: column;
   animation: scaleIn 0.2s ease;
   overflow: hidden;
+}
+
+.gip > .profile-modal__header-actions {
+  z-index: 2;
 }
 
 /* --- Hero: avatar + name --- */

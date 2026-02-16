@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { getContacts } from '../../shared/api/contactsApi'
 import { addGroupMembers } from '../../shared/api/groupsApi'
 import type { UserListItem } from '../../shared/api/types'
-import { CloseIcon } from '../../shared/components/Icons'
+import { CheckIcon, CloseIcon, SearchIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -50,7 +50,7 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
     })
   }
 
-  const existingSet = new Set(existingMemberIds)
+  const existingSet = useMemo(() => new Set(existingMemberIds), [existingMemberIds])
   const availableContacts = contacts.filter((c) => !existingSet.has(c.id))
   const filteredContacts = availableContacts.filter(
     (c) =>
@@ -90,10 +90,7 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
         </div>
 
         <div className="contacts-modal__search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.35-4.35" />
-          </svg>
+          <SearchIcon />
           <input
             type="text"
             placeholder="Поиск контактов..."
@@ -135,11 +132,7 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
                     <span className="contacts-modal__username">@{contact.username}</span>
                   </div>
                   <div className={`create-group__checkbox${isSelected ? ' checked' : ''}`}>
-                    {isSelected && (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" width="14" height="14">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    )}
+                    {isSelected && <CheckIcon />}
                   </div>
                 </div>
               )
