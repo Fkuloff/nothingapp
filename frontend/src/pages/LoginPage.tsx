@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { useAuthContext } from '../features/auth/AuthContext'
 import { endpoints } from '../shared/api/endpoints'
@@ -12,7 +12,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const navigate = useNavigate()
-  const { refreshProfile } = useAuthContext()
+  const { user, loading, refreshProfile } = useAuthContext()
+
+  // Already authenticated — redirect to chats
+  if (!loading && user) {
+    return <Navigate to="/" replace />
+  }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()

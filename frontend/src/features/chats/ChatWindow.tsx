@@ -61,6 +61,19 @@ export function ChatWindow({
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
 
+  // Reset input state when switching chats
+  useEffect(() => {
+    setMessageText('')
+    setReplyToId(null)
+    setEditingMessageId(null)
+    setSelectedFiles([])
+    setSending(false)
+    setShowEmojiPanel(false)
+    setIsSearchOpen(false)
+    setIsMenuOpen(false)
+    pendingUploadRef.current = null
+  }, [chatId])
+
   // Close kebab menu on outside click
   useEffect(() => {
     if (!isMenuOpen) return
