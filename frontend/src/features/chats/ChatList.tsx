@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
 import type { ChatItem } from '../../shared/api/types'
+import { GroupIcon } from '../../shared/components/Icons'
 
 type Props = {
   chats: ChatItem[]
@@ -8,6 +9,11 @@ type Props = {
   onSelect: (chatId: number) => void
   loading?: boolean
   error?: string | null
+}
+
+function getChatDisplayName(chat: ChatItem): string {
+  if (chat.is_group) return chat.group_name || 'Группа'
+  return chat.other_user_name || 'Чат'
 }
 
 export function ChatList({ chats, activeChatId, onSelect, loading, error }: Props) {
@@ -34,6 +40,7 @@ export function ChatList({ chats, activeChatId, onSelect, loading, error }: Prop
             {sortedChats.map((chat) => {
               const isActive = chat.id === activeChatId
               const hasUnread = chat.unread_count > 0
+              const displayName = getChatDisplayName(chat)
 
               return (
                 <li
@@ -48,7 +55,10 @@ export function ChatList({ chats, activeChatId, onSelect, loading, error }: Prop
                   </span>
                   <div className="chat-list-item-content">
                     <div className="chat-list-item__top">
-                      <span className="chat-list-item__name">{chat.other_user_name}</span>
+                      <span className="chat-list-item__name">
+                        {chat.is_group && <GroupIcon className="chat-list-item__group-icon" size={14} />}
+                        {displayName}
+                      </span>
                       <span className="chat-list-item__time">
                         {new Date(chat.updated_at).toLocaleTimeString('ru-RU', {
                           hour: '2-digit',

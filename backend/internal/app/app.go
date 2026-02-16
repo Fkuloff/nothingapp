@@ -119,8 +119,9 @@ func initDatabase(dbURL string, log *zap.Logger) (*gorm.DB, error) {
 				Colorful:                  false,
 			},
 		),
-		PrepareStmt: true,
-		QueryFields: true,
+		PrepareStmt:                              true,
+		QueryFields:                              true,
+		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
 	log.Info("connecting to database...")
@@ -154,6 +155,17 @@ func (l *zapGormLogger) Printf(format string, args ...interface{}) {
 
 func runMigrations(db *gorm.DB, log *zap.Logger) error {
 	log.Info("running database migrations...")
+
+	// Drop legacy FK constraints on chats.user1_id/user2_id BEFORE AutoMigrate.
+	// Group chats use chat_participants and leave these fields as 0, which breaks
+	// FK constraints. Must drop first so AutoMigrate doesn't fail trying to re-add them.
+	if err := db.Exec("ALTER TABLE chats DROP CONSTRAINT IF EXISTS fk_chats_user1").Error; err != nil {
+		log.Warn("failed to drop fk_chats_user1 constraint", zap.Error(err))
+	}
+	if err := db.Exec("ALTER TABLE chats DROP CONSTRAINT IF EXISTS fk_chats_user2").Error; err != nil {
+		log.Warn("failed to drop fk_chats_user2 constraint", zap.Error(err))
+	}
+
 	return db.AutoMigrate(
 		&models.User{},
 		&models.Chat{},
@@ -162,6 +174,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.Attachment{},
 		&models.UnreadMessage{},
 		&models.PushSubscription{},
+		&models.ChatParticipant{},
 	)
 }
 

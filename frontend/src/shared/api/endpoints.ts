@@ -29,6 +29,21 @@ export const endpoints = {
     remove: '/api/user/avatar',
     get: (userId: number | string) => `/api/avatars/${userId}`,
   },
+  groups: {
+    create: '/api/groups',
+    info: (groupId: number | string) => `/api/groups/${groupId}`,
+    update: (groupId: number | string) => `/api/groups/${groupId}`,
+    remove: (groupId: number | string) => `/api/groups/${groupId}`,
+    addMembers: (groupId: number | string) => `/api/groups/${groupId}/members`,
+    removeMember: (groupId: number | string, userId: number | string) =>
+      `/api/groups/${groupId}/members/${userId}`,
+    leave: (groupId: number | string) => `/api/groups/${groupId}/leave`,
+    changeRole: (groupId: number | string, userId: number | string) =>
+      `/api/groups/${groupId}/members/${userId}/role`,
+    uploadAvatar: (groupId: number | string) => `/api/groups/${groupId}/avatar`,
+    removeAvatar: (groupId: number | string) => `/api/groups/${groupId}/avatar`,
+    getAvatar: (chatId: number | string) => `/api/group-avatars/${chatId}`,
+  },
   presence: {
     get: (userId: number | string) => `/api/presence/${userId}`,
   },

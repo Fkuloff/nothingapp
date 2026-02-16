@@ -4,9 +4,11 @@ import { useLocation,useNavigate } from 'react-router-dom'
 import { createChat } from '../../shared/api/chatsApi'
 import { removeContact } from '../../shared/api/contactsApi'
 import type { UserListItem } from '../../shared/api/types'
+import { GroupIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { useTheme } from '../../shared/hooks/useTheme'
 import { useAuthContext } from '../auth/AuthContext'
+import { CreateGroupModal } from '../chats/CreateGroupModal'
 import { ContactsModal } from '../contacts/ContactsModal'
 import { ProfileModal } from '../profile/ProfileModal'
 import { SettingsModal } from '../settings/SettingsModal'
@@ -14,9 +16,10 @@ import { SettingsModal } from '../settings/SettingsModal'
 type Props = {
   isOpen: boolean
   onClose: () => void
+  onChatSelected?: (chatId: number) => void
 }
 
-export function SlideMenu({ isOpen, onClose }: Props) {
+export function SlideMenu({ isOpen, onClose, onChatSelected }: Props) {
   const { user, logout } = useAuthContext()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
@@ -24,6 +27,7 @@ export function SlideMenu({ isOpen, onClose }: Props) {
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [contactsModalOpen, setContactsModalOpen] = useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
 
   const handleLogout = async () => {
@@ -54,7 +58,7 @@ export function SlideMenu({ isOpen, onClose }: Props) {
   const handleSelectContact = async (contact: UserListItem) => {
     try {
       const chat = await createChat(contact.id)
-      navigate(`/?chat=${chat.id}`)
+      onChatSelected?.(chat.id)
     } catch (err) {
       console.error('Failed to create chat:', err)
     }
@@ -62,6 +66,16 @@ export function SlideMenu({ isOpen, onClose }: Props) {
 
   const handleRemoveContact = async (userId: number) => {
     await removeContact(userId)
+  }
+
+  const handleOpenCreateGroup = () => {
+    setCreateGroupModalOpen(true)
+    onClose()
+  }
+
+  const handleGroupCreated = (group: { id: number }) => {
+    setCreateGroupModalOpen(false)
+    onChatSelected?.(group.id)
   }
 
   const handleOpenSettings = () => {
@@ -84,6 +98,13 @@ export function SlideMenu({ isOpen, onClose }: Props) {
 
       {/* Settings Modal */}
       <SettingsModal isOpen={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} />
+
+      {/* Create Group Modal */}
+      <CreateGroupModal
+        isOpen={createGroupModalOpen}
+        onClose={() => setCreateGroupModalOpen(false)}
+        onGroupCreated={handleGroupCreated}
+      />
 
       {/* Backdrop */}
       <div
@@ -142,17 +163,11 @@ export function SlideMenu({ isOpen, onClose }: Props) {
             <span>Чаты</span>
           </button>
 
-          <button className="slide-menu__item" disabled>
+          <button className="slide-menu__item" onClick={handleOpenCreateGroup}>
             <span className="slide-menu__icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
+              <GroupIcon size={20} />
             </span>
             <span>Новый групповой чат</span>
-            <span className="slide-menu__badge">Скоро</span>
           </button>
 
           <button
