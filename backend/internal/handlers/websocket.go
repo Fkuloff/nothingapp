@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"messenger/internal/crypto"
+	"messenger/internal/models"
 	"messenger/internal/repositories"
 	"messenger/internal/services"
 
@@ -303,14 +304,14 @@ func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *w
 		}
 
 		// Parse and handle message
-		if err := h.processMessage(client.ctx, userID, conn, msg); err != nil {
+		if err := h.processMessage(client.ctx, userID, msg); err != nil {
 			h.sendError(client, err.Error())
 		}
 	}
 }
 
 // processMessage parses and routes a WebSocket message to appropriate handler
-func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, conn *websocket.Conn, msg []byte) error {
+func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, msg []byte) error {
 	var msgData MessageAction
 	if err := json.Unmarshal(msg, &msgData); err != nil {
 		h.logger.Error("invalid message format", zap.Error(err), zap.Uint("user_id", userID))
@@ -467,6 +468,31 @@ func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msg
 	return nil
 }
 
+// getChatRecipients returns the list of user IDs that should receive a message for the given chat,
+// excluding the specified user. For group chats it returns all participants except excludeUserID;
+// for 1-on-1 chats it returns the other user.
+func (h *WebSocketHandler) getChatRecipients(ctx context.Context, chat *models.Chat, excludeUserID uint) []uint {
+	if chat.IsGroup && h.participantRepo != nil {
+		memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, chat.ID)
+		if err != nil {
+			return nil
+		}
+		recipients := make([]uint, 0, len(memberIDs))
+		for _, id := range memberIDs {
+			if id != excludeUserID {
+				recipients = append(recipients, id)
+			}
+		}
+		return recipients
+	}
+
+	otherUserID := chat.User1ID
+	if chat.User1ID == excludeUserID {
+		otherUserID = chat.User2ID
+	}
+	return []uint{otherUserID}
+}
+
 // broadcastPresenceChange notifies all chat participants about a user's online status change
 func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	ctx := context.Background()
@@ -496,32 +522,14 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 
 	notifiedUsers := make(map[uint]bool)
 	for _, chat := range chats {
-		if chat.IsGroup {
-			// Get all group members
-			if h.participantRepo != nil {
-				memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, chat.ID)
-				if err != nil {
-					continue
-				}
-				for _, memberID := range memberIDs {
-					if memberID != userID && !notifiedUsers[memberID] {
-						notifiedUsers[memberID] = true
-						if h.presenceService.IsUserOnline(memberID) {
-							h.broadcastToUser(memberID, msgJSON)
-						}
-					}
-				}
+		recipients := h.getChatRecipients(ctx, &chat, userID)
+		for _, recipientID := range recipients {
+			if notifiedUsers[recipientID] {
+				continue
 			}
-		} else {
-			otherUserID := chat.User1ID
-			if chat.User1ID == userID {
-				otherUserID = chat.User2ID
-			}
-			if !notifiedUsers[otherUserID] {
-				notifiedUsers[otherUserID] = true
-				if h.presenceService.IsUserOnline(otherUserID) {
-					h.broadcastToUser(otherUserID, msgJSON)
-				}
+			notifiedUsers[recipientID] = true
+			if h.presenceService.IsUserOnline(recipientID) {
+				h.broadcastToUser(recipientID, msgJSON)
 			}
 		}
 	}
@@ -562,27 +570,10 @@ func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, acti
 		return
 	}
 
-	if chat.IsGroup && h.participantRepo != nil {
-		memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, chatID)
-		if err != nil {
-			h.logger.Error("failed to get group members for chat event",
-				zap.Error(err),
-				zap.Uint("chat_id", chatID),
-			)
-			return
-		}
-		for _, memberID := range memberIDs {
-			if memberID != initiatorUserID && h.presenceService.IsUserOnline(memberID) {
-				h.broadcastToUser(memberID, msgJSON)
-			}
-		}
-	} else {
-		otherUserID := chat.User1ID
-		if chat.User1ID == initiatorUserID {
-			otherUserID = chat.User2ID
-		}
-		if h.presenceService.IsUserOnline(otherUserID) {
-			h.broadcastToUser(otherUserID, msgJSON)
+	recipients := h.getChatRecipients(ctx, chat, initiatorUserID)
+	for _, recipientID := range recipients {
+		if h.presenceService.IsUserOnline(recipientID) {
+			h.broadcastToUser(recipientID, msgJSON)
 		}
 	}
 

@@ -64,81 +64,67 @@ func (s *GroupService) CreateGroup(ctx context.Context, creatorID uint, name str
 		return nil, fmt.Errorf("group name must be 1-%d characters", MaxGroupNameLength)
 	}
 
-	// Deduplicate and remove creator from member list
-	seen := make(map[uint]struct{})
-	var cleanMemberIDs []uint
-	for _, id := range memberIDs {
-		if _, exists := seen[id]; id != creatorID && !exists {
-			seen[id] = struct{}{}
-			cleanMemberIDs = append(cleanMemberIDs, id)
-		}
-	}
-
+	cleanMemberIDs := deduplicateIDs(memberIDs, creatorID)
 	if len(cleanMemberIDs) == 0 {
 		return nil, errors.New("group must have at least one member besides the creator")
 	}
-
-	totalMembers := len(cleanMemberIDs) + 1 // +1 for creator
-	if totalMembers > MaxGroupMembers {
+	if len(cleanMemberIDs)+1 > MaxGroupMembers {
 		return nil, fmt.Errorf("group cannot have more than %d members", MaxGroupMembers)
 	}
 
-	// Verify creator exists
 	creator, err := s.userRepo.FindByID(ctx, creatorID)
 	if err != nil {
 		return nil, errors.New("creator not found")
 	}
 
 	var chat *models.Chat
-
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		chatRepo := s.chatRepo.WithTx(tx)
-		participantRepo := s.participantRepo.WithTx(tx)
-		messageRepo := s.messageRepo.WithTx(tx)
-
-		// Create the group chat
-		chat = &models.Chat{
-			IsGroup:   true,
-			GroupName: &name,
-			CreatorID: &creatorID,
-		}
-		if err := chatRepo.Create(ctx, chat); err != nil {
-			return fmt.Errorf("create group chat: %w", err)
-		}
-
-		// Add creator as participant
-		if err := participantRepo.Create(ctx, &models.ChatParticipant{
-			ChatID: chat.ID,
-			UserID: creatorID,
-			Role:   models.RoleCreator,
-		}); err != nil {
-			return fmt.Errorf("add creator: %w", err)
-		}
-
-		// Add members
-		for _, memberID := range cleanMemberIDs {
-			if err := participantRepo.Create(ctx, &models.ChatParticipant{
-				ChatID: chat.ID,
-				UserID: memberID,
-				Role:   models.RoleMember,
-			}); err != nil {
-				return fmt.Errorf("add member %d: %w", memberID, err)
-			}
-		}
-
-		// System message
-		sysText := fmt.Sprintf("%s создал(а) группу", creator.GetDisplayName())
-		if err := s.createSystemMessage(ctx, messageRepo, chat.ID, sysText); err != nil {
-			return err
-		}
-
-		return nil
+		chat, err = s.createGroupInTx(ctx, tx, creatorID, name, cleanMemberIDs, creator)
+		return err
 	})
-
 	if err != nil {
 		return nil, err
 	}
+	return chat, nil
+}
 
+// createGroupInTx performs the transactional part of group creation.
+func (s *GroupService) createGroupInTx(ctx context.Context, tx *gorm.DB, creatorID uint, name string, memberIDs []uint, creator *models.User) (*models.Chat, error) {
+	chatRepo := s.chatRepo.WithTx(tx)
+	participantRepo := s.participantRepo.WithTx(tx)
+	messageRepo := s.messageRepo.WithTx(tx)
+
+	chat := &models.Chat{
+		IsGroup:   true,
+		GroupName: &name,
+		CreatorID: &creatorID,
+	}
+	if err := chatRepo.Create(ctx, chat); err != nil {
+		return nil, fmt.Errorf("create group chat: %w", err)
+	}
+
+	if err := participantRepo.Create(ctx, &models.ChatParticipant{
+		ChatID: chat.ID,
+		UserID: creatorID,
+		Role:   models.RoleCreator,
+	}); err != nil {
+		return nil, fmt.Errorf("add creator: %w", err)
+	}
+
+	for _, memberID := range memberIDs {
+		if err := participantRepo.Create(ctx, &models.ChatParticipant{
+			ChatID: chat.ID,
+			UserID: memberID,
+			Role:   models.RoleMember,
+		}); err != nil {
+			return nil, fmt.Errorf("add member %d: %w", memberID, err)
+		}
+	}
+
+	sysText := fmt.Sprintf("%s создал(а) группу", creator.GetDisplayName())
+	if err := s.createSystemMessage(ctx, messageRepo, chat.ID, sysText); err != nil {
+		return nil, err
+	}
 	return chat, nil
 }
 
@@ -184,92 +170,89 @@ func (s *GroupService) AddMembers(ctx context.Context, chatID, actorID uint, mem
 		return nil, errors.New("actor not found")
 	}
 
-	// Check current count
 	currentCount, err := s.participantRepo.CountByChatID(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("count members: %w", err)
 	}
 
-	// Deduplicate
-	seen := make(map[uint]struct{})
-	var cleanIDs []uint
-	for _, id := range memberIDs {
-		if _, exists := seen[id]; !exists {
-			seen[id] = struct{}{}
-			cleanIDs = append(cleanIDs, id)
-		}
-	}
-
+	cleanIDs := deduplicateIDs(memberIDs, 0)
 	if int(currentCount)+len(cleanIDs) > MaxGroupMembers {
 		return nil, fmt.Errorf("group cannot have more than %d members", MaxGroupMembers)
 	}
 
 	var addedIDs []uint
-
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		participantRepo := s.participantRepo.WithTx(tx)
 		messageRepo := s.messageRepo.WithTx(tx)
 
 		for _, memberID := range cleanIDs {
-			// Skip if already an active member
-			if _, err := participantRepo.FindByUserAndChat(ctx, chatID, memberID); err == nil {
+			added, addErr := s.addOrRestoreMember(ctx, tx, participantRepo, chatID, memberID)
+			if addErr != nil {
+				return addErr
+			}
+			if !added {
 				continue
 			}
-
-			// Check for a soft-deleted record (previously removed member)
-			var softDeleted models.ChatParticipant
-			err := tx.WithContext(ctx).Unscoped().
-				Where("chat_id = ? AND user_id = ? AND deleted_at IS NOT NULL", chatID, memberID).
-				First(&softDeleted).Error
-
-			if err == nil {
-				// Restore the soft-deleted record
-				if err := tx.WithContext(ctx).Unscoped().
-					Model(&softDeleted).
-					Updates(map[string]any{
-						"deleted_at": nil,
-						"role":       models.RoleMember,
-					}).Error; err != nil {
-					return fmt.Errorf("restore member %d: %w", memberID, err)
-				}
-			} else {
-				// Create a new participant
-				if err := participantRepo.Create(ctx, &models.ChatParticipant{
-					ChatID: chatID,
-					UserID: memberID,
-					Role:   models.RoleMember,
-				}); err != nil {
-					return fmt.Errorf("add member %d: %w", memberID, err)
-				}
-			}
-
 			addedIDs = append(addedIDs, memberID)
-
-			// Get member name for system message
-			member, mErr := s.userRepo.FindByID(ctx, memberID)
-			if mErr != nil {
-				s.logger.Warn("failed to find member for system message", zap.Uint("member_id", memberID), zap.Error(mErr))
-				continue
-			}
-			sysText := fmt.Sprintf("%s добавлен(а) пользователем %s", member.GetDisplayName(), actor.GetDisplayName())
-			if err := s.createSystemMessage(ctx, messageRepo, chatID, sysText); err != nil {
-				return err
-			}
+			s.createMemberAddedMessage(ctx, messageRepo, chatID, memberID, actor)
 		}
 
-		// Update chat timestamp
-		if err := tx.Model(&models.Chat{}).Where("id = ?", chatID).UpdateColumn("updated_at", gorm.Expr("NOW()")).Error; err != nil {
-			return fmt.Errorf("update chat timestamp: %w", err)
-		}
-
-		return nil
+		return tx.Model(&models.Chat{}).Where("id = ?", chatID).
+			UpdateColumn("updated_at", gorm.Expr("NOW()")).Error
 	})
-
 	if err != nil {
 		return nil, err
 	}
-
 	return addedIDs, nil
+}
+
+// addOrRestoreMember adds a member to the group, restoring a soft-deleted record if one exists.
+// Returns true if the member was actually added (false if already active).
+func (s *GroupService) addOrRestoreMember(ctx context.Context, tx *gorm.DB, participantRepo *repositories.ChatParticipantRepo, chatID, memberID uint) (bool, error) {
+	// Skip if already an active member
+	if _, err := participantRepo.FindByUserAndChat(ctx, chatID, memberID); err == nil {
+		return false, nil
+	}
+
+	// Check for a soft-deleted record (previously removed member)
+	var softDeleted models.ChatParticipant
+	err := tx.WithContext(ctx).Unscoped().
+		Where("chat_id = ? AND user_id = ? AND deleted_at IS NOT NULL", chatID, memberID).
+		First(&softDeleted).Error
+
+	if err == nil {
+		// Restore the soft-deleted record
+		restoreErr := tx.WithContext(ctx).Unscoped().
+			Model(&softDeleted).
+			Updates(map[string]any{"deleted_at": nil, "role": models.RoleMember}).Error
+		if restoreErr != nil {
+			return false, fmt.Errorf("restore member %d: %w", memberID, restoreErr)
+		}
+		return true, nil
+	}
+
+	// Create a new participant
+	if err := participantRepo.Create(ctx, &models.ChatParticipant{
+		ChatID: chatID,
+		UserID: memberID,
+		Role:   models.RoleMember,
+	}); err != nil {
+		return false, fmt.Errorf("add member %d: %w", memberID, err)
+	}
+	return true, nil
+}
+
+// createMemberAddedMessage creates a system message for a newly added member.
+func (s *GroupService) createMemberAddedMessage(ctx context.Context, messageRepo *repositories.MessageRepo, chatID, memberID uint, actor *models.User) {
+	member, err := s.userRepo.FindByID(ctx, memberID)
+	if err != nil {
+		s.logger.Warn("failed to find member for system message", zap.Uint("member_id", memberID), zap.Error(err))
+		return
+	}
+	sysText := fmt.Sprintf("%s добавлен(а) пользователем %s", member.GetDisplayName(), actor.GetDisplayName())
+	if err := s.createSystemMessage(ctx, messageRepo, chatID, sysText); err != nil {
+		s.logger.Warn("failed to create member added system message", zap.Error(err))
+	}
 }
 
 // RemoveMember removes a member from the group. Admin/creator only. Cannot remove creator.
@@ -635,4 +618,21 @@ func (s *GroupService) requireRole(ctx context.Context, chatID, userID uint, rol
 		return fmt.Errorf("%s role required", role)
 	}
 	return nil
+}
+
+// deduplicateIDs returns unique IDs from the input, excluding excludeID (if non-zero).
+func deduplicateIDs(ids []uint, excludeID uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		if excludeID != 0 && id == excludeID {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }

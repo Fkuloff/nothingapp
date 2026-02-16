@@ -81,6 +81,83 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 	return result
 }
 
+// getGroupMemberCount returns the number of members in a group (0 if unavailable).
+func (h *ChatHandler) getGroupMemberCount(ctx context.Context, chatID uint) int {
+	if h.groupService == nil {
+		return 0
+	}
+	members, err := h.groupService.GetGroupMembers(ctx, chatID)
+	if err != nil {
+		return 0
+	}
+	return len(members)
+}
+
+// getGroupAvatarURL returns a refreshed avatar URL for the group (nil if unset).
+func (h *ChatHandler) getGroupAvatarURL(chat *models.Chat) *string {
+	if chat.AvatarURL != nil && *chat.AvatarURL != "" {
+		return h.userService.GetAvatarURL(chat.AvatarURL)
+	}
+	return nil
+}
+
+// getParticipantCount returns the participant count for a group (0 if unavailable).
+func (h *ChatHandler) getParticipantCount(ctx context.Context, chatID uint) int {
+	if h.groupService == nil {
+		return 0
+	}
+	ids, err := h.groupService.GetParticipantUserIDs(ctx, chatID)
+	if err != nil {
+		return 0
+	}
+	return len(ids)
+}
+
+// buildGroupListItem creates a chatListItem for a group chat.
+func (h *ChatHandler) buildGroupListItem(ctx context.Context, chat *models.Chat, lastMessage string, unreadCounts map[uint]int64) chatListItem {
+	return chatListItem{
+		ID:          chat.ID,
+		IsGroup:     true,
+		GroupName:   chat.GetGroupName(),
+		MemberCount: h.getParticipantCount(ctx, chat.ID),
+		AvatarURL:   h.getGroupAvatarURL(chat),
+		LastMessage: lastMessage,
+		UnreadCount: int(unreadCounts[chat.ID]),
+		UpdatedAt:   chat.UpdatedAt,
+	}
+}
+
+// checkGroupAccess verifies the user is a member of the group chat.
+// Returns nil on success, or responds with an appropriate error and returns a non-nil error.
+func (h *ChatHandler) checkGroupAccess(c *gin.Context, chatID, userID uint) error {
+	if h.groupService == nil {
+		sendInternalError(c, "Group service unavailable")
+		return errAccessDenied
+	}
+	inGroup, err := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+	if err != nil {
+		sendInternalError(c, "Failed to check group membership")
+		return err
+	}
+	if !inGroup {
+		sendForbidden(c, "Access denied")
+		return errAccessDenied
+	}
+	return nil
+}
+
+// checkChatAccess verifies the user has access to the chat (group or 1-on-1).
+func (h *ChatHandler) checkChatAccess(c *gin.Context, chat *models.Chat, userID uint) error {
+	if chat.IsGroup {
+		return h.checkGroupAccess(c, chat.ID, userID)
+	}
+	if !chat.HasUser(userID) {
+		sendForbidden(c, "Access denied")
+		return errAccessDenied
+	}
+	return nil
+}
+
 // formatLastMessage extracts display text from the last message in a chat.
 func formatLastMessage(lastMsg *models.Message, err error) string {
 	if err != nil || lastMsg == nil {
@@ -119,22 +196,7 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 	}
 
 	// Access check: group or 1-on-1
-	if chat.IsGroup {
-		if h.groupService == nil {
-			sendInternalError(c, "Group service unavailable")
-			return
-		}
-		inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
-		if gErr != nil {
-			sendInternalError(c, "Failed to check group membership")
-			return
-		}
-		if !inGroup {
-			sendForbidden(c, "Access denied")
-			return
-		}
-	} else if !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
+	if err := h.checkChatAccess(c, chat, userID); err != nil {
 		return
 	}
 
@@ -145,22 +207,11 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 	}
 
 	if chat.IsGroup {
-		groupName := ""
-		if chat.GroupName != nil {
-			groupName = *chat.GroupName
-		}
-		memberCount := int64(0)
-		if h.groupService != nil {
-			members, mErr := h.groupService.GetGroupMembers(c.Request.Context(), chatID)
-			if mErr == nil {
-				memberCount = int64(len(members))
-			}
-		}
 		sendSuccess(c, gin.H{
 			"chatID":       chatID,
 			"is_group":     true,
-			"group_name":   groupName,
-			"member_count": memberCount,
+			"group_name":   chat.GetGroupName(),
+			"member_count": h.getGroupMemberCount(c.Request.Context(), chatID),
 			"messages":     toMessageResponses(messages),
 		})
 		return
@@ -199,32 +250,7 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 		lastMessageText := formatLastMessage(lastMsg, lErr)
 
 		if chat.IsGroup {
-			groupName := ""
-			if chat.GroupName != nil {
-				groupName = *chat.GroupName
-			}
-			var avatarURL *string
-			if chat.AvatarURL != nil && *chat.AvatarURL != "" {
-				url := h.userService.GetAvatarURL(chat.AvatarURL)
-				avatarURL = url
-			}
-			memberCount := 0
-			if h.groupService != nil {
-				cnt, pErr := h.groupService.GetParticipantUserIDs(c.Request.Context(), chat.ID)
-				if pErr == nil {
-					memberCount = len(cnt)
-				}
-			}
-			items = append(items, chatListItem{
-				ID:          chat.ID,
-				IsGroup:     true,
-				GroupName:   groupName,
-				MemberCount: memberCount,
-				AvatarURL:   avatarURL,
-				LastMessage: lastMessageText,
-				UnreadCount: int(unreadCounts[chat.ID]),
-				UpdatedAt:   chat.UpdatedAt,
-			})
+			items = append(items, h.buildGroupListItem(c.Request.Context(), &chat, lastMessageText, unreadCounts))
 		} else {
 			otherUser, otherUserID := chat.GetOtherUser(userID)
 			h.userService.RefreshUserAvatarURL(otherUser)
@@ -326,22 +352,7 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 		return
 	}
 
-	if chat.IsGroup {
-		if h.groupService == nil {
-			sendInternalError(c, "Group service unavailable")
-			return
-		}
-		inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
-		if gErr != nil {
-			sendInternalError(c, "Failed to check group membership")
-			return
-		}
-		if !inGroup {
-			sendForbidden(c, "Access denied")
-			return
-		}
-	} else if !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
+	if err := h.checkChatAccess(c, chat, userID); err != nil {
 		return
 	}
 
@@ -393,22 +404,7 @@ func (h *ChatHandler) GetChatMessagesAPI(c *gin.Context) {
 	}
 
 	// Access check
-	if chat.IsGroup {
-		if h.groupService == nil {
-			sendInternalError(c, "Group service unavailable")
-			return
-		}
-		inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
-		if gErr != nil {
-			sendInternalError(c, "Failed to check group membership")
-			return
-		}
-		if !inGroup {
-			sendForbidden(c, "Access denied")
-			return
-		}
-	} else if !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
+	if err := h.checkChatAccess(c, chat, userID); err != nil {
 		return
 	}
 

@@ -21,7 +21,7 @@ type Chat struct {
 
 // BeforeCreate normalizes user IDs to prevent duplicate 1-on-1 chats.
 // Skipped for group chats which use the participants table instead.
-func (chat *Chat) BeforeCreate(tx *gorm.DB) error {
+func (chat *Chat) BeforeCreate(_ *gorm.DB) error {
 	if chat.IsGroup {
 		return nil
 	}
@@ -39,6 +39,14 @@ func (chat *Chat) HasUser(userID uint) bool {
 		return false
 	}
 	return chat.User1ID == userID || chat.User2ID == userID
+}
+
+// GetGroupName returns the group name or empty string if unset.
+func (chat *Chat) GetGroupName() string {
+	if chat.GroupName != nil {
+		return *chat.GroupName
+	}
+	return ""
 }
 
 // GetOtherUser returns the other user in this chat and their ID
