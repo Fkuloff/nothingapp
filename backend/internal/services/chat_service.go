@@ -24,6 +24,7 @@ type ChatService struct {
 	db                *gorm.DB
 	logger            *zap.Logger
 	chatRepo          *repositories.ChatRepo
+	participantRepo   *repositories.ChatParticipantRepo
 	messageRepo       *repositories.MessageRepo
 	unreadMessageRepo *repositories.UnreadMessageRepo
 	fileStorage       storage.Storage
@@ -34,6 +35,7 @@ func NewChatService(
 	db *gorm.DB,
 	logger *zap.Logger,
 	chatRepo *repositories.ChatRepo,
+	participantRepo *repositories.ChatParticipantRepo,
 	messageRepo *repositories.MessageRepo,
 	unreadMessageRepo *repositories.UnreadMessageRepo,
 	fileStorage storage.Storage,
@@ -43,6 +45,7 @@ func NewChatService(
 		db:                db,
 		logger:            logger,
 		chatRepo:          chatRepo,
+		participantRepo:   participantRepo,
 		messageRepo:       messageRepo,
 		unreadMessageRepo: unreadMessageRepo,
 		fileStorage:       fileStorage,
@@ -200,11 +203,19 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 	return message, nil
 }
 
-// validateUserAccess checks if user is a participant in the chat
+// validateUserAccess checks if user is a participant in the chat (1-on-1 or group)
 func (s *ChatService) validateUserAccess(ctx context.Context, chatRepo *repositories.ChatRepo, chatID, userID uint) error {
 	chat, err := chatRepo.FindByIDLight(ctx, chatID)
 	if err != nil {
 		return errors.New("chat not found")
+	}
+
+	if chat.IsGroup {
+		_, err := s.participantRepo.FindByUserAndChat(ctx, chatID, userID)
+		if err != nil {
+			return errors.New("unauthorized: user is not a participant in this group")
+		}
+		return nil
 	}
 
 	if !chat.HasUser(userID) {
@@ -295,10 +306,15 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 	return &messages[0], nil
 }
 
-// GetUserChats retrieves all chats for a user
+// GetUserChats retrieves all chats for a user (1-on-1 + groups)
 // preloadUsers: if true, preloads User1 and User2 (use for display); if false, only loads IDs (use for presence/routing)
 func (s *ChatService) GetUserChats(ctx context.Context, userID uint, preloadUsers bool) ([]models.Chat, error) {
-	chats, err := s.chatRepo.GetUserChats(ctx, userID, preloadUsers)
+	groupChatIDs, err := s.participantRepo.GetUserGroupChatIDs(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user group chats: %w", err)
+	}
+
+	chats, err := s.chatRepo.GetUserChatsIncludingGroups(ctx, userID, groupChatIDs, preloadUsers)
 	if err != nil {
 		return nil, fmt.Errorf("get user chats: %w", err)
 	}
@@ -383,14 +399,16 @@ func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint)
 	return nil
 }
 
-// ClearChat hard-deletes all messages, attachments and unread records in a chat
+// ClearChat hard-deletes all messages, attachments and unread records in a chat.
+// For groups, only admin/creator can clear.
 func (s *ChatService) ClearChat(ctx context.Context, chatID, userID uint) error {
 	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
 	if err != nil {
 		return errors.New("chat not found")
 	}
-	if !chat.HasUser(userID) {
-		return errors.New("access denied")
+
+	if err := s.checkChatAccess(ctx, chat, userID, true); err != nil {
+		return err
 	}
 
 	storageKeys, err := s.purgeMessagesAndAttachments(ctx, chatID)
@@ -401,11 +419,15 @@ func (s *ChatService) ClearChat(ctx context.Context, chatID, userID uint) error 
 	return nil
 }
 
-// DeleteChat hard-deletes a chat and all its messages, attachments, and unread records
+// DeleteChat hard-deletes a chat and all its messages, attachments, and unread records.
+// For groups, use GroupService.DeleteGroup instead — this is for 1-on-1 only.
 func (s *ChatService) DeleteChat(ctx context.Context, chatID, userID uint) error {
 	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
 	if err != nil {
 		return errors.New("chat not found")
+	}
+	if chat.IsGroup {
+		return errors.New("use group delete endpoint for group chats")
 	}
 	if !chat.HasUser(userID) {
 		return errors.New("access denied")
@@ -417,6 +439,82 @@ func (s *ChatService) DeleteChat(ctx context.Context, chatID, userID uint) error
 	}
 	s.deleteStorageFiles(storageKeys)
 	return nil
+}
+
+// checkChatAccess verifies user has access to the chat. For groups with requireAdmin=true, checks admin role.
+func (s *ChatService) checkChatAccess(ctx context.Context, chat *models.Chat, userID uint, requireAdmin bool) error {
+	if chat.IsGroup {
+		p, err := s.participantRepo.FindByUserAndChat(ctx, chat.ID, userID)
+		if err != nil {
+			return errors.New("access denied")
+		}
+		if requireAdmin && !p.IsAdmin() {
+			return errors.New("admin or creator role required")
+		}
+		return nil
+	}
+	if !chat.HasUser(userID) {
+		return errors.New("access denied")
+	}
+	return nil
+}
+
+// SendMessageAtomicGroup sends a message in a group chat, creating unread records for all offline members.
+func (s *ChatService) SendMessageAtomicGroup(ctx context.Context, chatID, userID uint, offlineUserIDs []uint, text string, replyToID uint) (*models.Message, error) {
+	ciphertext, iv, err := s.encryptor.Encrypt(text)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt message: %w", err)
+	}
+
+	var message *models.Message
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		chatRepo := s.chatRepo.WithTx(tx)
+		messageRepo := s.messageRepo.WithTx(tx)
+		unreadRepo := s.unreadMessageRepo.WithTx(tx)
+
+		if err := s.validateUserAccess(ctx, chatRepo, chatID, userID); err != nil {
+			return err
+		}
+
+		replyPtr, err := s.validateReplyMessage(ctx, messageRepo, replyToID, chatID)
+		if err != nil {
+			return err
+		}
+
+		message = &models.Message{
+			ChatID:    chatID,
+			UserID:    userID,
+			Text:      ciphertext,
+			IV:        iv,
+			ReplyToID: replyPtr,
+			Type:      models.MessageTypeUser,
+		}
+
+		if err := messageRepo.Create(ctx, message); err != nil {
+			return fmt.Errorf("create message: %w", err)
+		}
+
+		if err := tx.Model(&models.Chat{}).Where("id = ?", chatID).Update("updated_at", message.CreatedAt).Error; err != nil {
+			return fmt.Errorf("update chat timestamp: %w", err)
+		}
+
+		for _, recipientID := range offlineUserIDs {
+			if err := s.createUnreadIfNeeded(ctx, unreadRepo, true, recipientID, message.ID, chatID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	message.Text = text
+	message.IV = ""
+	return message, nil
 }
 
 // purgeMessagesAndAttachments hard-deletes messages, attachments and unread records for a chat.

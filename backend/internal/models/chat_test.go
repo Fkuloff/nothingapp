@@ -76,6 +76,41 @@ func TestChat_BeforeCreate_NormalizesUserIDs(t *testing.T) {
 	}
 }
 
+func TestChat_HasUser_GroupChat(t *testing.T) {
+	chat := &Chat{IsGroup: true, User1ID: 0, User2ID: 0}
+
+	tests := []struct {
+		name   string
+		userID uint
+		want   bool
+	}{
+		{"any user returns false for group chat", 1, false},
+		{"zero ID returns false for group chat", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := chat.HasUser(tt.userID); got != tt.want {
+				t.Errorf("HasUser(%d) on group chat = %v, want %v", tt.userID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChat_BeforeCreate_SkipsNormalizationForGroup(t *testing.T) {
+	chat := &Chat{IsGroup: true, User1ID: 10, User2ID: 3}
+	if err := chat.BeforeCreate(&gorm.DB{}); err != nil {
+		t.Fatalf("BeforeCreate() error = %v", err)
+	}
+	// Group chats should NOT normalize user IDs
+	if chat.User1ID != 10 {
+		t.Errorf("User1ID = %d, want 10 (unchanged)", chat.User1ID)
+	}
+	if chat.User2ID != 3 {
+		t.Errorf("User2ID = %d, want 3 (unchanged)", chat.User2ID)
+	}
+}
+
 func TestChat_GetOtherUser(t *testing.T) {
 	user1 := User{Username: "alice"}
 	user1.ID = 1

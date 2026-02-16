@@ -15,6 +15,7 @@ type Props = {
   message: Message
   isOwn: boolean
   senderName: string
+  senderColor?: string
   replyToMessage?: Message | null
   onReply: (msgId: number) => void
   onEdit: (msgId: number, text: string) => void
@@ -72,6 +73,7 @@ export function MessageItem({
   message,
   isOwn,
   senderName,
+  senderColor,
   replyToMessage,
   onReply,
   onEdit,
@@ -174,7 +176,7 @@ export function MessageItem({
         )}
 
         <div className="message__header">
-          <span className="message-sender">{senderName}</span>
+          <span className="message-sender" style={senderColor ? { color: senderColor } : undefined}>{senderName}</span>
           <span className="message-time">{formatMessageTime(message.created_at)}</span>
         </div>
 

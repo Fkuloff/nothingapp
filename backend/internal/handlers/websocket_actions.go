@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"messenger/internal/models"
 	"messenger/internal/services"
 
 	"go.uber.org/zap"
@@ -21,31 +22,21 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
 
-	// Check access to chat and get recipient ID
+	// Check access to chat
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
-	if err != nil || !chat.HasUser(userID) {
+	if err != nil {
 		return &wsError{message: "Access denied to this chat"}
 	}
 
-	// Get other user ID (recipient)
-	otherUserID := chat.User1ID
-	if chat.User1ID == userID {
-		otherUserID = chat.User2ID
+	var message *models.Message
+
+	if chat.IsGroup {
+		message, err = h.handleSendGroupMessage(ctx, userID, chat, msgData)
+	} else {
+		message, err = h.handleSendDirectMessage(ctx, userID, chat, msgData)
 	}
-
-	// Check if recipient is offline BEFORE transaction to minimize lock time
-	isRecipientOffline := !h.presenceService.IsUserOnline(otherUserID)
-
-	// ATOMIC: Send message and create unread record in single transaction
-	// This prevents TOCTOU race where user comes online between presence check and unread save
-	message, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
 	if err != nil {
-		h.logger.Error("error sending message",
-			zap.Error(err),
-			zap.Uint("user_id", userID),
-			zap.Uint("chat_id", msgData.ChatID),
-		)
-		return &wsError{message: "Failed to send message"}
+		return err
 	}
 
 	replyToIDVal := uint(0)
@@ -80,7 +71,33 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		)
 	}
 
-	// Send push notification with actual message text (truncated to 200 runes)
+	return nil
+}
+
+// handleSendDirectMessage handles sending a message in a 1-on-1 chat.
+func (h *WebSocketHandler) handleSendDirectMessage(ctx context.Context, userID uint, chat *models.Chat, msgData MessageAction) (*models.Message, error) {
+	if !chat.HasUser(userID) {
+		return nil, &wsError{message: "Access denied to this chat"}
+	}
+
+	otherUserID := chat.User1ID
+	if chat.User1ID == userID {
+		otherUserID = chat.User2ID
+	}
+
+	isRecipientOffline := !h.presenceService.IsUserOnline(otherUserID)
+
+	msg, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
+	if err != nil {
+		h.logger.Error("error sending message",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+		return nil, &wsError{message: "Failed to send message"}
+	}
+
+	// Push notification for direct message
 	if h.pushService != nil && h.pushService.IsEnabled() {
 		pushText := msgData.Text
 		if runes := []rune(pushText); len(runes) > 200 {
@@ -89,7 +106,56 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, pushText)
 	}
 
-	return nil
+	return msg, nil
+}
+
+// handleSendGroupMessage handles sending a message in a group chat.
+func (h *WebSocketHandler) handleSendGroupMessage(ctx context.Context, userID uint, chat *models.Chat, msgData MessageAction) (*models.Message, error) {
+	if h.participantRepo == nil {
+		return nil, &wsError{message: "Group chat not supported"}
+	}
+
+	// Verify membership
+	_, err := h.participantRepo.FindByUserAndChat(ctx, chat.ID, userID)
+	if err != nil {
+		return nil, &wsError{message: "Access denied to this chat"}
+	}
+
+	// Get all member IDs and determine who is offline
+	memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, chat.ID)
+	if err != nil {
+		return nil, &wsError{message: "Failed to get group members"}
+	}
+
+	var offlineUserIDs []uint
+	for _, memberID := range memberIDs {
+		if memberID != userID && !h.presenceService.IsUserOnline(memberID) {
+			offlineUserIDs = append(offlineUserIDs, memberID)
+		}
+	}
+
+	msg, err := h.chatService.SendMessageAtomicGroup(ctx, msgData.ChatID, userID, offlineUserIDs, msgData.Text, msgData.ReplyToID)
+	if err != nil {
+		h.logger.Error("error sending group message",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+		return nil, &wsError{message: "Failed to send message"}
+	}
+
+	// Push notification for each offline group member
+	if h.pushService != nil && h.pushService.IsEnabled() {
+		pushText := msgData.Text
+		if runes := []rune(pushText); len(runes) > 200 {
+			pushText = string(runes[:200]) + "..."
+		}
+		for _, memberID := range offlineUserIDs {
+			go h.sendPushNotification(userID, memberID, msgData.ChatID, pushText)
+		}
+	}
+
+	return msg, nil
 }
 
 // sendPushNotification sends a push notification to a recipient in a background goroutine.
@@ -152,13 +218,11 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 	}
 
 	// Check access to chat
-	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
-	if err != nil || !chat.HasUser(userID) {
-		return &wsError{message: "Access denied to this chat"}
+	if err := h.checkWSChatAccess(ctx, msgData.ChatID, userID); err != nil {
+		return err
 	}
 
-	err = h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text)
-	if err != nil {
+	if err := h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text); err != nil {
 		h.logger.Error("error editing message",
 			zap.Error(err),
 			zap.Uint("message_id", msgData.MessageID),
@@ -199,13 +263,11 @@ func (h *WebSocketHandler) handleDeleteMessage(ctx context.Context, userID uint,
 	}
 
 	// Check access to chat
-	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
-	if err != nil || !chat.HasUser(userID) {
-		return &wsError{message: "Access denied to this chat"}
+	if err := h.checkWSChatAccess(ctx, msgData.ChatID, userID); err != nil {
+		return err
 	}
 
-	err = h.chatService.DeleteMessage(ctx, msgData.MessageID, userID)
-	if err != nil {
+	if err := h.chatService.DeleteMessage(ctx, msgData.MessageID, userID); err != nil {
 		h.logger.Error("error deleting message",
 			zap.Error(err),
 			zap.Uint("message_id", msgData.MessageID),
@@ -255,5 +317,28 @@ func (h *WebSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgD
 		return &wsError{message: "Failed to mark messages as read"}
 	}
 
+	return nil
+}
+
+// checkWSChatAccess verifies the user has access to the chat (1-on-1 or group).
+func (h *WebSocketHandler) checkWSChatAccess(ctx context.Context, chatID, userID uint) error {
+	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
+	if err != nil {
+		return &wsError{message: "Access denied to this chat"}
+	}
+
+	if chat.IsGroup {
+		if h.participantRepo == nil {
+			return &wsError{message: "Group chat not supported"}
+		}
+		if _, err := h.participantRepo.FindByUserAndChat(ctx, chatID, userID); err != nil {
+			return &wsError{message: "Access denied to this chat"}
+		}
+		return nil
+	}
+
+	if !chat.HasUser(userID) {
+		return &wsError{message: "Access denied to this chat"}
+	}
 	return nil
 }

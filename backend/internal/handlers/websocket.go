@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"messenger/internal/crypto"
+	"messenger/internal/models"
+	"messenger/internal/repositories"
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +37,8 @@ type WebSocketHandler struct {
 	presenceService *services.PresenceService
 	pushService     *services.PushNotificationService
 	userService     *services.UserService
+	groupService    *services.GroupService
+	participantRepo *repositories.ChatParticipantRepo
 	logger          *zap.Logger
 	encryptor       *crypto.MessageEncryptor
 	clients         map[uint][]*wsClient // userID -> []clients
@@ -61,6 +65,12 @@ func NewWebSocketHandler(
 		clients:         make(map[uint][]*wsClient),
 		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency
 	}
+}
+
+// SetGroupService sets the group service and participant repo for group chat support.
+func (h *WebSocketHandler) SetGroupService(gs *services.GroupService, pr *repositories.ChatParticipantRepo) {
+	h.groupService = gs
+	h.participantRepo = pr
 }
 
 // HandleWebSocket handles the global WebSocket connection for a user
@@ -294,14 +304,14 @@ func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *w
 		}
 
 		// Parse and handle message
-		if err := h.processMessage(client.ctx, userID, conn, msg); err != nil {
+		if err := h.processMessage(client.ctx, userID, msg); err != nil {
 			h.sendError(client, err.Error())
 		}
 	}
 }
 
 // processMessage parses and routes a WebSocket message to appropriate handler
-func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, conn *websocket.Conn, msg []byte) error {
+func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, msg []byte) error {
 	var msgData MessageAction
 	if err := json.Unmarshal(msg, &msgData); err != nil {
 		h.logger.Error("invalid message format", zap.Error(err), zap.Uint("user_id", userID))
@@ -421,20 +431,24 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 	}
 }
 
-// broadcastToChat sends a message to all participants in a chat
+// broadcastToChat sends a message to all participants in a chat (1-on-1 or group)
 func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msgJSON []byte, excludeUserID ...uint) error {
-	// Get chat participants
 	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
 	if err != nil {
 		return err
 	}
 
-	participants := []uint{chat.User1ID, chat.User2ID}
+	var participants []uint
+	if chat.IsGroup && h.participantRepo != nil {
+		participants, err = h.participantRepo.GetParticipantUserIDs(ctx, chatID)
+		if err != nil {
+			return err
+		}
+	} else {
+		participants = []uint{chat.User1ID, chat.User2ID}
+	}
 
-	// Send to each participant
 	for _, userID := range participants {
-		// Skip excluded users: When broadcasting, we may need to exclude specific users
-		// (e.g., the message sender or users who have already received the message via another channel)
 		skip := false
 		for _, excludeID := range excludeUserID {
 			if userID == excludeID {
@@ -446,25 +460,43 @@ func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msg
 			continue
 		}
 
-		// Check if user is online before broadcasting
 		if h.presenceService.IsUserOnline(userID) {
 			h.broadcastToUser(userID, msgJSON)
-		} else {
-			// User is offline, we should save to unread messages (handled in send logic)
-			h.logger.Info("user is offline, message saved to unread queue",
-				zap.Uint("user_id", userID),
-			)
 		}
 	}
 
 	return nil
 }
 
+// getChatRecipients returns the list of user IDs that should receive a message for the given chat,
+// excluding the specified user. For group chats it returns all participants except excludeUserID;
+// for 1-on-1 chats it returns the other user.
+func (h *WebSocketHandler) getChatRecipients(ctx context.Context, chat *models.Chat, excludeUserID uint) []uint {
+	if chat.IsGroup && h.participantRepo != nil {
+		memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, chat.ID)
+		if err != nil {
+			return nil
+		}
+		recipients := make([]uint, 0, len(memberIDs))
+		for _, id := range memberIDs {
+			if id != excludeUserID {
+				recipients = append(recipients, id)
+			}
+		}
+		return recipients
+	}
+
+	otherUserID := chat.User1ID
+	if chat.User1ID == excludeUserID {
+		otherUserID = chat.User2ID
+	}
+	return []uint{otherUserID}
+}
+
 // broadcastPresenceChange notifies all chat participants about a user's online status change
 func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	ctx := context.Background()
 
-	// Get all chats for this user (no need to preload users, only need IDs)
 	chats, err := h.chatService.GetUserChats(ctx, userID, false)
 	if err != nil {
 		h.logger.Error("failed to get chats for presence broadcast",
@@ -474,7 +506,6 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 		return
 	}
 
-	// Create presence event
 	presenceData := map[string]any{
 		"action":    "presence_changed",
 		"user_id":   userID,
@@ -489,23 +520,17 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 		return
 	}
 
-	// Send to all chat participants (except the user themselves)
 	notifiedUsers := make(map[uint]bool)
 	for _, chat := range chats {
-		otherUserID := chat.User1ID
-		if chat.User1ID == userID {
-			otherUserID = chat.User2ID
-		}
-
-		// Avoid sending duplicate notifications to the same user
-		if notifiedUsers[otherUserID] {
-			continue
-		}
-		notifiedUsers[otherUserID] = true
-
-		// Only send to online users
-		if h.presenceService.IsUserOnline(otherUserID) {
-			h.broadcastToUser(otherUserID, msgJSON)
+		recipients := h.getChatRecipients(ctx, &chat, userID)
+		for _, recipientID := range recipients {
+			if notifiedUsers[recipientID] {
+				continue
+			}
+			notifiedUsers[recipientID] = true
+			if h.presenceService.IsUserOnline(recipientID) {
+				h.broadcastToUser(recipientID, msgJSON)
+			}
 		}
 	}
 
@@ -516,7 +541,7 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	)
 }
 
-// broadcastChatEvent notifies the other chat participant about chat-level operations (clear/delete).
+// broadcastChatEvent notifies chat participants about chat-level operations (clear/delete).
 // Called from ChatHandler via callback before the destructive DB operation executes.
 func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, action string) {
 	ctx := context.Background()
@@ -529,12 +554,6 @@ func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, acti
 			zap.String("action", action),
 		)
 		return
-	}
-
-	// Determine the other participant
-	otherUserID := chat.User1ID
-	if chat.User1ID == initiatorUserID {
-		otherUserID = chat.User2ID
 	}
 
 	eventData := map[string]any{
@@ -551,16 +570,98 @@ func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, acti
 		return
 	}
 
-	// Send only to the other participant (initiator updates via REST response)
-	if h.presenceService.IsUserOnline(otherUserID) {
-		h.broadcastToUser(otherUserID, msgJSON)
+	recipients := h.getChatRecipients(ctx, chat, initiatorUserID)
+	for _, recipientID := range recipients {
+		if h.presenceService.IsUserOnline(recipientID) {
+			h.broadcastToUser(recipientID, msgJSON)
+		}
 	}
 
 	h.logger.Info("broadcasted chat event",
 		zap.String("action", action),
 		zap.Uint("chat_id", chatID),
 		zap.Uint("initiator", initiatorUserID),
-		zap.Uint("other_user", otherUserID),
+	)
+}
+
+// broadcastGroupEvent broadcasts group-specific events (member changes, updates) to all group participants.
+// Called from GroupHandler via callback.
+func (h *WebSocketHandler) broadcastGroupEvent(event GroupEvent) {
+	ctx := context.Background()
+
+	if h.participantRepo == nil {
+		return
+	}
+
+	memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, event.ChatID)
+	if err != nil {
+		h.logger.Error("failed to get group members for group event",
+			zap.Error(err),
+			zap.Uint("chat_id", event.ChatID),
+			zap.String("action", event.Action),
+		)
+		return
+	}
+
+	eventData := map[string]any{
+		"action":  event.Action,
+		"chat_id": event.ChatID,
+	}
+	if event.ActorID != 0 {
+		eventData["actor_id"] = event.ActorID
+	}
+	if event.UserID != 0 {
+		eventData["user_id"] = event.UserID
+	}
+	if len(event.Members) > 0 {
+		eventData["members"] = event.Members
+	}
+	if event.Name != "" {
+		eventData["name"] = event.Name
+	}
+	if event.Avatar != "" {
+		eventData["avatar_url"] = event.Avatar
+	}
+	if event.NewRole != "" {
+		eventData["new_role"] = event.NewRole
+	}
+
+	msgJSON, err := json.Marshal(eventData)
+	if err != nil {
+		h.logger.Error("failed to marshal group event",
+			zap.Error(err),
+			zap.Uint("chat_id", event.ChatID),
+		)
+		return
+	}
+
+	for _, memberID := range memberIDs {
+		if h.presenceService.IsUserOnline(memberID) {
+			h.broadcastToUser(memberID, msgJSON)
+		}
+	}
+
+	// For member_added, also notify the newly added members (they might not be in participant list yet
+	// if the broadcast happens before DB commit, but in our case broadcast is after AddMembers)
+	if event.Action == "member_added" {
+		for _, member := range event.Members {
+			alreadyNotified := false
+			for _, id := range memberIDs {
+				if id == member.UserID {
+					alreadyNotified = true
+					break
+				}
+			}
+			if !alreadyNotified && h.presenceService.IsUserOnline(member.UserID) {
+				h.broadcastToUser(member.UserID, msgJSON)
+			}
+		}
+	}
+
+	h.logger.Info("broadcasted group event",
+		zap.String("action", event.Action),
+		zap.Uint("chat_id", event.ChatID),
+		zap.Int("recipients", len(memberIDs)),
 	)
 }
 

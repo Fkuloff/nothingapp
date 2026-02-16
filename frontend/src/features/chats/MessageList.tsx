@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react'
 
-import type { Message } from '../../shared/api/types'
+import type { GroupMember, Message } from '../../shared/api/types'
 import { MessageItem } from './MessageItem'
+import { SystemMessage } from './SystemMessage'
 
 type Props = {
   messages: Message[]
   currentUserId?: number
   otherUsername: string
+  isGroup?: boolean
+  groupMembers?: GroupMember[]
   loading?: boolean
   error?: string | null
   onReply: (msgId: number) => void
@@ -14,10 +17,38 @@ type Props = {
   onDelete: (msgId: number) => void
 }
 
+// Deterministic color palette for group sender names
+const SENDER_COLORS = [
+  '#e57373', '#f06292', '#ba68c8', '#9575cd',
+  '#7986cb', '#64b5f6', '#4fc3f7', '#4dd0e1',
+  '#4db6ac', '#81c784', '#aed581', '#ff8a65',
+]
+
+function getSenderColor(userId: number): string {
+  return SENDER_COLORS[userId % SENDER_COLORS.length]
+}
+
+function getSenderName(
+  message: Message,
+  currentUserId: number | undefined,
+  otherUsername: string,
+  isGroup: boolean,
+  membersMap: Map<number, GroupMember>,
+): string {
+  if (message.user_id === currentUserId) return 'Вы'
+  if (isGroup) {
+    const member = membersMap.get(message.user_id)
+    return member?.name || member?.username || `User #${message.user_id}`
+  }
+  return otherUsername
+}
+
 export function MessageList({
   messages,
   currentUserId,
   otherUsername,
+  isGroup = false,
+  groupMembers = [],
   loading,
   error,
   onReply,
@@ -28,6 +59,9 @@ export function MessageList({
   const prevChatIdRef = useRef<number | undefined>(undefined)
   const prevMessagesLengthRef = useRef<number>(0)
   const hasScrolledRef = useRef(false)
+
+  // Build a lookup map for group members
+  const membersMap = new Map(groupMembers.map((m) => [m.user_id, m]))
 
   // Derive chatId from first message (for scroll tracking)
   const chatId = messages.length > 0 ? messages[0].chat_id : undefined
@@ -53,13 +87,11 @@ export function MessageList({
     }
 
     if (isNewChat && !hasScrolledRef.current) {
-      // For new chat: use setTimeout to ensure DOM is fully rendered
       setTimeout(() => {
         scrollToBottom()
         hasScrolledRef.current = true
       }, 50)
     } else if (hasNewMessages && hasScrolledRef.current) {
-      // For new messages in current chat: smooth scroll
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
         behavior: 'smooth'
@@ -84,7 +116,12 @@ export function MessageList({
     }
 
     return messages.map((message) => {
+      if (message.type === 'system') {
+        return <SystemMessage key={message.id} text={message.text} />
+      }
+
       const isOwn = message.user_id === currentUserId
+      const senderName = getSenderName(message, currentUserId, otherUsername, isGroup, membersMap)
       const replyToMessage = message.reply_to_id
         ? messages.find((m) => m.id === message.reply_to_id)
         : null
@@ -94,7 +131,8 @@ export function MessageList({
           key={message.id}
           message={message}
           isOwn={isOwn}
-          senderName={isOwn ? 'Вы' : otherUsername}
+          senderName={senderName}
+          senderColor={isGroup && !isOwn ? getSenderColor(message.user_id) : undefined}
           replyToMessage={replyToMessage}
           onReply={onReply}
           onEdit={onEdit}

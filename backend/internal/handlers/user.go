@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"io"
-	"net/http"
-
 	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -82,13 +79,5 @@ func (h *UserHandler) GetAvatar(c *gin.Context) {
 		sendNotFound(c, "Avatar not found")
 		return
 	}
-	defer reader.Close()
-
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "no-cache")
-	c.Status(http.StatusOK)
-
-	if _, copyErr := io.Copy(c.Writer, reader); copyErr != nil {
-		c.Error(copyErr) //nolint:errcheck
-	}
+	serveReaderContent(c, reader, contentType, "no-cache")
 }

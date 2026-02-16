@@ -6,13 +6,14 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
-import { clearChat,deleteChat, getChatMessages, getCurrentUserChats } from '../shared/api/chatsApi'
+import { clearChat, deleteChat, getChatMessages, getCurrentUserChats } from '../shared/api/chatsApi'
+import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
-import type { ChatItem, Message, WSEvent } from '../shared/api/types'
+import type { ChatItem, GroupInfoResponse, Message, WSEvent } from '../shared/api/types'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 
 export default function ChatsPage() {
-  const { setMenuOpen } = useOutletContext<OutletContextType>()
+  const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const [chats, setChats] = useState<ChatItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -24,8 +25,10 @@ export default function ChatsPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
+  const [groupInfo, setGroupInfo] = useState<GroupInfoResponse | null>(null)
   const chatsRef = useRef<ChatItem[]>([])
   const loadChatsRef = useRef<() => void>(() => {})
+  const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
 
   // Keep chatsRef in sync for use in WS handler
   useEffect(() => {
@@ -66,7 +69,36 @@ export default function ChatsPage() {
         return
       }
 
-      const chatId = event.chat_id
+      // Handle group events
+      if (
+        event.action === 'member_added' ||
+        event.action === 'member_removed' ||
+        event.action === 'member_left' ||
+        event.action === 'group_updated' ||
+        event.action === 'role_changed'
+      ) {
+        // Refresh group info and messages if viewing this group
+        if (event.chat_id === activeChatId) {
+          getGroupInfo(event.chat_id).then(setGroupInfo).catch(console.error)
+          loadMessagesRef.current(event.chat_id)
+        }
+        // Reload chat list to reflect name/member changes
+        loadChatsRef.current()
+        return
+      }
+
+      if (event.action === 'group_deleted') {
+        setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
+        if (event.chat_id === activeChatId) {
+          setActiveChatId(null)
+          setMessages([])
+          setGroupInfo(null)
+        }
+        return
+      }
+
+      const chatId = 'chat_id' in event ? event.chat_id : undefined
+      if (!chatId) return
 
       if (event.action === 'new') {
         const text = event.text
@@ -164,6 +196,7 @@ export default function ChatsPage() {
       setLoadingChats(true)
       const data = await getCurrentUserChats()
       const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      chatsRef.current = sortedData
       setChats(sortedData)
     } catch (err) {
       console.error('Ошибка загрузки чатов', err)
@@ -173,6 +206,16 @@ export default function ChatsPage() {
     }
   }, [])
   loadChatsRef.current = loadChats
+
+  // Register chat-selected callback for SlideMenu (contacts + group creation)
+  useEffect(() => {
+    if (!onChatSelectedRef) return
+    onChatSelectedRef.current = async (chatId) => {
+      await loadChats()
+      setActiveChatId(chatId)
+    }
+    return () => { onChatSelectedRef.current = null }
+  }, [onChatSelectedRef, loadChats])
 
   const loadMessages = useCallback(async (chatId: number) => {
     try {
@@ -188,6 +231,7 @@ export default function ChatsPage() {
       setLoadingMessages(false)
     }
   }, [])
+  loadMessagesRef.current = loadMessages
 
   // Handle notification click (from service worker)
   useEffect(() => {
@@ -217,19 +261,30 @@ export default function ChatsPage() {
     loadChats()
   }, [loadChats])
 
+  // Load messages and group info when active chat changes
   useEffect(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
+
+      // Load group info if it's a group chat
+      const chat = chatsRef.current.find((c) => c.id === activeChatId)
+      if (chat?.is_group) {
+        getGroupInfo(activeChatId).then(setGroupInfo).catch(console.error)
+      } else {
+        setGroupInfo(null)
+      }
+
       // Clear unread count locally and notify server
       setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat.id === activeChatId ? { ...chat, unread_count: 0 } : chat
+        prevChats.map((c) =>
+          c.id === activeChatId ? { ...c, unread_count: 0 } : c
         )
       )
-      // Mark messages as read on server
       if (isConnected) {
         send({ action: 'mark_read', chat_id: activeChatId })
       }
+    } else {
+      setGroupInfo(null)
     }
   }, [activeChatId, loadMessages, isConnected, send])
 
@@ -266,15 +321,43 @@ export default function ChatsPage() {
     }
   }, [activeChatId])
 
+  const handleGroupUpdated = useCallback(() => {
+    if (activeChatId) {
+      getGroupInfo(activeChatId).then(setGroupInfo).catch(console.error)
+      loadMessages(activeChatId)
+    }
+    loadChats()
+  }, [activeChatId, loadChats, loadMessages])
+
+  const handleGroupDeleted = useCallback(() => {
+    if (activeChatId) {
+      setChats((prev) => prev.filter((c) => c.id !== activeChatId))
+      setActiveChatId(null)
+      setMessages([])
+      setGroupInfo(null)
+    }
+  }, [activeChatId])
+
+  const handleGroupLeft = useCallback(() => {
+    if (activeChatId) {
+      setChats((prev) => prev.filter((c) => c.id !== activeChatId))
+      setActiveChatId(null)
+      setMessages([])
+      setGroupInfo(null)
+    }
+  }, [activeChatId])
+
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId),
     [activeChatId, chats]
   )
 
-  // Load presence status when active chat changes
+  // Load presence status when active chat changes (1-on-1 only)
+  const activeChatOtherUserId = activeChat?.other_user_id
+  const activeChatIsGroup = activeChat?.is_group
   useEffect(() => {
-    if (activeChat?.other_user_id) {
-      getUserPresence(activeChat.other_user_id)
+    if (activeChatOtherUserId && !activeChatIsGroup) {
+      getUserPresence(activeChatOtherUserId)
         .then((presence) => {
           setOnlineUsers((prev) => {
             const next = new Set(prev)
@@ -290,10 +373,10 @@ export default function ChatsPage() {
           console.error('Failed to load user presence:', err)
         })
     }
-  }, [activeChat?.other_user_id])
+  }, [activeChatOtherUserId, activeChatIsGroup])
 
   const isOtherUserOnline = useMemo(
-    () => (activeChat ? onlineUsers.has(activeChat.other_user_id) : false),
+    () => (activeChat && !activeChat.is_group && activeChat.other_user_id ? onlineUsers.has(activeChat.other_user_id) : false),
     [activeChat, onlineUsers]
   )
 
@@ -301,9 +384,12 @@ export default function ChatsPage() {
   const filteredChats = useMemo(() => {
     if (!searchQuery.trim()) return chats
     const query = searchQuery.toLowerCase()
-    return chats.filter((chat) =>
-      chat.other_user_name.toLowerCase().includes(query)
-    )
+    return chats.filter((chat) => {
+      if (chat.is_group) {
+        return (chat.group_name || '').toLowerCase().includes(query)
+      }
+      return (chat.other_user_name || '').toLowerCase().includes(query)
+    })
   }, [chats, searchQuery])
 
   return (
@@ -327,7 +413,6 @@ export default function ChatsPage() {
             chats={filteredChats}
             activeChatId={activeChatId ?? undefined}
             onSelect={(id) => setActiveChatId(id)}
-
             loading={loadingChats}
             error={chatsError}
           />
@@ -353,6 +438,12 @@ export default function ChatsPage() {
           onBackToList={() => setActiveChatId(null)}
           onClearChat={handleClearChat}
           onDeleteChat={handleDeleteChat}
+          isGroup={activeChat?.is_group}
+          groupName={activeChat?.is_group ? (groupInfo?.name || activeChat?.group_name) : undefined}
+          groupMembers={groupInfo?.members}
+          onGroupUpdated={handleGroupUpdated}
+          onGroupDeleted={handleGroupDeleted}
+          onGroupLeft={handleGroupLeft}
         />
       </div>
     </div>

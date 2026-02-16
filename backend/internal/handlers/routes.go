@@ -30,32 +30,40 @@ func SetupRoutes(
 	attachmentRepo := repositories.NewAttachmentRepo(db)
 	unreadMessageRepo := repositories.NewUnreadMessageRepo(db)
 	pushSubRepo := repositories.NewPushSubscriptionRepo(db)
+	participantRepo := repositories.NewChatParticipantRepo(db)
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
-	chatService := services.NewChatService(db, logger, chatRepo, messageRepo, unreadMessageRepo, fileStorage, msgEncryptor)
+	chatService := services.NewChatService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, fileStorage, msgEncryptor)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(logger, attachmentRepo, messageRepo, fileStorage)
 	userService := services.NewUserService(logger, userRepo, fileStorage)
 	presenceService := services.NewPresenceService(logger)
 	pushService := services.NewPushNotificationService(logger, pushSubRepo, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
+	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
 
 	// Initialize handlers
 	authHandler := NewAuthHandler(authService, userService, secret)
 	chatHandler := NewChatHandler(chatService, userService)
+	chatHandler.SetGroupService(groupService)
 	profileHandler := NewProfileHandler(userService, contactService, logger)
 	attachmentHandler := NewAttachmentHandler(attachmentService, chatService)
 	userHandler := NewUserHandler(userService)
 	wsHandler := NewWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor)
+	wsHandler.SetGroupService(groupService, participantRepo)
 	fileHandler := NewFileHandler(fileStorage, logger)
 	pushHandler := NewPushHandler(pushService, logger)
 	healthHandler := NewHealthHandler(db)
+	groupHandler := NewGroupHandler(groupService, presenceService, userService)
 
 	// Configure presence service to broadcast status changes via WebSocket
 	presenceService.SetOnChangeCallback(wsHandler.broadcastPresenceChange)
 
 	// Configure chat handler to broadcast chat events (clear/delete) via WebSocket
 	chatHandler.SetOnChatEventCallback(wsHandler.broadcastChatEvent)
+
+	// Configure group handler to broadcast group events via WebSocket
+	groupHandler.SetOnGroupEventCallback(wsHandler.broadcastGroupEvent)
 
 	// Public endpoints (no JWT middleware)
 	router.GET("/health", healthHandler.GetHealth)
@@ -65,8 +73,9 @@ func SetupRoutes(
 	// Public attachment endpoints (GET - no JWT, files are publicly accessible)
 	router.GET("/api/attachments/:id", attachmentHandler.DownloadAttachment)
 
-	// Public avatar endpoint
+	// Public avatar endpoints
 	router.GET("/api/avatars/:user_id", userHandler.GetAvatar)
+	router.GET("/api/group-avatars/:chat_id", groupHandler.GetGroupAvatar)
 
 	// WebSocket endpoint with JWT middleware
 	router.GET("/ws", JWTMiddleware(secret, logger), wsHandler.HandleWebSocket)
@@ -82,6 +91,7 @@ func SetupRoutes(
 	registerProfileRoutes(api, profileHandler)
 	registerUserRoutes(api, userHandler, wsHandler, fileHandler)
 	registerPushRoutes(api, pushHandler)
+	registerGroupRoutes(api, groupHandler)
 
 	return nil
 }
@@ -139,4 +149,18 @@ func registerPushRoutes(api *gin.RouterGroup, h *PushHandler) {
 	push.POST("/subscribe", h.Subscribe)
 	push.POST("/unsubscribe", h.Unsubscribe)
 	push.GET("/status", h.GetStatus)
+}
+
+func registerGroupRoutes(api *gin.RouterGroup, h *GroupHandler) {
+	groups := api.Group("/groups")
+	groups.POST("", h.CreateGroupAPI)
+	groups.GET("/:id", h.GetGroupInfoAPI)
+	groups.PUT("/:id", h.UpdateGroupInfoAPI)
+	groups.DELETE("/:id", h.DeleteGroupAPI)
+	groups.POST("/:id/avatar", h.UploadGroupAvatarAPI)
+	groups.DELETE("/:id/avatar", h.DeleteGroupAvatarAPI)
+	groups.POST("/:id/members", h.AddMembersAPI)
+	groups.DELETE("/:id/members/:user_id", h.RemoveMemberAPI)
+	groups.POST("/:id/leave", h.LeaveGroupAPI)
+	groups.PUT("/:id/members/:user_id/role", h.ChangeRoleAPI)
 }

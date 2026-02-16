@@ -6,13 +6,21 @@ import (
 	"gorm.io/gorm"
 )
 
+type MessageType string
+
+const (
+	MessageTypeUser   MessageType = "user"
+	MessageTypeSystem MessageType = "system"
+)
+
 type Message struct {
 	gorm.Model
-	ChatID    uint   `gorm:"index:idx_chat_messages"`
-	UserID    uint   `gorm:"index:idx_user_messages"`
-	Text      string `gorm:"not null"`
-	IV        string `gorm:"type:varchar(32)" json:"-"` // AES-GCM nonce (base64); internal use only
-	IsDeleted bool   `gorm:"default:false"`
+	ChatID    uint        `gorm:"index:idx_chat_messages"`
+	UserID    uint        `gorm:"index:idx_user_messages"`
+	Text      string      `gorm:"not null"`
+	IV        string      `gorm:"type:varchar(32)" json:"-"` // AES-GCM nonce (base64); internal use only
+	IsDeleted bool        `gorm:"default:false"`
+	Type      MessageType `gorm:"type:varchar(20);not null;default:'user'"`
 
 	ReplyToID   *uint        `gorm:"index:idx_reply_to"`
 	EditedAt    *time.Time   `gorm:"default:null"`
