@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -73,4 +74,15 @@ func parseUintParam(c *gin.Context, paramName string) (uint, error) {
 		return 0, fmt.Errorf("invalid %s", paramName)
 	}
 	return uint(val), nil
+}
+
+// serveReaderContent streams a reader to the HTTP response with the given content type and cache control.
+func serveReaderContent(c *gin.Context, reader io.ReadCloser, contentType, cacheControl string) {
+	defer reader.Close()
+	c.Header("Content-Type", contentType)
+	c.Header("Cache-Control", cacheControl)
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		c.Error(err) //nolint:errcheck
+	}
 }

@@ -19,6 +19,7 @@ import (
 const (
 	MaxGroupNameLength = 100
 	MaxGroupMembers    = 50
+	unknownActorName   = "Кто-то"
 )
 
 type GroupService struct {
@@ -320,7 +321,7 @@ func (s *GroupService) RemoveMember(ctx context.Context, chatID, actorID, target
 			s.logger.Warn("failed to clean unread for removed user", zap.Error(err))
 		}
 
-		actorName := "Кто-то"
+		actorName := unknownActorName
 		if actor != nil {
 			actorName = actor.GetDisplayName()
 		}
@@ -413,7 +414,7 @@ func (s *GroupService) ChangeRole(ctx context.Context, chatID, actorID, targetUs
 			return fmt.Errorf("update role: %w", err)
 		}
 
-		actorName := "Кто-то"
+		actorName := unknownActorName
 		if actor != nil {
 			actorName = actor.GetDisplayName()
 		}
@@ -456,7 +457,7 @@ func (s *GroupService) UpdateGroupInfo(ctx context.Context, chatID, actorID uint
 			return fmt.Errorf("update group name: %w", err)
 		}
 
-		actorName := "Кто-то"
+		actorName := unknownActorName
 		if actor != nil {
 			actorName = actor.GetDisplayName()
 		}

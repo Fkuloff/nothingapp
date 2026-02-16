@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"io"
-	"net/http"
-
 	"messenger/internal/models"
 	"messenger/internal/services"
 
@@ -12,14 +9,14 @@ import (
 
 // GroupEvent represents a group-level event for WebSocket broadcasting.
 type GroupEvent struct {
-	Action  string         `json:"action"`
-	ChatID  uint           `json:"chat_id"`
-	ActorID uint           `json:"actor_id,omitempty"`
-	UserID  uint           `json:"user_id,omitempty"`
+	Action  string            `json:"action"`
+	ChatID  uint              `json:"chat_id"`
+	ActorID uint              `json:"actor_id,omitempty"`
+	UserID  uint              `json:"user_id,omitempty"`
 	Members []GroupMemberItem `json:"members,omitempty"`
-	Name    string         `json:"name,omitempty"`
-	Avatar  string         `json:"avatar_url,omitempty"`
-	NewRole string         `json:"new_role,omitempty"`
+	Name    string            `json:"name,omitempty"`
+	Avatar  string            `json:"avatar_url,omitempty"`
+	NewRole string            `json:"new_role,omitempty"`
 }
 
 type GroupHandler struct {
@@ -73,10 +70,10 @@ func (h *GroupHandler) CreateGroupAPI(c *gin.Context) {
 	members := h.buildMemberList(c, chat.ID)
 
 	sendCreated(c, gin.H{
-		"id":       chat.ID,
-		"name":     req.Name,
-		"is_group": true,
-		"members":  members,
+		"id":         chat.ID,
+		"name":       req.Name,
+		"is_group":   true,
+		"members":    members,
 		"created_at": chat.CreatedAt,
 	})
 }
@@ -95,7 +92,11 @@ func (h *GroupHandler) GetGroupInfoAPI(c *gin.Context) {
 		return
 	}
 
-	inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+	inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+	if gErr != nil {
+		sendInternalError(c, "Failed to check group membership")
+		return
+	}
 	if !inGroup {
 		sendForbidden(c, "Access denied")
 		return
@@ -271,32 +272,9 @@ func (h *GroupHandler) RemoveMemberAPI(c *gin.Context) {
 // LeaveGroupAPI allows a member to leave the group.
 // POST /api/groups/:id/leave
 func (h *GroupHandler) LeaveGroupAPI(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-
-	chatID, err := parseUintParam(c, "id")
-	if err != nil {
-		sendBadRequest(c, "Invalid group ID")
-		return
-	}
-
-	// Broadcast BEFORE leave
-	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
-			Action: "member_left",
-			ChatID: chatID,
-			UserID: userID,
-		})
-	}
-
-	if err := h.groupService.LeaveGroup(c.Request.Context(), chatID, userID); err != nil {
-		sendBadRequest(c, err.Error())
-		return
-	}
-
-	sendSuccess(c, gin.H{"message": "Left group"})
+	h.groupAction(c, GroupEvent{Action: "member_left"}, func(ctx *gin.Context, chatID, userID uint) error {
+		return h.groupService.LeaveGroup(ctx.Request.Context(), chatID, userID)
+	}, "Left group")
 }
 
 // ChangeRoleAPI changes a member's role.
@@ -348,6 +326,13 @@ func (h *GroupHandler) ChangeRoleAPI(c *gin.Context) {
 // DeleteGroupAPI deletes a group. Creator only.
 // DELETE /api/groups/:id
 func (h *GroupHandler) DeleteGroupAPI(c *gin.Context) {
+	h.groupAction(c, GroupEvent{Action: "group_deleted"}, func(ctx *gin.Context, chatID, userID uint) error {
+		return h.groupService.DeleteGroup(ctx.Request.Context(), chatID, userID)
+	}, "Group deleted")
+}
+
+// groupAction extracts common logic for group actions that broadcast BEFORE executing.
+func (h *GroupHandler) groupAction(c *gin.Context, event GroupEvent, action func(*gin.Context, uint, uint) error, successMsg string) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -359,21 +344,22 @@ func (h *GroupHandler) DeleteGroupAPI(c *gin.Context) {
 		return
 	}
 
-	// Broadcast BEFORE deletion
+	// Broadcast BEFORE action
+	event.ChatID = chatID
+	event.UserID = userID
+	if event.Action == "group_deleted" {
+		event.ActorID = userID
+	}
 	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
-			Action:  "group_deleted",
-			ChatID:  chatID,
-			ActorID: userID,
-		})
+		h.onGroupEvent(event)
 	}
 
-	if err := h.groupService.DeleteGroup(c.Request.Context(), chatID, userID); err != nil {
+	if err := action(c, chatID, userID); err != nil {
 		sendBadRequest(c, err.Error())
 		return
 	}
 
-	sendSuccess(c, gin.H{"message": "Group deleted"})
+	sendSuccess(c, gin.H{"message": successMsg})
 }
 
 // UploadGroupAvatarAPI uploads a group avatar.
@@ -466,12 +452,7 @@ func (h *GroupHandler) GetGroupAvatar(c *gin.Context) {
 		sendNotFound(c, "Avatar not found")
 		return
 	}
-	defer reader.Close()
-
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "public, max-age=3600")
-	c.Status(http.StatusOK)
-	io.Copy(c.Writer, reader)
+	serveReaderContent(c, reader, contentType, "public, max-age=3600")
 }
 
 // buildMemberList builds the member list for group API responses.

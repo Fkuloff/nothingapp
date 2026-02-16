@@ -124,7 +124,11 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 			sendInternalError(c, "Group service unavailable")
 			return
 		}
-		inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		if gErr != nil {
+			sendInternalError(c, "Failed to check group membership")
+			return
+		}
 		if !inGroup {
 			sendForbidden(c, "Access denied")
 			return
@@ -147,8 +151,10 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 		}
 		memberCount := int64(0)
 		if h.groupService != nil {
-			members, _ := h.groupService.GetGroupMembers(c.Request.Context(), chatID)
-			memberCount = int64(len(members))
+			members, mErr := h.groupService.GetGroupMembers(c.Request.Context(), chatID)
+			if mErr == nil {
+				memberCount = int64(len(members))
+			}
 		}
 		sendSuccess(c, gin.H{
 			"chatID":       chatID,
@@ -204,8 +210,10 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 			}
 			memberCount := 0
 			if h.groupService != nil {
-				cnt, _ := h.groupService.GetParticipantUserIDs(c.Request.Context(), chat.ID)
-				memberCount = len(cnt)
+				cnt, pErr := h.groupService.GetParticipantUserIDs(c.Request.Context(), chat.ID)
+				if pErr == nil {
+					memberCount = len(cnt)
+				}
 			}
 			items = append(items, chatListItem{
 				ID:          chat.ID,
@@ -323,7 +331,11 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 			sendInternalError(c, "Group service unavailable")
 			return
 		}
-		inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		if gErr != nil {
+			sendInternalError(c, "Failed to check group membership")
+			return
+		}
 		if !inGroup {
 			sendForbidden(c, "Access denied")
 			return
@@ -386,7 +398,11 @@ func (h *ChatHandler) GetChatMessagesAPI(c *gin.Context) {
 			sendInternalError(c, "Group service unavailable")
 			return
 		}
-		inGroup, _ := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+		if gErr != nil {
+			sendInternalError(c, "Failed to check group membership")
+			return
+		}
 		if !inGroup {
 			sendForbidden(c, "Access denied")
 			return
