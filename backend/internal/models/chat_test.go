@@ -111,6 +111,30 @@ func TestChat_BeforeCreate_SkipsNormalizationForGroup(t *testing.T) {
 	}
 }
 
+func TestChat_GetGroupName(t *testing.T) {
+	teamName := "Team Alpha"
+	empty := ""
+
+	tests := []struct {
+		name      string
+		groupName *string
+		want      string
+	}{
+		{"returns name when set", &teamName, "Team Alpha"},
+		{"returns empty when nil", nil, ""},
+		{"returns empty when empty string pointer", &empty, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat := &Chat{IsGroup: true, GroupName: tt.groupName}
+			if got := chat.GetGroupName(); got != tt.want {
+				t.Errorf("GetGroupName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestChat_GetOtherUser(t *testing.T) {
 	user1 := User{Username: "alice"}
 	user1.ID = 1

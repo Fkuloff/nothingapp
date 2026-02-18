@@ -1,8 +1,8 @@
-// internal/app/app.go
 package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,6 +26,20 @@ import (
 	gormLogger "gorm.io/gorm/logger"
 )
 
+// Infrastructure constants.
+const (
+	defaultPort          = "8080"
+	readHeaderTimeout    = 30 * time.Second
+	shutdownTimeout      = 30 * time.Second
+	dbMaxIdleConns       = 50
+	dbMaxOpenConns       = 200
+	dbConnMaxLifetime    = time.Hour
+	dbConnMaxIdleTime    = 10 * time.Minute
+	dbSlowQueryThreshold = 200 * time.Millisecond
+	rateLimitPerSecond   = 30
+)
+
+// Run initializes all dependencies and starts the HTTP server with graceful shutdown.
 func Run() error {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -70,17 +84,17 @@ func Run() error {
 	// HTTP server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = defaultPort
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           router,
-		ReadHeaderTimeout: 30 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	// Graceful shutdown
-	shutdownMgr := shutdown.New(log, 30*time.Second)
+	shutdownMgr := shutdown.New(log, shutdownTimeout)
 	shutdownMgr.Register(func(ctx context.Context) error {
 		log.Info("stopping HTTP server...")
 		return srv.Shutdown(ctx)
@@ -97,7 +111,7 @@ func Run() error {
 	// Start server in goroutine
 	go func() {
 		log.Info("starting server", zap.String("port", port))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal("server error", zap.Error(err))
 		}
 	}()
@@ -113,7 +127,7 @@ func initDatabase(dbURL string, log *zap.Logger) (*gorm.DB, error) {
 		Logger: gormLogger.New(
 			&zapGormLogger{log: log},
 			gormLogger.Config{
-				SlowThreshold:             200 * time.Millisecond,
+				SlowThreshold:             dbSlowQueryThreshold,
 				LogLevel:                  gormLogger.Warn,
 				IgnoreRecordNotFoundError: true,
 				Colorful:                  false,
@@ -135,11 +149,10 @@ func initDatabase(dbURL string, log *zap.Logger) (*gorm.DB, error) {
 		return nil, fmt.Errorf("get database instance: %w", err)
 	}
 
-	// Increased connection pool for better performance under load
-	sqlDB.SetMaxIdleConns(50)  // 25 → 50
-	sqlDB.SetMaxOpenConns(200) // 100 → 200
-	sqlDB.SetConnMaxLifetime(time.Hour)
-	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
+	sqlDB.SetMaxIdleConns(dbMaxIdleConns)
+	sqlDB.SetMaxOpenConns(dbMaxOpenConns)
+	sqlDB.SetConnMaxLifetime(dbConnMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(dbConnMaxIdleTime)
 
 	log.Info("database connection pool configured")
 	return db, nil
@@ -175,6 +188,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.UnreadMessage{},
 		&models.PushSubscription{},
 		&models.ChatParticipant{},
+		&models.PinnedMessage{},
 	)
 }
 
@@ -203,11 +217,11 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 	// Rate limiting
 	store := ratelimit.InMemoryStore(&ratelimit.InMemoryOptions{
 		Rate:  time.Second,
-		Limit: 30,
+		Limit: rateLimitPerSecond,
 	})
 	rateLimiterMiddleware := ratelimit.RateLimiter(store, &ratelimit.Options{
 		ErrorHandler: func(c *gin.Context, info ratelimit.Info) {
-			c.JSON(429, gin.H{"error": "too many requests"})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 		},
 		KeyFunc: func(c *gin.Context) string {
 			return c.ClientIP()

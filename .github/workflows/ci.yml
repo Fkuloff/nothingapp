@@ -76,15 +76,23 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
-      - name: Run tests
+      - name: Run tests with race detector
         env:
           DB_URL: postgres://test:test@localhost:5432/messenger_test?sslmode=disable
           JWT_SECRET: test-secret-key-with-at-least-32-characters-long
           MESSAGE_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           PORT: 8080
           ALLOWED_ORIGINS: http://localhost:8080
-        run: |
-          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -v -race ./...
+
+      - name: Generate coverage report
+        env:
+          DB_URL: postgres://test:test@localhost:5432/messenger_test?sslmode=disable
+          JWT_SECRET: test-secret-key-with-at-least-32-characters-long
+          MESSAGE_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          PORT: 8080
+          ALLOWED_ORIGINS: http://localhost:8080
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

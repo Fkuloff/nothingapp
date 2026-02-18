@@ -15,7 +15,6 @@ type StorageConfig struct {
 	S3Region          string
 	S3AccessKey       string
 	S3SecretKey       string
-	S3UseSSL          bool
 	S3PresignedExpiry int // Presigned URL expiry in seconds
 }
 
@@ -45,14 +44,6 @@ func LoadStorageConfig() *StorageConfig {
 		}
 	}
 
-	// Parse SSL flag (accepts: 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False)
-	useSSL := false
-	if sslStr := os.Getenv("STORAGE_S3_USE_SSL"); sslStr != "" {
-		if parsed, err := strconv.ParseBool(sslStr); err == nil {
-			useSSL = parsed
-		}
-	}
-
 	// Default region if not specified
 	region := os.Getenv("STORAGE_S3_REGION")
 	if region == "" {
@@ -73,7 +64,6 @@ func LoadStorageConfig() *StorageConfig {
 		S3Region:          region,
 		S3AccessKey:       os.Getenv("STORAGE_S3_ACCESS_KEY"),
 		S3SecretKey:       os.Getenv("STORAGE_S3_SECRET_KEY"),
-		S3UseSSL:          useSSL,
 		S3PresignedExpiry: presignedExpiry,
 	}
 }

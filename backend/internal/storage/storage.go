@@ -1,10 +1,7 @@
 // internal/storage/storage.go
 package storage
 
-import (
-	"io"
-	"time"
-)
+import "io"
 
 // FileMetadata contains metadata about a stored file
 type FileMetadata struct {
@@ -13,7 +10,6 @@ type FileMetadata struct {
 	ContentType string
 	URL         string
 	Size        int64
-	UploadedAt  time.Time
 }
 
 // Storage defines the interface for file storage operations
@@ -30,9 +26,4 @@ type Storage interface {
 
 	// GetURL returns the access URL for a file (presigned for private files)
 	GetURL(key string) string
-
-	// GetPublicURL returns a permanent public URL for a file
-	// This should be used for files that don't need access control (e.g., avatars)
-	// The bucket/path must have public read access configured
-	GetPublicURL(key string) string
 }

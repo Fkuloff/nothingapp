@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost } from '../../shared/api/httpClient'
-import type { GroupMember, Message, WSMessageAction } from '../../shared/api/types'
+import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
 import { useToast } from '../../shared/components/ToastContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
@@ -10,6 +10,7 @@ import { EmojiPicker } from './EmojiPicker'
 import { GroupInfoPanel } from './GroupInfoPanel'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
+import { PinnedMessagesBar } from './PinnedMessagesBar'
 
 type Props = {
   chatId?: number
@@ -34,6 +35,11 @@ type Props = {
   onGroupUpdated?: () => void
   onGroupDeleted?: () => void
   onGroupLeft?: () => void
+  // Pin props
+  pinnedMessages?: PinnedMessage[]
+  canPin?: boolean
+  onPinMessage?: (chatId: number, msgId: number) => void
+  onUnpinMessage?: (chatId: number, msgId: number) => void
 }
 
 export function ChatWindow({
@@ -58,6 +64,10 @@ export function ChatWindow({
   onGroupUpdated,
   onGroupDeleted,
   onGroupLeft,
+  pinnedMessages = [],
+  canPin = false,
+  onPinMessage,
+  onUnpinMessage,
 }: Props) {
   const [messageText, setMessageText] = useState('')
   const [replyToId, setReplyToId] = useState<number | null>(null)
@@ -70,6 +80,7 @@ export function ChatWindow({
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [showEmojiPanel, setShowEmojiPanel] = useState(false)
+  const [showPinnedBar, setShowPinnedBar] = useState(true)
   const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
@@ -82,6 +93,7 @@ export function ChatWindow({
     setSelectedFiles([])
     setSending(false)
     setShowEmojiPanel(false)
+    setShowPinnedBar(true)
     setIsSearchOpen(false)
     setIsMenuOpen(false)
     setIsGroupInfoOpen(false)
@@ -256,6 +268,36 @@ export function ChatWindow({
     setShowEmojiPanel((prev) => !prev)
   }, [])
 
+  const pinnedMessageIds = useMemo(
+    () => new Set(pinnedMessages.map((p) => p.message_id)),
+    [pinnedMessages],
+  )
+
+  const handlePin = useCallback(
+    (msgId: number) => {
+      if (chatId) onPinMessage?.(chatId, msgId)
+    },
+    [chatId, onPinMessage],
+  )
+
+  const handleUnpin = useCallback(
+    (msgId: number) => {
+      if (chatId) onUnpinMessage?.(chatId, msgId)
+    },
+    [chatId, onUnpinMessage],
+  )
+
+  const scrollToMessage = useCallback((messageId: number, highlight = true) => {
+    const el = document.getElementById(`msg-${messageId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (highlight) {
+        el.classList.add('highlight')
+        setTimeout(() => el.classList.remove('highlight'), 2000)
+      }
+    }
+  }, [])
+
   const displayName = isGroup ? groupName : otherUsername
   const displayAvatar = otherAvatar
 
@@ -372,14 +414,17 @@ export function ChatWindow({
             chatId={chatId}
             onResultClick={(messageId) => {
               setIsSearchOpen(false)
-              const el = document.getElementById(`msg-${messageId}`)
-              if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                el.classList.add('highlight')
-                setTimeout(() => el.classList.remove('highlight'), 2000)
-              }
+              scrollToMessage(messageId)
             }}
             onClose={() => setIsSearchOpen(false)}
+          />
+        )}
+
+        {showPinnedBar && pinnedMessages.length > 0 && (
+          <PinnedMessagesBar
+            pinnedMessages={pinnedMessages}
+            onScrollToMessage={(id) => scrollToMessage(id, false)}
+            onClose={() => setShowPinnedBar(false)}
           />
         )}
 
@@ -394,6 +439,10 @@ export function ChatWindow({
           onReply={handleReply}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          pinnedMessageIds={pinnedMessageIds}
+          canPin={canPin}
+          onPin={handlePin}
+          onUnpin={handleUnpin}
         />
 
         <MessageComposer

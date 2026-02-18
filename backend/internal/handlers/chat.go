@@ -1,4 +1,3 @@
-// internal/handlers/chat.go
 package handlers
 
 import (
@@ -12,9 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ChatHandler handles HTTP API endpoints for chats
-// WebSocket functionality moved to websocket.go
-type ChatHandler struct {
+// chatHandler handles HTTP API endpoints for chats.
+type chatHandler struct {
 	chatService  *services.ChatService
 	userService  *services.UserService
 	groupService *services.GroupService
@@ -23,22 +21,23 @@ type ChatHandler struct {
 }
 
 // SetOnChatEventCallback registers a callback for chat-level events (clear/delete).
-// Called by WebSocketHandler to enable real-time sync between participants.
-func (h *ChatHandler) SetOnChatEventCallback(cb func(chatID, initiatorUserID uint, action string)) {
+// Called by webSocketHandler to enable real-time sync between participants.
+func (h *chatHandler) SetOnChatEventCallback(cb func(chatID, initiatorUserID uint, action string)) {
 	h.onChatEvent = cb
 }
 
 // SetGroupService sets the group service for group chat support in chat handlers.
-func (h *ChatHandler) SetGroupService(gs *services.GroupService) {
+func (h *chatHandler) SetGroupService(gs *services.GroupService) {
 	h.groupService = gs
 }
 
-func NewChatHandler(
+// newChatHandler creates a new chatHandler.
+func newChatHandler(
 	chatService *services.ChatService,
 	userService *services.UserService,
 	fileStorage storage.Storage,
-) *ChatHandler {
-	return &ChatHandler{
+) *chatHandler {
+	return &chatHandler{
 		chatService: chatService,
 		userService: userService,
 		storage:     fileStorage,
@@ -67,11 +66,7 @@ type messageResponse struct {
 	Attachments []attachmentResponse `json:"attachments"`
 }
 
-// chatListItem is now defined in types.go as ChatListItem
-// Keeping this as an alias for backward compatibility
-type chatListItem = ChatListItem
-
-func (h *ChatHandler) toMessageResponses(messages []models.Message) []messageResponse {
+func (h *chatHandler) toMessageResponses(messages []models.Message) []messageResponse {
 	result := make([]messageResponse, 0, len(messages))
 	for _, msg := range messages {
 		msgType := string(msg.Type)
@@ -108,7 +103,7 @@ func (h *ChatHandler) toMessageResponses(messages []models.Message) []messageRes
 }
 
 // getGroupMemberCount returns the number of members in a group (0 if unavailable).
-func (h *ChatHandler) getGroupMemberCount(ctx context.Context, chatID uint) int {
+func (h *chatHandler) getGroupMemberCount(ctx context.Context, chatID uint) int {
 	if h.groupService == nil {
 		return 0
 	}
@@ -120,7 +115,7 @@ func (h *ChatHandler) getGroupMemberCount(ctx context.Context, chatID uint) int 
 }
 
 // getGroupAvatarURL returns a refreshed avatar URL for the group (nil if unset).
-func (h *ChatHandler) getGroupAvatarURL(chat *models.Chat) *string {
+func (h *chatHandler) getGroupAvatarURL(chat *models.Chat) *string {
 	if chat.AvatarURL != nil && *chat.AvatarURL != "" {
 		return h.userService.GetAvatarURL(chat.AvatarURL)
 	}
@@ -128,7 +123,7 @@ func (h *ChatHandler) getGroupAvatarURL(chat *models.Chat) *string {
 }
 
 // getParticipantCount returns the participant count for a group (0 if unavailable).
-func (h *ChatHandler) getParticipantCount(ctx context.Context, chatID uint) int {
+func (h *chatHandler) getParticipantCount(ctx context.Context, chatID uint) int {
 	if h.groupService == nil {
 		return 0
 	}
@@ -140,7 +135,7 @@ func (h *ChatHandler) getParticipantCount(ctx context.Context, chatID uint) int 
 }
 
 // buildGroupListItem creates a chatListItem for a group chat.
-func (h *ChatHandler) buildGroupListItem(ctx context.Context, chat *models.Chat, lastMessage string, unreadCounts map[uint]int64) chatListItem {
+func (h *chatHandler) buildGroupListItem(ctx context.Context, chat *models.Chat, lastMessage string, unreadCounts map[uint]int64) chatListItem {
 	return chatListItem{
 		ID:          chat.ID,
 		IsGroup:     true,
@@ -155,7 +150,7 @@ func (h *ChatHandler) buildGroupListItem(ctx context.Context, chat *models.Chat,
 
 // checkGroupAccess verifies the user is a member of the group chat.
 // Returns nil on success, or responds with an appropriate error and returns a non-nil error.
-func (h *ChatHandler) checkGroupAccess(c *gin.Context, chatID, userID uint) error {
+func (h *chatHandler) checkGroupAccess(c *gin.Context, chatID, userID uint) error {
 	if h.groupService == nil {
 		sendInternalError(c, "Group service unavailable")
 		return errAccessDenied
@@ -173,7 +168,7 @@ func (h *ChatHandler) checkGroupAccess(c *gin.Context, chatID, userID uint) erro
 }
 
 // checkChatAccess verifies the user has access to the chat (group or 1-on-1).
-func (h *ChatHandler) checkChatAccess(c *gin.Context, chat *models.Chat, userID uint) error {
+func (h *chatHandler) checkChatAccess(c *gin.Context, chat *models.Chat, userID uint) error {
 	if chat.IsGroup {
 		return h.checkGroupAccess(c, chat.ID, userID)
 	}
@@ -195,15 +190,15 @@ func formatLastMessage(lastMsg *models.Message, err error) string {
 	}
 
 	text := lastMsg.Text
-	if runes := []rune(text); len(runes) > MaxChatListPreview {
-		text = string(runes[:MaxChatListPreview])
+	if runes := []rune(text); len(runes) > maxChatListPreview {
+		text = string(runes[:maxChatListPreview])
 	}
 
 	return text
 }
 
 // GetChatData returns chat data with messages in JSON format for dynamic loading
-func (h *ChatHandler) GetChatData(c *gin.Context) {
+func (h *chatHandler) GetChatData(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -226,7 +221,7 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 		return
 	}
 
-	messages, err := h.chatService.GetRecentMessages(c.Request.Context(), chatID, MaxRecentMessages)
+	messages, err := h.chatService.GetRecentMessages(c.Request.Context(), chatID, maxRecentMessages)
 	if err != nil {
 		sendInternalError(c, "Failed to load messages")
 		return
@@ -253,7 +248,7 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 }
 
 // ListChatsAPI returns list of chats for external UI (1-on-1 + groups)
-func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
+func (h *chatHandler) ListChatsAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -298,7 +293,7 @@ func (h *ChatHandler) ListChatsAPI(c *gin.Context) {
 }
 
 // CreateChatAPI creates a new chat via JSON request
-func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
+func (h *chatHandler) CreateChatAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -359,7 +354,7 @@ func (h *ChatHandler) CreateChatAPI(c *gin.Context) {
 // chatAction executes a chat operation (clear/delete) with shared validation logic.
 // Broadcasts the event to the other participant BEFORE the destructive DB action,
 // because DeleteChat hard-deletes the chat record (FindChatByIDLight would fail after).
-func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context, chatID, userID uint) error, failMsg, successMsg, eventAction string) {
+func (h *chatHandler) chatAction(c *gin.Context, action func(ctx context.Context, chatID, userID uint) error, failMsg, successMsg, eventAction string) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -389,7 +384,7 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 
 	if err := action(c.Request.Context(), chatID, userID); err != nil {
 		errMsg := err.Error()
-		if errMsg == "access denied" || errMsg == "admin or creator role required" {
+		if errMsg == errMsgAccessDenied || errMsg == "admin or creator role required" {
 			sendForbidden(c, errMsg)
 		} else {
 			sendInternalError(c, failMsg)
@@ -401,17 +396,17 @@ func (h *ChatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 }
 
 // ClearChatAPI clears all messages in a chat
-func (h *ChatHandler) ClearChatAPI(c *gin.Context) {
+func (h *chatHandler) ClearChatAPI(c *gin.Context) {
 	h.chatAction(c, h.chatService.ClearChat, "Failed to clear chat", "Chat cleared", "chat_cleared")
 }
 
 // DeleteChatAPI deletes a chat
-func (h *ChatHandler) DeleteChatAPI(c *gin.Context) {
+func (h *chatHandler) DeleteChatAPI(c *gin.Context) {
 	h.chatAction(c, h.chatService.DeleteChat, "Failed to delete chat", "Chat deleted", "chat_deleted")
 }
 
 // GetChatMessagesAPI returns chat messages for external UI
-func (h *ChatHandler) GetChatMessagesAPI(c *gin.Context) {
+func (h *chatHandler) GetChatMessagesAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return

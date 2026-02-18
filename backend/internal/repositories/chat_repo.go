@@ -1,4 +1,3 @@
-// internal/repositories/chat_repo.go
 package repositories
 
 import (
@@ -9,10 +8,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// ChatRepo handles database operations for chats.
 type ChatRepo struct {
 	db *gorm.DB
 }
 
+// NewChatRepo creates a new ChatRepo instance.
 func NewChatRepo(db *gorm.DB) *ChatRepo {
 	return &ChatRepo{db: db}
 }
@@ -22,10 +23,12 @@ func (r *ChatRepo) WithTx(tx *gorm.DB) *ChatRepo {
 	return &ChatRepo{db: tx}
 }
 
+// Create stores a new chat record.
 func (r *ChatRepo) Create(ctx context.Context, chat *models.Chat) error {
 	return r.db.WithContext(ctx).Create(chat).Error
 }
 
+// FindByUsers finds a 1-on-1 chat between two users regardless of who initiated it.
 func (r *ChatRepo) FindByUsers(ctx context.Context, user1ID, user2ID uint) (*models.Chat, error) {
 	var chat models.Chat
 	err := r.db.WithContext(ctx).Where("(user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)", user1ID, user2ID, user2ID, user1ID).First(&chat).Error
@@ -33,12 +36,6 @@ func (r *ChatRepo) FindByUsers(ctx context.Context, user1ID, user2ID uint) (*mod
 		return nil, err
 	}
 	return &chat, nil
-}
-
-func (r *ChatRepo) GetMessages(ctx context.Context, chatID uint) ([]models.Message, error) {
-	var messages []models.Message
-	err := r.db.WithContext(ctx).Where("chat_id = ?", chatID).Order("created_at asc").Find(&messages).Error
-	return messages, err
 }
 
 // GetUserChats retrieves all chats for a user, sorted by updated_at descending (most recent first)
@@ -57,6 +54,7 @@ func (r *ChatRepo) GetUserChats(ctx context.Context, userID uint, preloadUsers b
 	return chats, err
 }
 
+// FindByID finds a chat by ID with User1 and User2 preloaded.
 func (r *ChatRepo) FindByID(ctx context.Context, id uint) (*models.Chat, error) {
 	var chat models.Chat
 	err := r.db.WithContext(ctx).Preload("User1").Preload("User2").First(&chat, id).Error

@@ -16,9 +16,13 @@ type Props = {
   senderName: string
   senderColor?: string
   replyToMessage?: Message | null
+  isPinned?: boolean
+  canPin?: boolean
   onReply: (msgId: number) => void
   onEdit: (msgId: number, text: string) => void
   onDelete: (msgId: number) => void
+  onPin?: (msgId: number) => void
+  onUnpin?: (msgId: number) => void
 }
 
 type ContextMenuState = {
@@ -74,9 +78,13 @@ export function MessageItem({
   senderName,
   senderColor,
   replyToMessage,
+  isPinned,
+  canPin,
   onReply,
   onEdit,
   onDelete,
+  onPin,
+  onUnpin,
 }: Props) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -94,7 +102,7 @@ export function MessageItem({
     e.preventDefault()
 
     const menuWidth = 150
-    const menuHeight = 160
+    const menuHeight = 200
     const padding = 8
 
     let x = e.clientX
@@ -137,6 +145,16 @@ export function MessageItem({
     closeContextMenu()
   }, [message.text, closeContextMenu])
 
+  const handlePin = useCallback(() => {
+    onPin?.(message.id)
+    closeContextMenu()
+  }, [message.id, onPin, closeContextMenu])
+
+  const handleUnpin = useCallback(() => {
+    onUnpin?.(message.id)
+    closeContextMenu()
+  }, [message.id, onUnpin, closeContextMenu])
+
   // Close context menu on click outside or scroll
   useEffect(() => {
     if (!contextMenu.visible) return
@@ -158,11 +176,15 @@ export function MessageItem({
   return (
     <>
       <div
+        id={`msg-${message.id}`}
         className={`message ${isOwn ? 'message-self' : 'message-other'}${message.is_deleted ? ' deleted' : ''}${emojiOnly ? ' message--emoji-only' : ''}`}
         data-msg-id={message.id}
         data-user-id={message.user_id}
         onContextMenu={handleContextMenu}
       >
+        {isPinned && (
+          <span className="message-pin-indicator" title="Закреплено">📌</span>
+        )}
         {replyToMessage && (
           <div className="reply-preview">
             <span className="reply-tag">↩</span>{' '}
@@ -224,6 +246,16 @@ export function MessageItem({
           <div className="context-menu-item" onClick={handleCopyText}>
             📋 Копировать
           </div>
+          {canPin && !isPinned && (
+            <div className="context-menu-item" onClick={handlePin}>
+              📌 Закрепить
+            </div>
+          )}
+          {canPin && isPinned && (
+            <div className="context-menu-item" onClick={handleUnpin}>
+              📌 Открепить
+            </div>
+          )}
           {isOwn && (
             <>
               <div className="context-menu-item" onClick={handleEdit}>

@@ -6,27 +6,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// UserHandler handles HTTP requests for user operations
-type UserHandler struct {
+// userHandler handles HTTP requests for user operations
+type userHandler struct {
 	userService *services.UserService
 }
 
-// NewUserHandler creates a new UserHandler instance
-func NewUserHandler(userService *services.UserService) *UserHandler {
-	return &UserHandler{
+// newUserHandler creates a new userHandler instance
+func newUserHandler(userService *services.UserService) *userHandler {
+	return &userHandler{
 		userService: userService,
 	}
 }
 
 // UploadAvatar handles avatar upload
-func (h *UserHandler) UploadAvatar(c *gin.Context) {
+func (h *userHandler) UploadAvatar(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
 	}
 
 	// Parse multipart form
-	if err := c.Request.ParseMultipartForm(MultipartFormSizeAvatar); err != nil {
+	if err := c.Request.ParseMultipartForm(multipartFormSizeAvatar); err != nil {
 		sendBadRequest(c, "Failed to parse form")
 		return
 	}
@@ -52,7 +52,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 }
 
 // DeleteAvatar handles avatar deletion
-func (h *UserHandler) DeleteAvatar(c *gin.Context) {
+func (h *userHandler) DeleteAvatar(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -67,7 +67,7 @@ func (h *UserHandler) DeleteAvatar(c *gin.Context) {
 }
 
 // GetAvatar serves avatar image by user ID (PUBLIC endpoint)
-func (h *UserHandler) GetAvatar(c *gin.Context) {
+func (h *userHandler) GetAvatar(c *gin.Context) {
 	userID, err := parseUintParam(c, "user_id")
 	if err != nil {
 		sendBadRequest(c, "Invalid user ID")

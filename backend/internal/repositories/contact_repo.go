@@ -8,18 +8,22 @@ import (
 	"gorm.io/gorm"
 )
 
+// ContactRepo handles database operations for user contacts.
 type ContactRepo struct {
 	db *gorm.DB
 }
 
+// NewContactRepo creates a new ContactRepo instance.
 func NewContactRepo(db *gorm.DB) *ContactRepo {
 	return &ContactRepo{db: db}
 }
 
+// Create stores a new contact record.
 func (r *ContactRepo) Create(ctx context.Context, contact *models.Contact) error {
 	return r.db.WithContext(ctx).Create(contact).Error
 }
 
+// FindByUsers finds a contact record between two users.
 func (r *ContactRepo) FindByUsers(ctx context.Context, userID, contactUserID uint) (*models.Contact, error) {
 	var contact models.Contact
 	err := r.db.WithContext(ctx).Where("user_id = ? AND contact_user_id = ?", userID, contactUserID).First(&contact).Error

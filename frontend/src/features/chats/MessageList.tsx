@@ -12,9 +12,13 @@ type Props = {
   groupMembers?: GroupMember[]
   loading?: boolean
   error?: string | null
+  pinnedMessageIds?: Set<number>
+  canPin?: boolean
   onReply: (msgId: number) => void
   onEdit: (msgId: number, text: string) => void
   onDelete: (msgId: number) => void
+  onPin?: (msgId: number) => void
+  onUnpin?: (msgId: number) => void
 }
 
 // Deterministic color palette for group sender names
@@ -51,9 +55,13 @@ export function MessageList({
   groupMembers = [],
   loading,
   error,
+  pinnedMessageIds,
+  canPin,
   onReply,
   onEdit,
   onDelete,
+  onPin,
+  onUnpin,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const prevChatIdRef = useRef<number | undefined>(undefined)
@@ -134,9 +142,13 @@ export function MessageList({
           senderName={senderName}
           senderColor={isGroup && !isOwn ? getSenderColor(message.user_id) : undefined}
           replyToMessage={replyToMessage}
+          isPinned={pinnedMessageIds?.has(message.id)}
+          canPin={canPin}
           onReply={onReply}
           onEdit={onEdit}
           onDelete={onDelete}
+          onPin={onPin}
+          onUnpin={onUnpin}
         />
       )
     })

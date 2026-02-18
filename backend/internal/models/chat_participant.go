@@ -2,14 +2,19 @@ package models
 
 import "gorm.io/gorm"
 
+// ParticipantRole defines a member's permission level in a group chat.
 type ParticipantRole string
 
 const (
+	// RoleCreator is the user who created the group (highest privilege).
 	RoleCreator ParticipantRole = "creator"
-	RoleAdmin   ParticipantRole = "admin"
-	RoleMember  ParticipantRole = "member"
+	// RoleAdmin can manage members and settings.
+	RoleAdmin ParticipantRole = "admin"
+	// RoleMember is a regular group participant.
+	RoleMember ParticipantRole = "member"
 )
 
+// ChatParticipant represents a user's membership in a group chat.
 type ChatParticipant struct {
 	gorm.Model
 	ChatID uint            `gorm:"uniqueIndex:idx_chat_user;index:idx_participant_chat;not null"`
@@ -19,6 +24,7 @@ type ChatParticipant struct {
 	Chat   Chat            `gorm:"foreignKey:ChatID"`
 }
 
+// IsCreator returns true if the participant has the creator role.
 func (p *ChatParticipant) IsCreator() bool {
 	return p.Role == RoleCreator
 }

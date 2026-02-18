@@ -278,6 +278,28 @@ export type WSEventGroupDeleted = {
   actor_id: number
 }
 
+// Pinned messages
+export type PinnedMessage = {
+  id: number
+  chat_id: number
+  message_id: number
+  pinned_by: number
+  created_at: string
+  message: Message
+}
+
+export type WSEventMessagePinned = {
+  action: 'message_pinned'
+  chat_id: number
+  message_id: number
+}
+
+export type WSEventMessageUnpinned = {
+  action: 'message_unpinned'
+  chat_id: number
+  message_id: number
+}
+
 export type WSEvent =
   | WSEventNew
   | WSEventEdit
@@ -292,4 +314,6 @@ export type WSEvent =
   | WSEventGroupUpdated
   | WSEventRoleChanged
   | WSEventGroupDeleted
+  | WSEventMessagePinned
+  | WSEventMessageUnpinned
   | ApiError

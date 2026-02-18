@@ -39,20 +39,17 @@ func (r *UnreadMessageRepo) GetByUser(ctx context.Context, userID uint) ([]model
 	return unreadMessages, err
 }
 
-// GetByUserAndChat retrieves unread messages for a specific chat
-func (r *UnreadMessageRepo) GetByUserAndChat(ctx context.Context, userID, chatID uint) ([]models.UnreadMessage, error) {
-	var unreadMessages []models.UnreadMessage
-	err := r.db.WithContext(ctx).
+// DeleteByChat hard-deletes all unread records in a chat for a user (marks as read)
+func (r *UnreadMessageRepo) DeleteByChat(ctx context.Context, userID, chatID uint) error {
+	return r.db.WithContext(ctx).Unscoped().
 		Where("user_id = ? AND chat_id = ?", userID, chatID).
-		Preload("Message").
-		Find(&unreadMessages).Error
-	return unreadMessages, err
+		Delete(&models.UnreadMessage{}).Error
 }
 
-// DeleteByChat marks all messages in a chat as read for a user
-func (r *UnreadMessageRepo) DeleteByChat(ctx context.Context, userID, chatID uint) error {
-	return r.db.WithContext(ctx).
-		Where("user_id = ? AND chat_id = ?", userID, chatID).
+// DeleteByUser hard-deletes all unread records for a user (used after pending message delivery)
+func (r *UnreadMessageRepo) DeleteByUser(ctx context.Context, userID uint) error {
+	return r.db.WithContext(ctx).Unscoped().
+		Where("user_id = ?", userID).
 		Delete(&models.UnreadMessage{}).Error
 }
 
