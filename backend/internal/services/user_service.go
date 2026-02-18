@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -56,7 +57,7 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 	// Delete old avatar if exists
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return "", fmt.Errorf("user not found")
+		return "", fmt.Errorf("find user: %w", err)
 	}
 
 	var oldAvatarKey string
@@ -105,11 +106,11 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 func (s *UserService) DeleteAvatar(ctx context.Context, userID uint) error {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("user not found")
+		return fmt.Errorf("find user: %w", err)
 	}
 
 	if user.AvatarURL == nil || *user.AvatarURL == "" {
-		return fmt.Errorf("user has no avatar")
+		return errors.New("user has no avatar")
 	}
 
 	// Extract storage key from URL
@@ -133,11 +134,11 @@ func (s *UserService) DeleteAvatar(ctx context.Context, userID uint) error {
 func (s *UserService) GetAvatarReader(ctx context.Context, userID uint) (io.ReadCloser, string, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return nil, "", fmt.Errorf("user not found")
+		return nil, "", fmt.Errorf("find user: %w", err)
 	}
 
 	if user.AvatarURL == nil || *user.AvatarURL == "" {
-		return nil, "", fmt.Errorf("user has no avatar")
+		return nil, "", errors.New("user has no avatar")
 	}
 
 	storageKey := extractStorageKey(*user.AvatarURL)

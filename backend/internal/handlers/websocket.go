@@ -713,18 +713,8 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 
 		// Serialize attachments for the broadcast (with presigned URLs)
 		var attachmentsList []map[string]any
-		for _, att := range unread.Message.Attachments {
-			attData := map[string]any{
-				"id":        att.ID,
-				"file_type": att.FileType,
-				"file_name": att.FileName,
-				"file_size": att.FileSize,
-				"mime_type": att.MimeType,
-			}
-			if h.fileStorage != nil {
-				attData["url"] = h.fileStorage.GetURL(att.StorageKey)
-			}
-			attachmentsList = append(attachmentsList, attData)
+		if h.fileStorage != nil {
+			attachmentsList = serializeAttachmentSlice(unread.Message.Attachments, h.fileStorage)
 		}
 
 		broadcastData := map[string]any{

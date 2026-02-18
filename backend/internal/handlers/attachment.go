@@ -58,25 +58,7 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 	}
 
 	// Verify user has access to chat
-	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
-	if err != nil {
-		sendForbidden(c, "Access denied")
-		return
-	}
-
-	// Group chats: check membership via participant repo; 1-on-1: use HasUser
-	if chat.IsGroup {
-		if h.participantRepo == nil {
-			sendForbidden(c, "Access denied")
-			return
-		}
-		_, err := h.participantRepo.FindByUserAndChat(c.Request.Context(), chatID, userID)
-		if err != nil {
-			sendForbidden(c, "Access denied")
-			return
-		}
-	} else if !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
+	if err := h.verifyChatMembership(c, chatID, userID); err != nil {
 		return
 	}
 
@@ -94,8 +76,8 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
-	if len(files) > 10 {
-		sendBadRequest(c, "Maximum 10 files per message")
+	if len(files) > MaxAttachmentsPerMessage {
+		sendBadRequest(c, "Too many files per message")
 		return
 	}
 
@@ -145,25 +127,13 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 	}
 
 	// Verify user has access to the chat containing this attachment
-	if attachment.Message != nil {
-		chat, chatErr := h.chatService.FindChatByIDLight(c.Request.Context(), attachment.Message.ChatID)
-		if chatErr != nil {
-			sendForbidden(c, "Access denied")
-			return
-		}
-		if chat.IsGroup {
-			if h.participantRepo == nil {
-				sendForbidden(c, "Access denied")
-				return
-			}
-			if _, pErr := h.participantRepo.FindByUserAndChat(c.Request.Context(), chat.ID, userID); pErr != nil {
-				sendForbidden(c, "Access denied")
-				return
-			}
-		} else if !chat.HasUser(userID) {
-			sendForbidden(c, "Access denied")
-			return
-		}
+	if attachment.Message == nil {
+		sendInternalError(c, "Attachment has no associated message")
+		return
+	}
+
+	if err := h.verifyChatMembership(c, attachment.Message.ChatID, userID); err != nil {
+		return
 	}
 
 	presignedURL := h.storage.GetURL(attachment.StorageKey)
@@ -198,18 +168,58 @@ func (h *AttachmentHandler) DeleteAttachment(c *gin.Context) {
 	sendSuccess(c, gin.H{"success": true})
 }
 
-// serializeAttachmentsWithURL converts attachment models to maps with presigned URLs
+// verifyChatMembership checks that the user is a participant of the given chat.
+// Responds with an HTTP error and returns a non-nil error on failure.
+func (h *AttachmentHandler) verifyChatMembership(c *gin.Context, chatID, userID uint) error {
+	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
+	if err != nil {
+		sendForbidden(c, "Access denied")
+		return err
+	}
+
+	if chat.IsGroup {
+		if h.participantRepo == nil {
+			sendForbidden(c, "Access denied")
+			return errAccessDenied
+		}
+		if _, pErr := h.participantRepo.FindByUserAndChat(c.Request.Context(), chatID, userID); pErr != nil {
+			sendForbidden(c, "Access denied")
+			return pErr
+		}
+	} else if !chat.HasUser(userID) {
+		sendForbidden(c, "Access denied")
+		return errAccessDenied
+	}
+
+	return nil
+}
+
+// serializeAttachmentsWithURL converts attachment pointer slice to maps with presigned URLs.
 func serializeAttachmentsWithURL(attachments []*models.Attachment, s storage.Storage) []map[string]any {
 	result := make([]map[string]any, 0, len(attachments))
 	for _, att := range attachments {
-		result = append(result, map[string]any{
-			"id":        att.ID,
-			"file_type": att.FileType,
-			"file_name": att.FileName,
-			"file_size": att.FileSize,
-			"mime_type": att.MimeType,
-			"url":       s.GetURL(att.StorageKey),
-		})
+		result = append(result, serializeAttachment(att, s))
 	}
 	return result
+}
+
+// serializeAttachmentSlice converts a value-type attachment slice to maps with presigned URLs.
+func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage) []map[string]any {
+	result := make([]map[string]any, 0, len(attachments))
+	for i := range attachments {
+		result = append(result, serializeAttachment(&attachments[i], s))
+	}
+	return result
+}
+
+// serializeAttachment converts a single attachment model to a map with a presigned URL.
+func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]any {
+	return map[string]any{
+		"id":        att.ID,
+		"file_type": att.FileType,
+		"file_name": att.FileName,
+		"file_size": att.FileSize,
+		"mime_type": att.MimeType,
+		"url":       s.GetURL(att.StorageKey),
+	}
 }
