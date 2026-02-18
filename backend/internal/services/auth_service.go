@@ -12,11 +12,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// AuthService handles user authentication (registration, login, lookup).
 type AuthService struct {
 	logger   *zap.Logger
 	userRepo *repositories.UserRepo
 }
 
+// NewAuthService creates a new AuthService.
 func NewAuthService(logger *zap.Logger, userRepo *repositories.UserRepo) *AuthService {
 	return &AuthService{
 		logger:   logger,
@@ -24,6 +26,7 @@ func NewAuthService(logger *zap.Logger, userRepo *repositories.UserRepo) *AuthSe
 	}
 }
 
+// Register creates a new user account with a hashed password.
 func (s *AuthService) Register(ctx context.Context, username, password, name string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -47,6 +50,7 @@ func (s *AuthService) Register(ctx context.Context, username, password, name str
 	return nil
 }
 
+// Login validates credentials and returns the authenticated user.
 func (s *AuthService) Login(ctx context.Context, username, password string) (*models.User, error) {
 	// Normalize username to lowercase for case-insensitive login
 	user, err := s.userRepo.FindByUsername(ctx, strings.ToLower(strings.TrimSpace(username)))
@@ -61,6 +65,7 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*mo
 	return user, nil
 }
 
+// GetUserByID retrieves a user by their ID.
 func (s *AuthService) GetUserByID(ctx context.Context, userID uint) (*models.User, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {

@@ -1,4 +1,3 @@
-// internal/handlers/file.go
 package handlers
 
 import (
@@ -38,22 +37,22 @@ var contentTypesByExtension = map[string]string{
 	".rar":  "application/x-rar-compressed",
 }
 
-// FileHandler handles file serving with authorization
-type FileHandler struct {
+// fileHandler handles file serving with authorization
+type fileHandler struct {
 	storage storage.Storage
 	logger  *zap.Logger
 }
 
-// NewFileHandler creates a new file handler
-func NewFileHandler(storage storage.Storage, logger *zap.Logger) *FileHandler {
-	return &FileHandler{
+// newFileHandler creates a new file handler
+func newFileHandler(storage storage.Storage, logger *zap.Logger) *fileHandler {
+	return &fileHandler{
 		storage: storage,
 		logger:  logger,
 	}
 }
 
 // ServeFile serves a file with authorization check
-func (h *FileHandler) ServeFile(c *gin.Context) {
+func (h *fileHandler) ServeFile(c *gin.Context) {
 	_, ok := requireUserID(c)
 	if !ok {
 		return
@@ -85,7 +84,7 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 		sendNotFound(c, "File not found")
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	// Detect content type from file extension
 	ext := strings.ToLower(filepath.Ext(filename))
@@ -107,18 +106,22 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 
 // validateFilename checks for path traversal attempts
 func validateFilename(filename string) error {
-	// Check for path traversal patterns
-	if strings.Contains(filename, "..") {
-		return &wsError{message: "path traversal not allowed"}
+	// Reject any directory separators — only bare filenames are allowed.
+	if strings.Contains(filename, "/") {
+		return &wsError{message: "subdirectory paths not allowed"}
 	}
 	if strings.Contains(filename, "\\") {
 		return &wsError{message: "backslashes not allowed"}
+	}
+	// Check for path traversal patterns
+	if strings.Contains(filename, "..") {
+		return &wsError{message: "path traversal not allowed"}
 	}
 	if filepath.IsAbs(filename) {
 		return &wsError{message: "absolute paths not allowed"}
 	}
 
-	// Clean the path
+	// Clean the path — catches any remaining OS-specific tricks.
 	cleaned := filepath.Clean(filename)
 	if cleaned != filename {
 		return &wsError{message: "filename contains invalid characters"}

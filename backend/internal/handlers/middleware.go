@@ -1,4 +1,3 @@
-// internal/handlers/middleware.go
 package handlers
 
 import (
@@ -10,8 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// JWTMiddleware for token validation with enhanced security checks
-func JWTMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
+// jwtMiddleware returns a Gin middleware for JWT token validation.
+func jwtMiddleware(secret []byte, log *zap.Logger) gin.HandlerFunc {
 	publicPaths := map[string]bool{
 		"/api/auth/login":    true,
 		"/api/auth/register": true,

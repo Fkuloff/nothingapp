@@ -23,11 +23,13 @@ var (
 	ErrContactNotFound = errors.New("contact not found")
 )
 
+// ContactService handles business logic for user contacts.
 type ContactService struct {
 	logger      *zap.Logger
 	contactRepo *repositories.ContactRepo
 }
 
+// NewContactService creates a new ContactService.
 func NewContactService(logger *zap.Logger, contactRepo *repositories.ContactRepo) *ContactService {
 	return &ContactService{
 		logger:      logger,
@@ -35,6 +37,7 @@ func NewContactService(logger *zap.Logger, contactRepo *repositories.ContactRepo
 	}
 }
 
+// AddContact adds a user to the contact list.
 func (s *ContactService) AddContact(ctx context.Context, userID, contactUserID uint) error {
 	if userID == contactUserID {
 		return ErrCannotAddSelf
@@ -57,6 +60,7 @@ func (s *ContactService) AddContact(ctx context.Context, userID, contactUserID u
 	return nil
 }
 
+// IsContact checks if a user is in the contact list.
 func (s *ContactService) IsContact(ctx context.Context, userID, contactUserID uint) (bool, error) {
 	_, err := s.contactRepo.FindByUsers(ctx, userID, contactUserID)
 	if err != nil {

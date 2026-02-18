@@ -2,6 +2,7 @@ package models
 
 import "gorm.io/gorm"
 
+// User represents a registered user account.
 type User struct {
 	gorm.Model
 	Username  string  `gorm:"unique;not null"`

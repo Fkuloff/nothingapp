@@ -63,8 +63,8 @@ func (s *PushNotificationService) GetVAPIDPublicKey() string {
 	return s.vapidPublicKey
 }
 
-// MaxSubscriptionsPerUser is the maximum number of push subscriptions allowed per user.
-const MaxSubscriptionsPerUser = 10
+// maxSubscriptionsPerUser is the maximum number of push subscriptions allowed per user.
+const maxSubscriptionsPerUser = 10
 
 // Subscribe stores a push subscription for a user.
 // Enforces a per-user limit to prevent abuse.
@@ -74,8 +74,8 @@ func (s *PushNotificationService) Subscribe(ctx context.Context, userID uint, en
 	if err != nil {
 		return fmt.Errorf("failed to check subscription count: %w", err)
 	}
-	if count >= MaxSubscriptionsPerUser {
-		return fmt.Errorf("subscription limit reached (max %d)", MaxSubscriptionsPerUser)
+	if count >= maxSubscriptionsPerUser {
+		return fmt.Errorf("subscription limit reached (max %d)", maxSubscriptionsPerUser)
 	}
 
 	sub := &models.PushSubscription{

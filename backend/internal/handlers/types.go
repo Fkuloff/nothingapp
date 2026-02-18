@@ -2,8 +2,8 @@ package handlers
 
 import "time"
 
-// MessageAction represents a WebSocket message action from the client
-type MessageAction struct {
+// messageAction represents a WebSocket message action from the client.
+type messageAction struct {
 	Action    string `json:"action"`
 	Text      string `json:"text"`
 	ChatID    uint   `json:"chat_id"`
@@ -11,16 +11,16 @@ type MessageAction struct {
 	MessageID uint   `json:"message_id"`
 }
 
-// UserListItem represents a user in a list (contacts, search results)
-type UserListItem struct {
+// userListItem represents a user in a list (contacts, search results).
+type userListItem struct {
 	ID        uint    `json:"id"`
 	Username  string  `json:"username"`
 	Name      string  `json:"name"`
 	AvatarURL *string `json:"avatar_url"`
 }
 
-// ChatListItem represents a chat in the chat list (1-on-1 or group)
-type ChatListItem struct {
+// chatListItem represents a chat in the chat list (1-on-1 or group).
+type chatListItem struct {
 	ID          uint      `json:"id"`
 	IsGroup     bool      `json:"is_group"`
 	LastMessage string    `json:"last_message"`
@@ -37,8 +37,8 @@ type ChatListItem struct {
 	MemberCount int    `json:"member_count,omitempty"`
 }
 
-// GroupMemberItem represents a group participant for API responses
-type GroupMemberItem struct {
+// groupMemberItem represents a group participant for API responses.
+type groupMemberItem struct {
 	UserID    uint    `json:"user_id"`
 	Username  string  `json:"username"`
 	Name      string  `json:"name"`

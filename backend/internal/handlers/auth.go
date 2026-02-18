@@ -1,4 +1,3 @@
-// internal/handlers/auth.go
 package handlers
 
 import (
@@ -16,14 +15,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type AuthHandler struct {
+// authHandler handles HTTP requests for authentication (register, login, logout).
+type authHandler struct {
 	authService *services.AuthService
 	userService *services.UserService
 	secret      []byte
 }
 
-func NewAuthHandler(authService *services.AuthService, userService *services.UserService, secret []byte) *AuthHandler {
-	return &AuthHandler{authService: authService, userService: userService, secret: secret}
+// newAuthHandler creates a new authHandler.
+func newAuthHandler(authService *services.AuthService, userService *services.UserService, secret []byte) *authHandler {
+	return &authHandler{authService: authService, userService: userService, secret: secret}
 }
 
 // validatePasswordStrength checks if password meets security requirements
@@ -47,7 +48,7 @@ func generateJTI() (string, error) {
 }
 
 // generateJWT creates a JWT token with proper security claims
-func (h *AuthHandler) generateJWT(userID uint) (string, error) {
+func (h *authHandler) generateJWT(userID uint) (string, error) {
 	now := time.Now()
 	jti, err := generateJTI()
 	if err != nil {
@@ -67,7 +68,7 @@ func (h *AuthHandler) generateJWT(userID uint) (string, error) {
 }
 
 // RegisterAPI handles JSON registration
-func (h *AuthHandler) RegisterAPI(c *gin.Context) {
+func (h *authHandler) RegisterAPI(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required,min=3,max=20"`
 		Password string `json:"password" binding:"required,min=6"`
@@ -153,7 +154,7 @@ func (h *AuthHandler) RegisterAPI(c *gin.Context) {
 }
 
 // LoginAPI handles JSON login
-func (h *AuthHandler) LoginAPI(c *gin.Context) {
+func (h *authHandler) LoginAPI(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
@@ -185,14 +186,14 @@ func (h *AuthHandler) LoginAPI(c *gin.Context) {
 }
 
 // LogoutAPI handles JSON logout
-func (h *AuthHandler) LogoutAPI(c *gin.Context) {
+func (h *authHandler) LogoutAPI(c *gin.Context) {
 	sendSuccess(c, gin.H{
 		"message": "Logged out successfully",
 	})
 }
 
 // GetCurrentUser returns current user info
-func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
+func (h *authHandler) GetCurrentUser(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return

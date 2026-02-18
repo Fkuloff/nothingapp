@@ -6,13 +6,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// MessageType distinguishes user-sent messages from system-generated ones.
 type MessageType string
 
 const (
-	MessageTypeUser   MessageType = "user"
+	// MessageTypeUser is a regular message sent by a user.
+	MessageTypeUser MessageType = "user"
+	// MessageTypeSystem is an auto-generated message (e.g. "user joined the group").
 	MessageTypeSystem MessageType = "system"
 )
 
+// Message represents a single message in a chat.
 type Message struct {
 	gorm.Model
 	ChatID    uint        `gorm:"index:idx_chat_messages"`

@@ -1,4 +1,3 @@
-// internal/handlers/websocket_actions.go
 package handlers
 
 import (
@@ -14,11 +13,11 @@ import (
 )
 
 // handleSendMessage processes a new message
-func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, msgData MessageAction) error {
+func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, msgData messageAction) error {
 	if msgData.Text == "" {
 		return &wsError{message: "Message cannot be empty"}
 	}
-	if len(msgData.Text) > MaxMessageSize {
+	if len(msgData.Text) > maxMessageSize {
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
 
@@ -75,7 +74,7 @@ func (h *WebSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 }
 
 // handleSendDirectMessage handles sending a message in a 1-on-1 chat.
-func (h *WebSocketHandler) handleSendDirectMessage(ctx context.Context, userID uint, chat *models.Chat, msgData MessageAction) (*models.Message, error) {
+func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID uint, chat *models.Chat, msgData messageAction) (*models.Message, error) {
 	if !chat.HasUser(userID) {
 		return nil, &wsError{message: "Access denied to this chat"}
 	}
@@ -110,7 +109,7 @@ func (h *WebSocketHandler) handleSendDirectMessage(ctx context.Context, userID u
 }
 
 // handleSendGroupMessage handles sending a message in a group chat.
-func (h *WebSocketHandler) handleSendGroupMessage(ctx context.Context, userID uint, chat *models.Chat, msgData MessageAction) (*models.Message, error) {
+func (h *webSocketHandler) handleSendGroupMessage(ctx context.Context, userID uint, chat *models.Chat, msgData messageAction) (*models.Message, error) {
 	if h.participantRepo == nil {
 		return nil, &wsError{message: "Group chat not supported"}
 	}
@@ -162,7 +161,7 @@ func (h *WebSocketHandler) handleSendGroupMessage(ctx context.Context, userID ui
 // Uses context.Background() intentionally: push delivery must not depend on the sender's WebSocket connection.
 //
 //nolint:contextcheck // intentionally detached from client context
-func (h *WebSocketHandler) sendPushNotification(senderID, recipientID, chatID uint, text string) {
+func (h *webSocketHandler) sendPushNotification(senderID, recipientID, chatID uint, text string) {
 	defer func() {
 		if r := recover(); r != nil {
 			h.logger.Error("panic in push notification goroutine",
@@ -206,14 +205,14 @@ func (h *WebSocketHandler) sendPushNotification(senderID, recipientID, chatID ui
 }
 
 // handleEditMessage processes a message edit
-func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, msgData MessageAction) error {
+func (h *webSocketHandler) handleEditMessage(ctx context.Context, userID uint, msgData messageAction) error {
 	if msgData.MessageID == 0 {
 		return &wsError{message: "Message ID required for edit"}
 	}
 	if msgData.Text == "" {
 		return &wsError{message: "New message text cannot be empty"}
 	}
-	if len(msgData.Text) > MaxMessageSize {
+	if len(msgData.Text) > maxMessageSize {
 		return &wsError{message: "Message too large (max 10KB)"}
 	}
 
@@ -257,7 +256,7 @@ func (h *WebSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 }
 
 // handleDeleteMessage processes a message deletion
-func (h *WebSocketHandler) handleDeleteMessage(ctx context.Context, userID uint, msgData MessageAction) error {
+func (h *webSocketHandler) handleDeleteMessage(ctx context.Context, userID uint, msgData messageAction) error {
 	if msgData.MessageID == 0 {
 		return &wsError{message: "Message ID required for delete"}
 	}
@@ -302,7 +301,7 @@ func (h *WebSocketHandler) handleDeleteMessage(ctx context.Context, userID uint,
 }
 
 // handleMarkRead marks messages as read
-func (h *WebSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgData MessageAction) error {
+func (h *webSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgData messageAction) error {
 	if msgData.ChatID == 0 {
 		return &wsError{message: "chat_id is required"}
 	}
@@ -321,7 +320,7 @@ func (h *WebSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgD
 }
 
 // checkWSChatAccess verifies the user has access to the chat (1-on-1 or group).
-func (h *WebSocketHandler) checkWSChatAccess(ctx context.Context, chatID, userID uint) error {
+func (h *webSocketHandler) checkWSChatAccess(ctx context.Context, chatID, userID uint) error {
 	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
 	if err != nil {
 		return &wsError{message: "Access denied to this chat"}

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,20 +79,20 @@ func TestPresenceService_MultipleConnections(t *testing.T) {
 func TestPresenceService_CallbackOnFirstConnect(t *testing.T) {
 	ps := newTestPresenceService(t)
 
-	var calls int32
+	var calls int
 	var lastOnline bool
 	var mu sync.Mutex
 	done := make(chan struct{}, 2)
 
-	ps.SetOnChangeCallback(func(userID uint, isOnline bool) {
+	ps.SetOnChangeCallback(func(_ uint, isOnline bool) {
 		mu.Lock()
-		atomic.AddInt32(&calls, 1)
+		calls++
 		lastOnline = isOnline
 		mu.Unlock()
 		done <- struct{}{}
 	})
 
-	// First connect → callback fires
+	// First connect → callback fires.
 	ps.UserConnected(1)
 
 	select {
@@ -103,44 +102,49 @@ func TestPresenceService_CallbackOnFirstConnect(t *testing.T) {
 	}
 
 	mu.Lock()
-	if atomic.LoadInt32(&calls) != 1 {
-		t.Errorf("expected 1 callback call, got %d", atomic.LoadInt32(&calls))
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
 	}
 	if !lastOnline {
 		t.Error("callback should report online=true on first connect")
 	}
 	mu.Unlock()
 
-	// Second connect → callback should NOT fire (already online)
+	// Second connect → callback should NOT fire (already online).
 	ps.UserConnected(1)
 
-	// Give a short window for any spurious callback
 	select {
 	case <-done:
 		t.Error("callback should not fire on second connect when already online")
 	case <-time.After(100 * time.Millisecond):
-		// Expected — no callback
+		// Expected — no callback.
 	}
 }
 
 func TestPresenceService_CallbackOnLastDisconnect(t *testing.T) {
 	ps := newTestPresenceService(t)
 
-	var calls int32
+	var calls int
+	var mu sync.Mutex
 	done := make(chan struct{}, 5)
 
-	ps.SetOnChangeCallback(func(userID uint, isOnline bool) {
-		atomic.AddInt32(&calls, 1)
+	ps.SetOnChangeCallback(func(_ uint, _ bool) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
 		done <- struct{}{}
 	})
 
 	ps.UserConnected(1)
 	<-done // consume connect callback
-	atomic.StoreInt32(&calls, 0)
+
+	mu.Lock()
+	calls = 0
+	mu.Unlock()
 
 	ps.UserConnected(1) // second connection, no callback
 
-	// Disconnect first — still one connection left, no offline callback
+	// Disconnect first — still one connection left, no offline callback.
 	ps.UserDisconnected(1)
 
 	select {
@@ -149,7 +153,7 @@ func TestPresenceService_CallbackOnLastDisconnect(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	// Disconnect last → callback fires with isOnline=false
+	// Disconnect last → callback fires with isOnline=false.
 	ps.UserDisconnected(1)
 
 	select {
@@ -158,9 +162,11 @@ func TestPresenceService_CallbackOnLastDisconnect(t *testing.T) {
 		t.Fatal("timeout waiting for callback on last disconnect")
 	}
 
-	if atomic.LoadInt32(&calls) != 1 {
-		t.Errorf("expected 1 offline callback, got %d", atomic.LoadInt32(&calls))
+	mu.Lock()
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
 	}
+	mu.Unlock()
 }
 
 func TestPresenceService_GetUserStatus(t *testing.T) {
@@ -188,34 +194,6 @@ func TestPresenceService_GetUserStatus(t *testing.T) {
 	}
 	if status.UserID != 1 {
 		t.Errorf("UserID = %d, want 1", status.UserID)
-	}
-}
-
-func TestPresenceService_GetOnlineUsers(t *testing.T) {
-	ps := newTestPresenceService(t)
-
-	ps.UserConnected(1)
-	ps.UserConnected(2)
-	ps.UserConnected(3)
-	ps.UserDisconnected(2) // user 2 goes offline
-
-	online := ps.GetOnlineUsers()
-	onlineSet := make(map[uint]bool)
-	for _, id := range online {
-		onlineSet[id] = true
-	}
-
-	if !onlineSet[1] {
-		t.Error("user 1 should be online")
-	}
-	if onlineSet[2] {
-		t.Error("user 2 should be offline")
-	}
-	if !onlineSet[3] {
-		t.Error("user 3 should be online")
-	}
-	if len(online) != 2 {
-		t.Errorf("expected 2 online users, got %d", len(online))
 	}
 }
 
@@ -261,7 +239,6 @@ func TestPresenceService_ConcurrentAccess(t *testing.T) {
 			ps.IsUserOnline(userID)
 			ps.GetUserStatus(userID)
 			ps.UpdateActivity(userID)
-			ps.GetOnlineUsers()
 			ps.UserDisconnected(userID)
 		}(i)
 	}

@@ -1,4 +1,3 @@
-// internal/handlers/routes.go
 package handlers
 
 import (
@@ -13,6 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// SetupRoutes registers all HTTP and WebSocket routes on the given router.
 func SetupRoutes(
 	router *gin.Engine,
 	db *gorm.DB,
@@ -41,80 +41,89 @@ func SetupRoutes(
 	presenceService := services.NewPresenceService(logger)
 	pushService := services.NewPushNotificationService(logger, pushSubRepo, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
 	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
+	pinnedMessageRepo := repositories.NewPinnedMessageRepo(db)
+	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, chatRepo, participantRepo, userRepo, msgEncryptor)
 
 	// Initialize handlers
-	authHandler := NewAuthHandler(authService, userService, secret)
-	chatHandler := NewChatHandler(chatService, userService, fileStorage)
-	chatHandler.SetGroupService(groupService)
-	profileHandler := NewProfileHandler(userService, contactService, logger)
-	userHandler := NewUserHandler(userService)
-	wsHandler := NewWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor, fileStorage)
-	wsHandler.SetGroupService(groupService, participantRepo)
-	attachmentHandler := NewAttachmentHandler(attachmentService, chatService, wsHandler, participantRepo, fileStorage)
-	fileHandler := NewFileHandler(fileStorage, logger)
-	pushHandler := NewPushHandler(pushService, logger)
-	healthHandler := NewHealthHandler(db)
-	groupHandler := NewGroupHandler(groupService, presenceService, userService)
+	authH := newAuthHandler(authService, userService, secret)
+	chatH := newChatHandler(chatService, userService, fileStorage)
+	chatH.SetGroupService(groupService)
+	profileH := newProfileHandler(userService, contactService, logger)
+	userH := newUserHandler(userService)
+	wsH := newWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor, fileStorage)
+	wsH.SetGroupService(groupService, participantRepo)
+	attachH := newAttachmentHandler(attachmentService, chatService, wsH, participantRepo, fileStorage)
+	fileH := newFileHandler(fileStorage, logger)
+	pushH := newPushHandler(pushService, logger)
+	healthH := newHealthHandler(db)
+	groupH := newGroupHandler(groupService, presenceService, userService)
+	pinH := newPinHandler(pinService, fileStorage)
 
 	// Configure presence service to broadcast status changes via WebSocket
-	presenceService.SetOnChangeCallback(wsHandler.broadcastPresenceChange)
+	presenceService.SetOnChangeCallback(wsH.broadcastPresenceChange)
 
 	// Configure chat handler to broadcast chat events (clear/delete) via WebSocket
-	chatHandler.SetOnChatEventCallback(wsHandler.broadcastChatEvent)
+	chatH.SetOnChatEventCallback(wsH.broadcastChatEvent)
 
 	// Configure group handler to broadcast group events via WebSocket
-	groupHandler.SetOnGroupEventCallback(wsHandler.broadcastGroupEvent)
+	groupH.setOnGroupEventCallback(wsH.broadcastGroupEvent)
+
+	// Configure pin handler to broadcast pin events via WebSocket
+	pinH.setOnPinEventCallback(wsH.broadcastPinEvent)
 
 	// Public endpoints (no JWT middleware)
-	router.GET("/health", healthHandler.GetHealth)
-	router.POST("/api/auth/register", authHandler.RegisterAPI)
-	router.POST("/api/auth/login", authHandler.LoginAPI)
+	router.GET("/health", healthH.GetHealth)
+	router.POST("/api/auth/register", authH.RegisterAPI)
+	router.POST("/api/auth/login", authH.LoginAPI)
 
 	// Attachment download — JWT required (presigned URLs are the primary access method)
-	router.GET("/api/attachments/:id", JWTMiddleware(secret, logger), attachmentHandler.DownloadAttachment)
+	router.GET("/api/attachments/:id", jwtMiddleware(secret, logger), attachH.DownloadAttachment)
 
 	// Public avatar endpoints
-	router.GET("/api/avatars/:user_id", userHandler.GetAvatar)
-	router.GET("/api/group-avatars/:chat_id", groupHandler.GetGroupAvatar)
+	router.GET("/api/avatars/:user_id", userH.GetAvatar)
+	router.GET("/api/group-avatars/:chat_id", groupH.GetGroupAvatar)
 
 	// WebSocket endpoint with JWT middleware
-	router.GET("/ws", JWTMiddleware(secret, logger), wsHandler.HandleWebSocket)
+	router.GET("/ws", jwtMiddleware(secret, logger), wsH.HandleWebSocket)
 
 	// Protected attachment endpoint (DELETE requires JWT)
-	router.DELETE("/api/attachments/:id", JWTMiddleware(secret, logger), attachmentHandler.DeleteAttachment)
+	router.DELETE("/api/attachments/:id", jwtMiddleware(secret, logger), attachH.DeleteAttachment)
 
 	// Protected API routes (JWT required)
 	api := router.Group("/api")
-	api.Use(JWTMiddleware(secret, logger))
-	registerAuthRoutes(api, authHandler)
-	registerChatRoutes(api, chatHandler, attachmentHandler)
-	registerProfileRoutes(api, profileHandler)
-	registerUserRoutes(api, userHandler, wsHandler, fileHandler)
-	registerPushRoutes(api, pushHandler)
-	registerGroupRoutes(api, groupHandler)
+	api.Use(jwtMiddleware(secret, logger))
+	registerAuthRoutes(api, authH)
+	registerChatRoutes(api, chatH, attachH, pinH)
+	registerProfileRoutes(api, profileH)
+	registerUserRoutes(api, userH, wsH, fileH)
+	registerPushRoutes(api, pushH)
+	registerGroupRoutes(api, groupH)
 
 	return nil
 }
 
-func registerAuthRoutes(api *gin.RouterGroup, h *AuthHandler) {
+func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {
 	auth := api.Group("/auth")
-	// register and login are public (registered before JWT middleware)
 	auth.POST("/logout", h.LogoutAPI)
 	auth.GET("/me", h.GetCurrentUser)
 }
 
-func registerChatRoutes(api *gin.RouterGroup, chatHandler *ChatHandler, attachmentHandler *AttachmentHandler) {
+//nolint:dupl // Chat and group routes share structure but different handlers; merging hurts readability.
+func registerChatRoutes(api *gin.RouterGroup, ch *chatHandler, ah *attachmentHandler, ph *pinHandler) {
 	chats := api.Group("/chats")
-	chats.GET("", chatHandler.ListChatsAPI)
-	chats.POST("", chatHandler.CreateChatAPI)
-	chats.GET("/:id", chatHandler.GetChatData)
-	chats.DELETE("/:id", chatHandler.DeleteChatAPI)
-	chats.POST("/:id/clear", chatHandler.ClearChatAPI)
-	chats.GET("/:id/messages", chatHandler.GetChatMessagesAPI)
-	chats.POST("/:id/messages/:message_id/attachments", attachmentHandler.UploadAttachments)
+	chats.GET("", ch.ListChatsAPI)
+	chats.POST("", ch.CreateChatAPI)
+	chats.GET("/:id", ch.GetChatData)
+	chats.DELETE("/:id", ch.DeleteChatAPI)
+	chats.POST("/:id/clear", ch.ClearChatAPI)
+	chats.GET("/:id/messages", ch.GetChatMessagesAPI)
+	chats.POST("/:id/messages/:message_id/attachments", ah.UploadAttachments)
+	chats.POST("/:id/messages/:message_id/pin", ph.PinMessageAPI)
+	chats.DELETE("/:id/messages/:message_id/pin", ph.UnpinMessageAPI)
+	chats.GET("/:id/pins", ph.GetPinnedMessagesAPI)
 }
 
-func registerProfileRoutes(api *gin.RouterGroup, h *ProfileHandler) {
+func registerProfileRoutes(api *gin.RouterGroup, h *profileHandler) {
 	profile := api.Group("/profile")
 	profile.GET("", h.GetProfileAPI)
 	profile.PUT("", h.UpdateProfileAPI)
@@ -128,22 +137,22 @@ func registerProfileRoutes(api *gin.RouterGroup, h *ProfileHandler) {
 	api.GET("/users/search", h.SearchUsers)
 }
 
-func registerUserRoutes(api *gin.RouterGroup, userHandler *UserHandler, wsHandler *WebSocketHandler, fileHandler *FileHandler) {
+func registerUserRoutes(api *gin.RouterGroup, uh *userHandler, wh *webSocketHandler, fh *fileHandler) {
 	user := api.Group("/user")
-	user.POST("/avatar", userHandler.UploadAvatar)
-	user.DELETE("/avatar", userHandler.DeleteAvatar)
+	user.POST("/avatar", uh.UploadAvatar)
+	user.DELETE("/avatar", uh.DeleteAvatar)
 
 	unread := api.Group("/unread")
-	unread.GET("", wsHandler.GetUnreadMessagesAPI)
-	unread.GET("/counts", wsHandler.GetUnreadCountsAPI)
+	unread.GET("", wh.GetUnreadMessagesAPI)
+	unread.GET("/counts", wh.GetUnreadCountsAPI)
 
 	presence := api.Group("/presence")
-	presence.GET("/:user_id", wsHandler.GetUserPresenceAPI)
+	presence.GET("/:user_id", wh.GetUserPresenceAPI)
 
-	api.GET("/files/:filename", fileHandler.ServeFile)
+	api.GET("/files/:filename", fh.ServeFile)
 }
 
-func registerPushRoutes(api *gin.RouterGroup, h *PushHandler) {
+func registerPushRoutes(api *gin.RouterGroup, h *pushHandler) {
 	push := api.Group("/push")
 	push.GET("/vapid-key", h.GetVAPIDKey)
 	push.POST("/subscribe", h.Subscribe)
@@ -151,7 +160,8 @@ func registerPushRoutes(api *gin.RouterGroup, h *PushHandler) {
 	push.GET("/status", h.GetStatus)
 }
 
-func registerGroupRoutes(api *gin.RouterGroup, h *GroupHandler) {
+//nolint:dupl // See registerChatRoutes.
+func registerGroupRoutes(api *gin.RouterGroup, h *groupHandler) {
 	groups := api.Group("/groups")
 	groups.POST("", h.CreateGroupAPI)
 	groups.GET("/:id", h.GetGroupInfoAPI)

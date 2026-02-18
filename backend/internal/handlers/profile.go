@@ -10,14 +10,16 @@ import (
 	"go.uber.org/zap"
 )
 
-type ProfileHandler struct {
+// profileHandler handles HTTP requests for user profiles, contacts, and search.
+type profileHandler struct {
 	userService *services.UserService
 	contactSvc  *services.ContactService
 	logger      *zap.Logger
 }
 
-func NewProfileHandler(userService *services.UserService, contactSvc *services.ContactService, logger *zap.Logger) *ProfileHandler {
-	return &ProfileHandler{
+// newProfileHandler creates a new profileHandler.
+func newProfileHandler(userService *services.UserService, contactSvc *services.ContactService, logger *zap.Logger) *profileHandler {
+	return &profileHandler{
 		userService: userService,
 		contactSvc:  contactSvc,
 		logger:      logger,
@@ -25,7 +27,7 @@ func NewProfileHandler(userService *services.UserService, contactSvc *services.C
 }
 
 // GetContacts returns user's contact list as JSON
-func (h *ProfileHandler) GetContacts(c *gin.Context) {
+func (h *profileHandler) GetContacts(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -38,14 +40,14 @@ func (h *ProfileHandler) GetContacts(c *gin.Context) {
 		return
 	}
 
-	response := make([]UserListItem, 0, len(contacts))
+	response := make([]userListItem, 0, len(contacts))
 	for _, contact := range contacts {
 		if contact.ContactUser == nil {
 			continue
 		}
 		// Refresh avatar URL for S3 presigned URLs
 		h.userService.RefreshUserAvatarURL(contact.ContactUser)
-		response = append(response, UserListItem{
+		response = append(response, userListItem{
 			ID:        contact.ContactUser.ID,
 			Username:  contact.ContactUser.Username,
 			Name:      contact.ContactUser.GetDisplayName(),
@@ -57,7 +59,7 @@ func (h *ProfileHandler) GetContacts(c *gin.Context) {
 }
 
 // AddContactAPI adds user to contacts via JSON API
-func (h *ProfileHandler) AddContactAPI(c *gin.Context) {
+func (h *profileHandler) AddContactAPI(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -87,7 +89,7 @@ func (h *ProfileHandler) AddContactAPI(c *gin.Context) {
 }
 
 // RemoveContactAPI removes user from contacts via JSON API
-func (h *ProfileHandler) RemoveContactAPI(c *gin.Context) {
+func (h *profileHandler) RemoveContactAPI(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -115,7 +117,7 @@ func (h *ProfileHandler) RemoveContactAPI(c *gin.Context) {
 }
 
 // SearchUsers searches for users by username or name
-func (h *ProfileHandler) SearchUsers(c *gin.Context) {
+func (h *profileHandler) SearchUsers(c *gin.Context) {
 	_, ok := requireUserID(c)
 	if !ok {
 		return
@@ -134,11 +136,11 @@ func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	response := make([]UserListItem, 0, len(users))
+	response := make([]userListItem, 0, len(users))
 	for _, user := range users {
 		// Refresh avatar URL for S3 presigned URLs
 		h.userService.RefreshUserAvatarURL(user)
-		response = append(response, UserListItem{
+		response = append(response, userListItem{
 			ID:        user.ID,
 			Username:  user.Username,
 			Name:      user.GetDisplayName(),
@@ -150,7 +152,7 @@ func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 }
 
 // UpdateProfileAPI updates current user's profile
-func (h *ProfileHandler) UpdateProfileAPI(c *gin.Context) {
+func (h *profileHandler) UpdateProfileAPI(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -173,7 +175,7 @@ func (h *ProfileHandler) UpdateProfileAPI(c *gin.Context) {
 }
 
 // GetProfileAPI returns profile info for current or specified user
-func (h *ProfileHandler) GetProfileAPI(c *gin.Context) {
+func (h *profileHandler) GetProfileAPI(c *gin.Context) {
 	currentUserID, ok := requireUserID(c)
 	if !ok {
 		return

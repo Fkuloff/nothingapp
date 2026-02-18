@@ -19,22 +19,22 @@ func validatePushEndpoint(endpoint string) bool {
 	return strings.EqualFold(u.Scheme, "https")
 }
 
-// PushHandler handles push notification REST endpoints
-type PushHandler struct {
+// pushHandler handles push notification REST endpoints
+type pushHandler struct {
 	pushService *services.PushNotificationService
 	logger      *zap.Logger
 }
 
-// NewPushHandler creates a new PushHandler
-func NewPushHandler(pushService *services.PushNotificationService, logger *zap.Logger) *PushHandler {
-	return &PushHandler{
+// newPushHandler creates a new pushHandler
+func newPushHandler(pushService *services.PushNotificationService, logger *zap.Logger) *pushHandler {
+	return &pushHandler{
 		pushService: pushService,
 		logger:      logger,
 	}
 }
 
 // GetVAPIDKey returns the VAPID public key for frontend subscription
-func (h *PushHandler) GetVAPIDKey(c *gin.Context) {
+func (h *pushHandler) GetVAPIDKey(c *gin.Context) {
 	if !h.pushService.IsEnabled() {
 		sendBadRequest(c, "Push notifications not configured")
 		return
@@ -51,7 +51,7 @@ type pushSubscribeRequest struct {
 }
 
 // Subscribe stores a new push subscription
-func (h *PushHandler) Subscribe(c *gin.Context) {
+func (h *pushHandler) Subscribe(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -89,7 +89,7 @@ type pushUnsubscribeRequest struct {
 }
 
 // Unsubscribe removes a push subscription
-func (h *PushHandler) Unsubscribe(c *gin.Context) {
+func (h *pushHandler) Unsubscribe(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -114,7 +114,7 @@ func (h *PushHandler) Unsubscribe(c *gin.Context) {
 }
 
 // GetStatus returns whether push notifications are enabled for the current user
-func (h *PushHandler) GetStatus(c *gin.Context) {
+func (h *pushHandler) GetStatus(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return

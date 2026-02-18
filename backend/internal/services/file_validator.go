@@ -10,29 +10,29 @@ import (
 	"messenger/internal/models"
 )
 
-// File size limits
+// File size limits.
 const (
-	MaxFileSize   = 20 * 1024 * 1024 // 20MB - единый лимит для всех типов файлов
-	MaxAvatarSize = 10 * 1024 * 1024 // 10MB
+	maxFileSize   = 20 * 1024 * 1024 // 20MB — unified limit for all file types
+	maxAvatarSize = 10 * 1024 * 1024 // 10MB
 )
 
-// Allowed MIME types by category
+// Allowed MIME types by category.
 var (
-	AllowedImageTypes = map[string]bool{
+	allowedImageTypes = map[string]bool{
 		"image/jpeg": true,
 		"image/png":  true,
 		"image/gif":  true,
 		"image/webp": true,
 	}
 
-	AllowedVideoTypes = map[string]bool{
+	allowedVideoTypes = map[string]bool{
 		"video/mp4":       true,
 		"video/quicktime": true,
 		"video/x-msvideo": true,
 		"video/webm":      true,
 	}
 
-	AllowedDocumentTypes = map[string]bool{
+	allowedDocumentTypes = map[string]bool{
 		"application/pdf":    true,
 		"application/msword": true,
 		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
@@ -42,11 +42,11 @@ var (
 	}
 )
 
-// FileValidator provides centralized file validation logic
-type FileValidator struct{}
+// fileValidator provides centralized file validation logic
+type fileValidator struct{}
 
-// ValidateAttachment validates a file for attachment upload.
-func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) error {
+// validateAttachment validates a file for attachment upload.
+func (v *fileValidator) validateAttachment(fileHeader *multipart.FileHeader) error {
 	contentType := fileHeader.Header.Get("Content-Type")
 	if contentType == "" {
 		return errors.New("content type not specified")
@@ -58,8 +58,8 @@ func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) err
 	}
 
 	// Check file size
-	if fileHeader.Size > MaxFileSize {
-		return fmt.Errorf("file too large (max %d MB)", MaxFileSize/(1024*1024))
+	if fileHeader.Size > maxFileSize {
+		return fmt.Errorf("file too large (max %d MB)", maxFileSize/(1024*1024))
 	}
 
 	// Validate filename for security
@@ -70,20 +70,20 @@ func (v *FileValidator) ValidateAttachment(fileHeader *multipart.FileHeader) err
 	return nil
 }
 
-// ValidateAvatar validates a file for avatar upload
-func (v *FileValidator) ValidateAvatar(fileHeader *multipart.FileHeader) error {
+// validateAvatar validates a file for avatar upload
+func (v *fileValidator) validateAvatar(fileHeader *multipart.FileHeader) error {
 	contentType := fileHeader.Header.Get("Content-Type")
 	if contentType == "" {
 		return errors.New("content type not specified")
 	}
 
 	// Check if it's an image
-	if !AllowedImageTypes[contentType] {
+	if !allowedImageTypes[contentType] {
 		return errors.New("avatar must be an image (JPEG, PNG, GIF, or WebP)")
 	}
 
 	// Check size
-	if fileHeader.Size > MaxAvatarSize {
+	if fileHeader.Size > maxAvatarSize {
 		return errors.New("avatar too large (max 10 MB)")
 	}
 
@@ -96,23 +96,23 @@ func (v *FileValidator) ValidateAvatar(fileHeader *multipart.FileHeader) error {
 }
 
 // isAllowedMimeType checks if a MIME type is allowed for any attachment type
-func (v *FileValidator) isAllowedMimeType(mimeType string) bool {
-	return AllowedImageTypes[mimeType] || AllowedVideoTypes[mimeType] || AllowedDocumentTypes[mimeType]
+func (v *fileValidator) isAllowedMimeType(mimeType string) bool {
+	return allowedImageTypes[mimeType] || allowedVideoTypes[mimeType] || allowedDocumentTypes[mimeType]
 }
 
-// DetermineFileType returns the attachment type based on MIME type
-func (v *FileValidator) DetermineFileType(mimeType string) models.AttachmentType {
-	if AllowedImageTypes[mimeType] {
+// determineFileType returns the attachment type based on MIME type
+func (v *fileValidator) determineFileType(mimeType string) models.AttachmentType {
+	if allowedImageTypes[mimeType] {
 		return models.AttachmentTypeImage
 	}
-	if AllowedVideoTypes[mimeType] {
+	if allowedVideoTypes[mimeType] {
 		return models.AttachmentTypeVideo
 	}
 	return models.AttachmentTypeDocument
 }
 
 // validateFilename checks for path traversal and other security issues
-func (v *FileValidator) validateFilename(filename string) error {
+func (v *fileValidator) validateFilename(filename string) error {
 	// Prevent path traversal
 	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 		return errors.New("invalid filename")

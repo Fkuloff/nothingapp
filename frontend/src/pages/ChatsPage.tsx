@@ -6,10 +6,10 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
-import { clearChat, deleteChat, getChatMessages, getCurrentUserChats } from '../shared/api/chatsApi'
+import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
-import type { ChatItem, GroupInfoResponse, Message, WSEvent } from '../shared/api/types'
+import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEvent } from '../shared/api/types'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 
 export default function ChatsPage() {
@@ -26,6 +26,7 @@ export default function ChatsPage() {
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [groupInfo, setGroupInfo] = useState<GroupInfoResponse | null>(null)
+  const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([])
   const chatsRef = useRef<ChatItem[]>([])
   const loadChatsRef = useRef<() => void>(() => {})
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
@@ -93,6 +94,16 @@ export default function ChatsPage() {
           setActiveChatId(null)
           setMessages([])
           setGroupInfo(null)
+          setPinnedMessages([])
+        }
+        return
+      }
+
+      // Handle pin/unpin events
+      if (event.action === 'message_pinned' || event.action === 'message_unpinned') {
+        if (event.chat_id === activeChatId) {
+          getPinnedMessages(event.chat_id).then(setPinnedMessages).catch(console.error)
+          loadMessagesRef.current(event.chat_id)
         }
         return
       }
@@ -173,6 +184,7 @@ export default function ChatsPage() {
       if (event.action === 'chat_cleared') {
         if (event.chat_id === activeChatId) {
           setMessages([])
+          setPinnedMessages([])
         }
         setChats((prev) =>
           prev.map((c) =>
@@ -187,6 +199,7 @@ export default function ChatsPage() {
         if (event.chat_id === activeChatId) {
           setActiveChatId(null)
           setMessages([])
+          setPinnedMessages([])
         }
         return
       }
@@ -270,10 +283,11 @@ export default function ChatsPage() {
     loadChats()
   }, [loadChats])
 
-  // Load messages and group info when active chat changes
+  // Load messages, pins, and group info when active chat changes
   useEffect(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
+      getPinnedMessages(activeChatId).then(setPinnedMessages).catch(console.error)
 
       // Load group info if it's a group chat
       const chat = chatsRef.current.find((c) => c.id === activeChatId)
@@ -283,19 +297,24 @@ export default function ChatsPage() {
         setGroupInfo(null)
       }
 
-      // Clear unread count locally and notify server
+      // Clear unread count locally
       setChats((prevChats) =>
         prevChats.map((c) =>
           c.id === activeChatId ? { ...c, unread_count: 0 } : c
         )
       )
-      if (isConnected) {
-        send({ action: 'mark_read', chat_id: activeChatId })
-      }
     } else {
       setGroupInfo(null)
+      setPinnedMessages([])
     }
-  }, [activeChatId, loadMessages, isConnected, send])
+  }, [activeChatId, loadMessages])
+
+  // Notify server about read status (separate effect to avoid reloading on WS reconnect)
+  useEffect(() => {
+    if (activeChatId && isConnected) {
+      send({ action: 'mark_read', chat_id: activeChatId })
+    }
+  }, [activeChatId, isConnected, send])
 
   const handleClearChat = useCallback(async (chatId: number) => {
     try {
@@ -338,6 +357,7 @@ export default function ChatsPage() {
       setActiveChatId(null)
       setMessages([])
       setGroupInfo(null)
+      setPinnedMessages([])
     }
   }, [activeChatId])
 
@@ -347,8 +367,25 @@ export default function ChatsPage() {
       setActiveChatId(null)
       setMessages([])
       setGroupInfo(null)
+      setPinnedMessages([])
     }
   }, [activeChatId])
+
+  const handlePinMessage = useCallback(async (chatId: number, messageId: number) => {
+    try {
+      await pinMessage(chatId, messageId)
+    } catch (err) {
+      console.error('Failed to pin message:', err)
+    }
+  }, [])
+
+  const handleUnpinMessage = useCallback(async (chatId: number, messageId: number) => {
+    try {
+      await unpinMessage(chatId, messageId)
+    } catch (err) {
+      console.error('Failed to unpin message:', err)
+    }
+  }, [])
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId),
@@ -382,6 +419,13 @@ export default function ChatsPage() {
     () => (activeChat && !activeChat.is_group && activeChat.other_user_id ? onlineUsers.has(activeChat.other_user_id) : false),
     [activeChat, onlineUsers]
   )
+
+  const canPin = useMemo(() => {
+    if (!activeChat || !user) return false
+    if (!activeChat.is_group) return true
+    const member = groupInfo?.members.find((m) => m.user_id === user.id)
+    return member?.role === 'admin' || member?.role === 'creator'
+  }, [activeChat, user, groupInfo])
 
   // Filter chats by search query
   const filteredChats = useMemo(() => {
@@ -446,6 +490,10 @@ export default function ChatsPage() {
           onGroupUpdated={handleGroupUpdated}
           onGroupDeleted={handleGroupDeleted}
           onGroupLeft={handleGroupLeft}
+          pinnedMessages={pinnedMessages}
+          canPin={canPin}
+          onPinMessage={handlePinMessage}
+          onUnpinMessage={handleUnpinMessage}
         />
       </div>
     </div>

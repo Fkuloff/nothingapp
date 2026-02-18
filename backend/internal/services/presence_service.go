@@ -62,9 +62,9 @@ func (ps *PresenceService) UserConnected(userID uint) {
 			LastSeen:  time.Now(),
 			ConnCount: 1,
 		}
-		// Trigger callback for new online user
-		if ps.onChange != nil {
-			go ps.onChange(userID, true)
+		// Trigger callback for new online user (capture under lock).
+		if cb := ps.onChange; cb != nil {
+			go cb(userID, true)
 		}
 		return
 	}
@@ -75,9 +75,11 @@ func (ps *PresenceService) UserConnected(userID uint) {
 	status.IsOnline = true
 	status.LastSeen = time.Now()
 
-	// Trigger callback if user just came online
-	if !wasOnline && ps.onChange != nil {
-		go ps.onChange(userID, true)
+	// Trigger callback if user just came online (capture under lock).
+	if !wasOnline {
+		if cb := ps.onChange; cb != nil {
+			go cb(userID, true)
+		}
 	}
 }
 
@@ -99,9 +101,9 @@ func (ps *PresenceService) UserDisconnected(userID uint) {
 		status.IsOnline = false
 		status.ConnCount = 0
 
-		// Trigger callback for offline user
-		if ps.onChange != nil {
-			go ps.onChange(userID, false)
+		// Trigger callback for offline user (capture under lock).
+		if cb := ps.onChange; cb != nil {
+			go cb(userID, false)
 		}
 	}
 }
@@ -148,20 +150,6 @@ func (ps *PresenceService) GetUserStatus(userID uint) *UserStatus {
 	}
 }
 
-// GetOnlineUsers returns a list of all currently online user IDs
-func (ps *PresenceService) GetOnlineUsers() []uint {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
-	var onlineUsers []uint
-	for userID, status := range ps.users {
-		if status.IsOnline {
-			onlineUsers = append(onlineUsers, userID)
-		}
-	}
-	return onlineUsers
-}
-
 // cleanupInactiveUsers periodically checks for users with stale connections
 // and marks them as offline if they haven't been active
 func (ps *PresenceService) cleanupInactiveUsers() {
@@ -187,9 +175,9 @@ func (ps *PresenceService) cleanupInactiveUsers() {
 					status.IsOnline = false
 					status.ConnCount = 0
 
-					// Trigger callback
-					if ps.onChange != nil {
-						go ps.onChange(userID, false)
+					// Trigger callback (capture under lock).
+					if cb := ps.onChange; cb != nil {
+						go cb(userID, false)
 					}
 				}
 
