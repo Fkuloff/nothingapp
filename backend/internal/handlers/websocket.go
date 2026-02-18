@@ -393,10 +393,13 @@ func (h *webSocketHandler) removeClient(userID uint, client *wsClient) {
 	}
 }
 
-// broadcastToUser sends a message to all connections of a specific user
+// broadcastToUser sends a message to all connections of a specific user.
+// A snapshot of the client slice is taken under RLock to avoid racing with removeClient.
 func (h *webSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 	h.mu.RLock()
-	clientsToSend := h.clients[userID]
+	src := h.clients[userID]
+	clientsToSend := make([]*wsClient, len(src))
+	copy(clientsToSend, src)
 	h.mu.RUnlock()
 
 	for _, client := range clientsToSend {
