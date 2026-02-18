@@ -67,7 +67,7 @@ func NewS3Storage(config *StorageConfig) (*S3Storage, error) {
 }
 
 // Save stores a file in S3 and returns metadata
-func (s *S3Storage) Save(reader io.Reader, fileName, contentType string, size int64) (*FileMetadata, error) {
+func (s *S3Storage) Save(reader io.Reader, fileName, contentType string, _ int64) (*FileMetadata, error) {
 	ctx := context.Background()
 
 	// Generate unique filename
@@ -94,10 +94,11 @@ func (s *S3Storage) Save(reader io.Reader, fileName, contentType string, size in
 
 	// Upload to S3
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(storageKey),
-		Body:        bytes.NewReader(buf.Bytes()),
-		ContentType: aws.String(contentType),
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(storageKey),
+		Body:          bytes.NewReader(buf.Bytes()),
+		ContentType:   aws.String(contentType),
+		ContentLength: &written,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload to S3: %w", err)
@@ -159,4 +160,3 @@ func (s *S3Storage) GetURL(key string) string {
 
 	return presignedReq.URL
 }
-

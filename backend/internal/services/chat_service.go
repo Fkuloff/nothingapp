@@ -562,7 +562,7 @@ func (s *ChatService) decryptMessages(messages []models.Message) {
 			if plaintext, err := s.encryptor.Decrypt(messages[i].Text, messages[i].IV); err == nil {
 				messages[i].Text = plaintext
 			} else {
-				messages[i].Text = "[Ошибка расшифровки]"
+				messages[i].Text = decryptionErrorText
 			}
 			messages[i].IV = ""
 		}
@@ -570,7 +570,7 @@ func (s *ChatService) decryptMessages(messages []models.Message) {
 			if plaintext, err := s.encryptor.Decrypt(messages[i].ReplyTo.Text, messages[i].ReplyTo.IV); err == nil {
 				messages[i].ReplyTo.Text = plaintext
 			} else {
-				messages[i].ReplyTo.Text = "[Ошибка расшифровки]"
+				messages[i].ReplyTo.Text = decryptionErrorText
 			}
 			messages[i].ReplyTo.IV = ""
 		}

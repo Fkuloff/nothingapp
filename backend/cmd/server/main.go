@@ -17,7 +17,7 @@ func main() {
 	}
 
 	if err := app.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "server failed: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "server failed: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -33,9 +33,10 @@ func runHealthCheck() int {
 	if err != nil {
 		return 1
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Drain body to allow connection reuse.
+	//nolint:errcheck // Best-effort drain; error is irrelevant.
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode == http.StatusOK {

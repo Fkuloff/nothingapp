@@ -108,6 +108,7 @@ func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {
 	auth.GET("/me", h.GetCurrentUser)
 }
 
+//nolint:dupl // Chat and group routes share structure but different handlers; merging hurts readability.
 func registerChatRoutes(api *gin.RouterGroup, ch *chatHandler, ah *attachmentHandler, ph *pinHandler) {
 	chats := api.Group("/chats")
 	chats.GET("", ch.ListChatsAPI)
@@ -159,6 +160,7 @@ func registerPushRoutes(api *gin.RouterGroup, h *pushHandler) {
 	push.GET("/status", h.GetStatus)
 }
 
+//nolint:dupl // See registerChatRoutes.
 func registerGroupRoutes(api *gin.RouterGroup, h *groupHandler) {
 	groups := api.Group("/groups")
 	groups.POST("", h.CreateGroupAPI)

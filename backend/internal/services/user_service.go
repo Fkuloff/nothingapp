@@ -49,7 +49,7 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Get content type
 	contentType := fileHeader.Header.Get("Content-Type")

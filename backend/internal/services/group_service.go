@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	maxGroupNameLength = 100
-	maxGroupMembers    = 50
-	unknownActorName   = "Кто-то"
+	maxGroupNameLength  = 100
+	maxGroupMembers     = 50
+	unknownActorName    = "Кто-то"
+	decryptionErrorText = "[Ошибка расшифровки]"
 )
 
 // GroupService handles business logic for group chats.
@@ -460,7 +461,7 @@ func (s *GroupService) UploadGroupAvatar(ctx context.Context, chatID, actorID ui
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	contentType := fileHeader.Header.Get("Content-Type")
 

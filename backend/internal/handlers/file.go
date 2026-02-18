@@ -84,7 +84,7 @@ func (h *fileHandler) ServeFile(c *gin.Context) {
 		sendNotFound(c, "File not found")
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	// Detect content type from file extension
 	ext := strings.ToLower(filepath.Ext(filename))

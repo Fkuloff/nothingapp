@@ -72,11 +72,11 @@ func parseUintParam(c *gin.Context, paramName string) (uint, error) {
 
 // serveReaderContent streams a reader to the HTTP response with the given content type and cache control.
 func serveReaderContent(c *gin.Context, reader io.ReadCloser, contentType, cacheControl string) {
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	c.Header("Content-Type", contentType)
 	c.Header("Cache-Control", cacheControl)
 	c.Status(http.StatusOK)
 	if _, err := io.Copy(c.Writer, reader); err != nil {
-		c.Error(err) //nolint:errcheck
+		_ = c.Error(err) //nolint:errcheck // gin.Error always returns the same error back.
 	}
 }

@@ -37,4 +37,3 @@ type Attachment struct {
 	Duration *int     `gorm:"default:null" json:"duration,omitempty"`
 	Message  *Message `gorm:"foreignKey:MessageID" json:"-"`
 }
-

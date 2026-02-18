@@ -172,7 +172,7 @@ func (s *PinService) GetPinnedMessages(ctx context.Context, chatID, userID uint)
 			if plaintext, decErr := s.encryptor.Decrypt(msg.Text, msg.IV); decErr == nil {
 				msg.Text = plaintext
 			} else {
-				msg.Text = "[Ошибка расшифровки]"
+				msg.Text = decryptionErrorText
 			}
 			msg.IV = ""
 		}

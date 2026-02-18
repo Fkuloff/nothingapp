@@ -8,6 +8,13 @@ import (
 // errAccessDenied is a sentinel error used internally to signal that access check already wrote the HTTP response.
 var errAccessDenied = errors.New("access denied")
 
+// Service-layer error messages used for matching in handlers.
+const (
+	errMsgAccessDenied = "access denied"
+	errMsgChatNotFound = "chat not found"
+	errMsgMsgNotFound  = "message not found"
+)
+
 // Message and chat constants.
 const (
 	maxMessageSize           = 10000               // 10KB max message size

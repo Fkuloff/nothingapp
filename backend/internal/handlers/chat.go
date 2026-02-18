@@ -384,7 +384,7 @@ func (h *chatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 
 	if err := action(c.Request.Context(), chatID, userID); err != nil {
 		errMsg := err.Error()
-		if errMsg == "access denied" || errMsg == "admin or creator role required" {
+		if errMsg == errMsgAccessDenied || errMsg == "admin or creator role required" {
 			sendForbidden(c, errMsg)
 		} else {
 			sendInternalError(c, failMsg)

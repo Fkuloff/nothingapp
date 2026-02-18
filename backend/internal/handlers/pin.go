@@ -128,9 +128,9 @@ func (h *pinHandler) GetPinnedMessagesAPI(c *gin.Context) {
 	if err != nil {
 		errMsg := err.Error()
 		switch errMsg {
-		case "access denied":
+		case errMsgAccessDenied:
 			sendForbidden(c, errMsg)
-		case "chat not found":
+		case errMsgChatNotFound:
 			sendNotFound(c, errMsg)
 		default:
 			sendInternalError(c, "Failed to load pinned messages")
@@ -186,9 +186,9 @@ func (h *pinHandler) GetPinnedMessagesAPI(c *gin.Context) {
 func handlePinError(c *gin.Context, err error) {
 	errMsg := err.Error()
 	switch errMsg {
-	case "access denied", "admin or creator role required to pin messages":
+	case errMsgAccessDenied, "admin or creator role required to pin messages":
 		sendForbidden(c, errMsg)
-	case "chat not found", "message not found":
+	case errMsgChatNotFound, errMsgMsgNotFound:
 		sendNotFound(c, errMsg)
 	default:
 		sendBadRequest(c, errMsg)
