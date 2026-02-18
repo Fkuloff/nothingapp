@@ -7,6 +7,7 @@ import (
 
 	"messenger/internal/models"
 	"messenger/internal/services"
+	"messenger/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +18,7 @@ type ChatHandler struct {
 	chatService  *services.ChatService
 	userService  *services.UserService
 	groupService *services.GroupService
+	storage      storage.Storage
 	onChatEvent  func(chatID, initiatorUserID uint, action string)
 }
 
@@ -34,37 +36,61 @@ func (h *ChatHandler) SetGroupService(gs *services.GroupService) {
 func NewChatHandler(
 	chatService *services.ChatService,
 	userService *services.UserService,
+	fileStorage storage.Storage,
 ) *ChatHandler {
 	return &ChatHandler{
 		chatService: chatService,
 		userService: userService,
+		storage:     fileStorage,
 	}
 }
 
+type attachmentResponse struct {
+	ID       uint                  `json:"id"`
+	FileType models.AttachmentType `json:"file_type"`
+	FileName string                `json:"file_name"`
+	FileSize int64                 `json:"file_size"`
+	MimeType string                `json:"mime_type"`
+	URL      string                `json:"url"`
+}
+
 type messageResponse struct {
-	ID          uint                `json:"id"`
-	ChatID      uint                `json:"chat_id"`
-	UserID      uint                `json:"user_id"`
-	Text        string              `json:"text"`
-	Type        string              `json:"type"`
-	IsDeleted   bool                `json:"is_deleted"`
-	CreatedAt   time.Time           `json:"created_at"`
-	ReplyToID   *uint               `json:"reply_to_id"`
-	EditedAt    *time.Time          `json:"edited_at"`
-	Attachments []models.Attachment `json:"attachments"`
+	ID          uint                 `json:"id"`
+	ChatID      uint                 `json:"chat_id"`
+	UserID      uint                 `json:"user_id"`
+	Text        string               `json:"text"`
+	Type        string               `json:"type"`
+	IsDeleted   bool                 `json:"is_deleted"`
+	CreatedAt   time.Time            `json:"created_at"`
+	ReplyToID   *uint                `json:"reply_to_id"`
+	EditedAt    *time.Time           `json:"edited_at"`
+	Attachments []attachmentResponse `json:"attachments"`
 }
 
 // chatListItem is now defined in types.go as ChatListItem
 // Keeping this as an alias for backward compatibility
 type chatListItem = ChatListItem
 
-func toMessageResponses(messages []models.Message) []messageResponse {
+func (h *ChatHandler) toMessageResponses(messages []models.Message) []messageResponse {
 	result := make([]messageResponse, 0, len(messages))
 	for _, msg := range messages {
 		msgType := string(msg.Type)
 		if msgType == "" {
 			msgType = "user"
 		}
+
+		atts := make([]attachmentResponse, 0, len(msg.Attachments))
+		for _, att := range msg.Attachments {
+			atts = append(atts, attachmentResponse{
+				ID:       att.ID,
+				FileType: att.FileType,
+				FileName: att.FileName,
+				FileSize: att.FileSize,
+				MimeType: att.MimeType,
+				URL:      h.storage.GetURL(att.StorageKey),
+			})
+		}
+
 		result = append(result, messageResponse{
 			ID:          msg.ID,
 			ChatID:      msg.ChatID,
@@ -75,7 +101,7 @@ func toMessageResponses(messages []models.Message) []messageResponse {
 			EditedAt:    msg.EditedAt,
 			IsDeleted:   msg.IsDeleted,
 			CreatedAt:   msg.CreatedAt,
-			Attachments: msg.Attachments,
+			Attachments: atts,
 		})
 	}
 	return result
@@ -212,7 +238,7 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 			"is_group":     true,
 			"group_name":   chat.GetGroupName(),
 			"member_count": h.getGroupMemberCount(c.Request.Context(), chatID),
-			"messages":     toMessageResponses(messages),
+			"messages":     h.toMessageResponses(messages),
 		})
 		return
 	}
@@ -222,7 +248,7 @@ func (h *ChatHandler) GetChatData(c *gin.Context) {
 		"chatID":        chatID,
 		"otherUserID":   otherUserID,
 		"otherUsername": otherUser.GetDisplayName(),
-		"messages":      toMessageResponses(messages),
+		"messages":      h.toMessageResponses(messages),
 	})
 }
 
@@ -415,6 +441,6 @@ func (h *ChatHandler) GetChatMessagesAPI(c *gin.Context) {
 	}
 
 	sendSuccess(c, gin.H{
-		"messages": toMessageResponses(messages),
+		"messages": h.toMessageResponses(messages),
 	})
 }

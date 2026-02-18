@@ -108,12 +108,13 @@ export type GroupInfoResponse = {
 // Attachments
 export type Attachment = {
   id: number
-  message_id: number
+  message_id?: number
   file_type: 'image' | 'video' | 'document' | 'audio'
-  storage_key: string
+  storage_key?: string
   file_name: string
   file_size: number
   mime_type: string
+  url?: string
   thumbnail_key?: string
   width?: number
   height?: number
@@ -191,6 +192,14 @@ export type WSEventNew = {
   is_deleted: boolean
   created_at: string
   updated_at?: string
+  attachments?: Attachment[]
+}
+
+export type WSEventAttachmentsAdded = {
+  action: 'attachments_added'
+  chat_id: number
+  message_id: number
+  attachments: Attachment[]
 }
 
 export type WSEventEdit = {
@@ -273,6 +282,7 @@ export type WSEvent =
   | WSEventNew
   | WSEventEdit
   | WSEventDelete
+  | WSEventAttachmentsAdded
   | WSEventPresenceChanged
   | WSEventChatCleared
   | WSEventChatDeleted

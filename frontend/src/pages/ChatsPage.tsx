@@ -114,7 +114,7 @@ export default function ChatsPage() {
 
           const updatedChats = [...prevChats]
           const chat = { ...updatedChats[chatIndex] }
-          chat.last_message = text || '[Вложение]'
+          chat.last_message = text.trim() || '[Вложение]'
           chat.updated_at = event.created_at
 
           if (chatId !== activeChatId && event.user_id !== user?.id) {
@@ -136,10 +136,19 @@ export default function ChatsPage() {
             edited_at: event.edited_at ?? null,
             is_deleted: event.is_deleted,
             created_at: event.created_at,
-            attachments: [],
+            attachments: event.attachments ?? [],
           }
           setMessages((prev) => [...prev, newMessage])
         }
+        return
+      }
+
+      if (event.action === 'attachments_added' && chatId === activeChatId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === event.message_id ? { ...msg, attachments: event.attachments } : msg
+          )
+        )
         return
       }
 
@@ -288,12 +297,6 @@ export default function ChatsPage() {
     }
   }, [activeChatId, loadMessages, isConnected, send])
 
-  const handleMessagesUpdate = useCallback(() => {
-    if (activeChatId) {
-      loadMessages(activeChatId)
-    }
-  }, [activeChatId, loadMessages])
-
   const handleClearChat = useCallback(async (chatId: number) => {
     try {
       await clearChat(chatId)
@@ -430,7 +433,6 @@ export default function ChatsPage() {
           currentUserId={user?.id}
           loading={loadingMessages}
           error={messagesError}
-          onMessagesUpdate={handleMessagesUpdate}
           isConnected={isConnected}
           isOtherUserOnline={isOtherUserOnline}
           send={send}

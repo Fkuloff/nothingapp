@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -56,7 +57,7 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 	// Delete old avatar if exists
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return "", fmt.Errorf("user not found")
+		return "", fmt.Errorf("find user: %w", err)
 	}
 
 	var oldAvatarKey string
@@ -105,11 +106,11 @@ func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader 
 func (s *UserService) DeleteAvatar(ctx context.Context, userID uint) error {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("user not found")
+		return fmt.Errorf("find user: %w", err)
 	}
 
 	if user.AvatarURL == nil || *user.AvatarURL == "" {
-		return fmt.Errorf("user has no avatar")
+		return errors.New("user has no avatar")
 	}
 
 	// Extract storage key from URL
@@ -133,11 +134,11 @@ func (s *UserService) DeleteAvatar(ctx context.Context, userID uint) error {
 func (s *UserService) GetAvatarReader(ctx context.Context, userID uint) (io.ReadCloser, string, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return nil, "", fmt.Errorf("user not found")
+		return nil, "", fmt.Errorf("find user: %w", err)
 	}
 
 	if user.AvatarURL == nil || *user.AvatarURL == "" {
-		return nil, "", fmt.Errorf("user has no avatar")
+		return nil, "", errors.New("user has no avatar")
 	}
 
 	storageKey := extractStorageKey(*user.AvatarURL)
@@ -194,8 +195,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID uint, name strin
 	return s.userRepo.UpdateName(ctx, userID, name)
 }
 
-// GetAvatarURL returns a public URL for the given avatar key
-// Avatars use public URLs since they don't need access control
+// GetAvatarURL returns a presigned URL for the given avatar key
 func (s *UserService) GetAvatarURL(avatarKey *string) *string {
 	if avatarKey == nil || *avatarKey == "" {
 		return nil
@@ -208,8 +208,8 @@ func (s *UserService) GetAvatarURL(avatarKey *string) *string {
 		key = extractStorageKey(key)
 	}
 
-	// Use public URL for avatars - no expiration
-	url := s.storage.GetPublicURL(key)
+	// Use presigned URL — bucket is private, no anonymous access
+	url := s.storage.GetURL(key)
 	return &url
 }
 

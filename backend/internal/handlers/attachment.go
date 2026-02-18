@@ -2,11 +2,12 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
 
+	"messenger/internal/models"
+	"messenger/internal/repositories"
 	"messenger/internal/services"
+	"messenger/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,16 +16,25 @@ import (
 type AttachmentHandler struct {
 	attachmentService *services.AttachmentService
 	chatService       *services.ChatService
+	wsHandler         *WebSocketHandler
+	participantRepo   *repositories.ChatParticipantRepo
+	storage           storage.Storage
 }
 
 // NewAttachmentHandler creates a new AttachmentHandler instance
 func NewAttachmentHandler(
 	attachmentService *services.AttachmentService,
 	chatService *services.ChatService,
+	wsHandler *WebSocketHandler,
+	participantRepo *repositories.ChatParticipantRepo,
+	fileStorage storage.Storage,
 ) *AttachmentHandler {
 	return &AttachmentHandler{
 		attachmentService: attachmentService,
 		chatService:       chatService,
+		wsHandler:         wsHandler,
+		participantRepo:   participantRepo,
+		storage:           fileStorage,
 	}
 }
 
@@ -47,10 +57,8 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
-	// Verify user has access to chat (use light method for performance)
-	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
-	if err != nil || !chat.HasUser(userID) {
-		sendForbidden(c, "Access denied")
+	// Verify user has access to chat
+	if err := h.verifyChatMembership(c, chatID, userID); err != nil {
 		return
 	}
 
@@ -68,8 +76,8 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
-	if len(files) > 10 {
-		sendBadRequest(c, "Maximum 10 files per message")
+	if len(files) > MaxAttachmentsPerMessage {
+		sendBadRequest(c, "Too many files per message")
 		return
 	}
 
@@ -87,36 +95,49 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
+	// Broadcast attachments_added event to all chat participants via WebSocket
+	serialized := serializeAttachmentsWithURL(attachments, h.storage)
+	if h.wsHandler != nil {
+		h.wsHandler.BroadcastAttachmentsAdded(chatID, messageID, serialized)
+	}
+
 	sendSuccess(c, gin.H{
 		"success":     true,
-		"attachments": attachments,
+		"attachments": serialized,
 	})
 }
 
-// DownloadAttachment streams a file (PUBLIC endpoint - no JWT required)
-// Access control: Attachments are publicly accessible via S3 presigned URLs
-// This endpoint simply proxies the request to the storage backend
+// DownloadAttachment redirects to a presigned S3 URL for direct download (JWT required)
 func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
 	attachmentID, err := parseUintParam(c, "id")
 	if err != nil {
 		sendBadRequest(c, "Invalid attachment ID")
 		return
 	}
 
-	attachment, reader, err := h.attachmentService.GetAttachment(c.Request.Context(), attachmentID)
+	attachment, err := h.attachmentService.FindAttachmentWithMessage(c.Request.Context(), attachmentID)
 	if err != nil {
 		sendNotFound(c, "Attachment not found")
 		return
 	}
-	defer reader.Close()
 
-	// Set headers for download
-	c.Header("Content-Type", attachment.MimeType)
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", attachment.FileName))
-	c.Header("Content-Length", strconv.FormatInt(attachment.FileSize, 10))
+	// Verify user has access to the chat containing this attachment
+	if attachment.Message == nil {
+		sendInternalError(c, "Attachment has no associated message")
+		return
+	}
 
-	// Stream file
-	c.DataFromReader(http.StatusOK, attachment.FileSize, attachment.MimeType, reader, nil)
+	if err := h.verifyChatMembership(c, attachment.Message.ChatID, userID); err != nil {
+		return
+	}
+
+	presignedURL := h.storage.GetURL(attachment.StorageKey)
+	c.Redirect(http.StatusFound, presignedURL)
 }
 
 // DeleteAttachment removes an attachment
@@ -145,4 +166,60 @@ func (h *AttachmentHandler) DeleteAttachment(c *gin.Context) {
 	}
 
 	sendSuccess(c, gin.H{"success": true})
+}
+
+// verifyChatMembership checks that the user is a participant of the given chat.
+// Responds with an HTTP error and returns a non-nil error on failure.
+func (h *AttachmentHandler) verifyChatMembership(c *gin.Context, chatID, userID uint) error {
+	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
+	if err != nil {
+		sendForbidden(c, "Access denied")
+		return err
+	}
+
+	if chat.IsGroup {
+		if h.participantRepo == nil {
+			sendForbidden(c, "Access denied")
+			return errAccessDenied
+		}
+		if _, pErr := h.participantRepo.FindByUserAndChat(c.Request.Context(), chatID, userID); pErr != nil {
+			sendForbidden(c, "Access denied")
+			return pErr
+		}
+	} else if !chat.HasUser(userID) {
+		sendForbidden(c, "Access denied")
+		return errAccessDenied
+	}
+
+	return nil
+}
+
+// serializeAttachmentsWithURL converts attachment pointer slice to maps with presigned URLs.
+func serializeAttachmentsWithURL(attachments []*models.Attachment, s storage.Storage) []map[string]any {
+	result := make([]map[string]any, 0, len(attachments))
+	for _, att := range attachments {
+		result = append(result, serializeAttachment(att, s))
+	}
+	return result
+}
+
+// serializeAttachmentSlice converts a value-type attachment slice to maps with presigned URLs.
+func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage) []map[string]any {
+	result := make([]map[string]any, 0, len(attachments))
+	for i := range attachments {
+		result = append(result, serializeAttachment(&attachments[i], s))
+	}
+	return result
+}
+
+// serializeAttachment converts a single attachment model to a map with a presigned URL.
+func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]any {
+	return map[string]any{
+		"id":        att.ID,
+		"file_type": att.FileType,
+		"file_name": att.FileName,
+		"file_size": att.FileSize,
+		"mime_type": att.MimeType,
+		"url":       s.GetURL(att.StorageKey),
+	}
 }

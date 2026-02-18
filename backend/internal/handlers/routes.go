@@ -44,13 +44,13 @@ func SetupRoutes(
 
 	// Initialize handlers
 	authHandler := NewAuthHandler(authService, userService, secret)
-	chatHandler := NewChatHandler(chatService, userService)
+	chatHandler := NewChatHandler(chatService, userService, fileStorage)
 	chatHandler.SetGroupService(groupService)
 	profileHandler := NewProfileHandler(userService, contactService, logger)
-	attachmentHandler := NewAttachmentHandler(attachmentService, chatService)
 	userHandler := NewUserHandler(userService)
-	wsHandler := NewWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor)
+	wsHandler := NewWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor, fileStorage)
 	wsHandler.SetGroupService(groupService, participantRepo)
+	attachmentHandler := NewAttachmentHandler(attachmentService, chatService, wsHandler, participantRepo, fileStorage)
 	fileHandler := NewFileHandler(fileStorage, logger)
 	pushHandler := NewPushHandler(pushService, logger)
 	healthHandler := NewHealthHandler(db)
@@ -70,8 +70,8 @@ func SetupRoutes(
 	router.POST("/api/auth/register", authHandler.RegisterAPI)
 	router.POST("/api/auth/login", authHandler.LoginAPI)
 
-	// Public attachment endpoints (GET - no JWT, files are publicly accessible)
-	router.GET("/api/attachments/:id", attachmentHandler.DownloadAttachment)
+	// Attachment download — JWT required (presigned URLs are the primary access method)
+	router.GET("/api/attachments/:id", JWTMiddleware(secret, logger), attachmentHandler.DownloadAttachment)
 
 	// Public avatar endpoints
 	router.GET("/api/avatars/:user_id", userHandler.GetAvatar)
