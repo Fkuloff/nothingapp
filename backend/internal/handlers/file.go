@@ -106,18 +106,22 @@ func (h *fileHandler) ServeFile(c *gin.Context) {
 
 // validateFilename checks for path traversal attempts
 func validateFilename(filename string) error {
-	// Check for path traversal patterns
-	if strings.Contains(filename, "..") {
-		return &wsError{message: "path traversal not allowed"}
+	// Reject any directory separators — only bare filenames are allowed.
+	if strings.Contains(filename, "/") {
+		return &wsError{message: "subdirectory paths not allowed"}
 	}
 	if strings.Contains(filename, "\\") {
 		return &wsError{message: "backslashes not allowed"}
+	}
+	// Check for path traversal patterns
+	if strings.Contains(filename, "..") {
+		return &wsError{message: "path traversal not allowed"}
 	}
 	if filepath.IsAbs(filename) {
 		return &wsError{message: "absolute paths not allowed"}
 	}
 
-	// Clean the path
+	// Clean the path — catches any remaining OS-specific tricks.
 	cleaned := filepath.Clean(filename)
 	if cleaned != filename {
 		return &wsError{message: "filename contains invalid characters"}
