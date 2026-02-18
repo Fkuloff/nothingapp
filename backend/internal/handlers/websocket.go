@@ -12,6 +12,7 @@ import (
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 	"messenger/internal/services"
+	"messenger/internal/storage"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -41,6 +42,7 @@ type WebSocketHandler struct {
 	participantRepo *repositories.ChatParticipantRepo
 	logger          *zap.Logger
 	encryptor       *crypto.MessageEncryptor
+	fileStorage     storage.Storage
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
 	broadcastPool   *WorkerPool // Limits concurrent broadcast goroutines
@@ -54,6 +56,7 @@ func NewWebSocketHandler(
 	userService *services.UserService,
 	logger *zap.Logger,
 	encryptor *crypto.MessageEncryptor,
+	fileStorage storage.Storage,
 ) *WebSocketHandler {
 	return &WebSocketHandler{
 		chatService:     chatService,
@@ -62,6 +65,7 @@ func NewWebSocketHandler(
 		userService:     userService,
 		logger:          logger,
 		encryptor:       encryptor,
+		fileStorage:     fileStorage,
 		clients:         make(map[uint][]*wsClient),
 		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency
 	}
@@ -707,6 +711,22 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			}
 		}
 
+		// Serialize attachments for the broadcast (with presigned URLs)
+		var attachmentsList []map[string]any
+		for _, att := range unread.Message.Attachments {
+			attData := map[string]any{
+				"id":        att.ID,
+				"file_type": att.FileType,
+				"file_name": att.FileName,
+				"file_size": att.FileSize,
+				"mime_type": att.MimeType,
+			}
+			if h.fileStorage != nil {
+				attData["url"] = h.fileStorage.GetURL(att.StorageKey)
+			}
+			attachmentsList = append(attachmentsList, attData)
+		}
+
 		broadcastData := map[string]any{
 			"action":      "new",
 			"chat_id":     unread.ChatID,
@@ -716,6 +736,7 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			"id":          unread.Message.ID,
 			"created_at":  unread.Message.CreatedAt,
 			"is_deleted":  unread.Message.IsDeleted,
+			"attachments": attachmentsList,
 		}
 
 		msgJSON, err := json.Marshal(broadcastData)
@@ -746,6 +767,36 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			// Don't return on error, try to send remaining messages
 		}
 		client.writeMu.Unlock()
+	}
+}
+
+// BroadcastAttachmentsAdded notifies all chat participants that attachments were added to a message.
+// Called from AttachmentHandler after successful upload.
+func (h *WebSocketHandler) BroadcastAttachmentsAdded(chatID, messageID uint, attachments []map[string]any) {
+	ctx := context.Background()
+
+	broadcastData := map[string]any{
+		"action":      "attachments_added",
+		"chat_id":     chatID,
+		"message_id":  messageID,
+		"attachments": attachments,
+	}
+
+	msgJSON, err := json.Marshal(broadcastData)
+	if err != nil {
+		h.logger.Error("failed to marshal attachments_added event",
+			zap.Error(err),
+			zap.Uint("chat_id", chatID),
+			zap.Uint("message_id", messageID),
+		)
+		return
+	}
+
+	if err := h.broadcastToChat(ctx, chatID, msgJSON); err != nil {
+		h.logger.Error("failed to broadcast attachments_added",
+			zap.Error(err),
+			zap.Uint("chat_id", chatID),
+		)
 	}
 }
 

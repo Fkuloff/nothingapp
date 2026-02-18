@@ -41,6 +41,16 @@ func (r *AttachmentRepo) FindByID(ctx context.Context, id uint) (*models.Attachm
 	return &attachment, nil
 }
 
+// FindByIDWithMessage finds an attachment by ID and preloads its parent Message (for access checks).
+func (r *AttachmentRepo) FindByIDWithMessage(ctx context.Context, id uint) (*models.Attachment, error) {
+	var attachment models.Attachment
+	err := r.db.WithContext(ctx).Preload("Message").First(&attachment, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &attachment, nil
+}
+
 // Delete deletes an attachment by ID
 func (r *AttachmentRepo) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Attachment{}, id).Error

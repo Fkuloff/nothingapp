@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-import { endpoints } from '../../shared/api/endpoints'
 import type { Attachment, Message } from '../../shared/api/types'
 import { formatFileSize, formatMessageTime } from '../../shared/utils'
 import { ImageLightbox } from './ImageLightbox'
@@ -34,9 +33,9 @@ type AttachmentViewProps = {
 }
 
 function AttachmentView({ att, onImageClick }: AttachmentViewProps) {
-  const url = useMemo(() => endpoints.attachments.get(att.id), [att.id])
+  const url = att.url || ''
 
-  if (!att.id) return null
+  if (!att.id || !url) return null
 
   if (att.file_type === 'image') {
     return (
@@ -187,10 +186,12 @@ export function MessageItem({
             </span>
           ) : (
             <>
-              <span className={`message-text${emojiOnly ? ' message-text--emoji-only' : ''}`}>
-                {message.text || '[Пустое сообщение]'}
-                {message.edited_at && <span className="edited-indicator"> (ред.)</span>}
-              </span>
+              {(message.text.trim() || !(message.attachments && message.attachments.length > 0)) && (
+                <span className={`message-text${emojiOnly ? ' message-text--emoji-only' : ''}`}>
+                  {message.text.trim() || '[Пустое сообщение]'}
+                  {message.edited_at && <span className="edited-indicator"> (ред.)</span>}
+                </span>
+              )}
 
               {message.attachments && message.attachments.length > 0 && (
                 <div className="message-attachments">

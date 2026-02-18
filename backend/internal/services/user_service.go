@@ -194,8 +194,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID uint, name strin
 	return s.userRepo.UpdateName(ctx, userID, name)
 }
 
-// GetAvatarURL returns a public URL for the given avatar key
-// Avatars use public URLs since they don't need access control
+// GetAvatarURL returns a presigned URL for the given avatar key
 func (s *UserService) GetAvatarURL(avatarKey *string) *string {
 	if avatarKey == nil || *avatarKey == "" {
 		return nil
@@ -208,8 +207,8 @@ func (s *UserService) GetAvatarURL(avatarKey *string) *string {
 		key = extractStorageKey(key)
 	}
 
-	// Use public URL for avatars - no expiration
-	url := s.storage.GetPublicURL(key)
+	// Use presigned URL — bucket is private, no anonymous access
+	url := s.storage.GetURL(key)
 	return &url
 }
 
