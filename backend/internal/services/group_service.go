@@ -137,8 +137,46 @@ func (s *GroupService) DeleteGroup(ctx context.Context, chatID, userID uint) err
 		return err
 	}
 
-	// Delete participants first, then purge chat data
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// Collect S3 keys before the transaction deletes DB records.
+	storageKeys, avatarKey, err := s.collectGroupStorageKeys(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.purgeGroupData(ctx, chatID); err != nil {
+		return err
+	}
+
+	// Best-effort S3 cleanup after successful transaction.
+	s.deleteStorageFiles(storageKeys, avatarKey)
+	return nil
+}
+
+// collectGroupStorageKeys gathers all S3 keys (attachments + avatar) for a group before deletion.
+func (s *GroupService) collectGroupStorageKeys(ctx context.Context, chatID uint) ([]string, string, error) {
+	var storageKeys []string
+	if err := s.db.WithContext(ctx).Model(&models.Attachment{}).
+		Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).
+		Pluck("storage_key", &storageKeys).Error; err != nil {
+		return nil, "", fmt.Errorf("fetch attachment keys: %w", err)
+	}
+
+	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
+	if err != nil {
+		return nil, "", errors.New("group not found")
+	}
+
+	var avatarKey string
+	if chat.AvatarURL != nil && *chat.AvatarURL != "" {
+		avatarKey = *chat.AvatarURL
+	}
+
+	return storageKeys, avatarKey, nil
+}
+
+// purgeGroupData hard-deletes all group data (participants, pins, unreads, attachments, messages, chat) in a transaction.
+func (s *GroupService) purgeGroupData(ctx context.Context, chatID uint) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.ChatParticipant{}).Error; err != nil {
 			return fmt.Errorf("delete participants: %w", err)
 		}
@@ -162,7 +200,20 @@ func (s *GroupService) DeleteGroup(ctx context.Context, chatID, userID uint) err
 		}
 		return nil
 	})
-	return err
+}
+
+// deleteStorageFiles removes attachment files and optional avatar from S3 (best-effort).
+func (s *GroupService) deleteStorageFiles(keys []string, avatarKey string) {
+	for _, key := range keys {
+		if err := s.fileStorage.Delete(key); err != nil {
+			s.logger.Warn("failed to delete attachment from storage", zap.Error(err), zap.String("key", key))
+		}
+	}
+	if avatarKey != "" {
+		if err := s.fileStorage.Delete(avatarKey); err != nil {
+			s.logger.Warn("failed to delete group avatar from storage", zap.Error(err), zap.String("key", avatarKey))
+		}
+	}
 }
 
 // AddMembers adds members to a group. Admin/creator only.
