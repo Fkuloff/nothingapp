@@ -34,6 +34,7 @@ func (r *UnreadMessageRepo) GetByUser(ctx context.Context, userID uint) ([]model
 	err := r.db.WithContext(ctx).
 		Where("user_id = ?", userID).
 		Preload("Message").
+		Preload("Message.Attachments").
 		Find(&unreadMessages).Error
 	return unreadMessages, err
 }

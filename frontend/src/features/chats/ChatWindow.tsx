@@ -20,7 +20,6 @@ type Props = {
   currentUserId?: number
   loading?: boolean
   error?: string | null
-  onMessagesUpdate?: () => void
   isConnected: boolean
   isOtherUserOnline?: boolean
   send: (data: WSMessageAction) => boolean
@@ -46,7 +45,6 @@ export function ChatWindow({
   currentUserId,
   loading,
   error,
-  onMessagesUpdate,
   isConnected,
   isOtherUserOnline = false,
   send,
@@ -153,7 +151,6 @@ export function ChatWindow({
 
       try {
         await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
-        onMessagesUpdate?.()
       } catch (err) {
         console.error('Ошибка загрузки вложений:', err)
         showToast('Не удалось загрузить вложения', 'error')
@@ -163,7 +160,7 @@ export function ChatWindow({
     }
 
     doUpload().catch(console.error)
-  }, [messages, currentUserId, onMessagesUpdate, showToast])
+  }, [messages, currentUserId, showToast])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()

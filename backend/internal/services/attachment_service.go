@@ -148,6 +148,24 @@ func (s *AttachmentService) DeleteAttachment(ctx context.Context, attachmentID, 
 	return nil
 }
 
+// FindAttachment retrieves attachment metadata (without file content)
+func (s *AttachmentService) FindAttachment(ctx context.Context, attachmentID uint) (*models.Attachment, error) {
+	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
+	if err != nil {
+		return nil, ErrAttachmentNotFound
+	}
+	return attachment, nil
+}
+
+// FindAttachmentWithMessage retrieves attachment with its parent message (for access checks)
+func (s *AttachmentService) FindAttachmentWithMessage(ctx context.Context, attachmentID uint) (*models.Attachment, error) {
+	attachment, err := s.attachmentRepo.FindByIDWithMessage(ctx, attachmentID)
+	if err != nil {
+		return nil, ErrAttachmentNotFound
+	}
+	return attachment, nil
+}
+
 // GetAttachment retrieves an attachment and its file reader
 func (s *AttachmentService) GetAttachment(ctx context.Context, attachmentID uint) (*models.Attachment, io.ReadCloser, error) {
 	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
