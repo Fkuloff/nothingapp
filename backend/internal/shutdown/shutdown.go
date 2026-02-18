@@ -10,14 +10,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// GracefulShutdown manages application shutdown
+// GracefulShutdown orchestrates ordered cleanup on SIGINT/SIGTERM.
+// Registered functions are called sequentially with a shared timeout context.
 type GracefulShutdown struct {
 	logger  *zap.Logger
 	stopFns []func(context.Context) error
 	timeout time.Duration
 }
 
-// New creates shutdown manager
+// New creates a GracefulShutdown manager with the given logger and timeout.
 func New(logger *zap.Logger, timeout time.Duration) *GracefulShutdown {
 	return &GracefulShutdown{
 		logger:  logger,
@@ -25,12 +26,13 @@ func New(logger *zap.Logger, timeout time.Duration) *GracefulShutdown {
 	}
 }
 
-// Register adds cleanup function
+// Register adds a cleanup function to be called during shutdown.
 func (g *GracefulShutdown) Register(fn func(context.Context) error) {
 	g.stopFns = append(g.stopFns, fn)
 }
 
-// Wait blocks until interrupt signal
+// Wait blocks until SIGINT or SIGTERM is received, then runs all registered
+// cleanup functions sequentially within the configured timeout.
 func (g *GracefulShutdown) Wait() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

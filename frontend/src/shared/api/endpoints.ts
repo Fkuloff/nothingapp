@@ -12,6 +12,9 @@ export const endpoints = {
     delete: (chatId: number | string) => `/api/chats/${chatId}`,
     clear: (chatId: number | string) => `/api/chats/${chatId}/clear`,
     messages: (chatId: number | string) => `/api/chats/${chatId}/messages`,
+    pin: (chatId: number | string, messageId: number | string) =>
+      `/api/chats/${chatId}/messages/${messageId}/pin`,
+    pins: (chatId: number | string) => `/api/chats/${chatId}/pins`,
   },
   contacts: {
     list: '/api/contacts',

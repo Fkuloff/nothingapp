@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"mime/multipart"
 
 	"messenger/internal/models"
@@ -26,7 +25,7 @@ type AttachmentService struct {
 	attachmentRepo *repositories.AttachmentRepo
 	messageRepo    *repositories.MessageRepo
 	storage        storage.Storage
-	validator      *FileValidator
+	validator      *fileValidator
 }
 
 // NewAttachmentService creates a new AttachmentService instance
@@ -41,7 +40,7 @@ func NewAttachmentService(
 		attachmentRepo: attachmentRepo,
 		messageRepo:    messageRepo,
 		storage:        storage,
-		validator:      &FileValidator{},
+		validator:      &fileValidator{},
 	}
 }
 
@@ -89,7 +88,7 @@ func (s *AttachmentService) processFileUpload(
 	fileHeader *multipart.FileHeader,
 	messageID uint,
 ) (*models.Attachment, string, error) {
-	if err := s.validator.ValidateAttachment(fileHeader); err != nil {
+	if err := s.validator.validateAttachment(fileHeader); err != nil {
 		return nil, "", fmt.Errorf("invalid file %s: %w", fileHeader.Filename, err)
 	}
 
@@ -99,7 +98,7 @@ func (s *AttachmentService) processFileUpload(
 	}
 
 	contentType := fileHeader.Header.Get("Content-Type")
-	fileType := s.validator.DetermineFileType(contentType)
+	fileType := s.validator.determineFileType(contentType)
 
 	metadata, err := s.storage.Save(file, fileHeader.Filename, contentType, fileHeader.Size)
 	if closeErr := file.Close(); closeErr != nil {
@@ -148,15 +147,6 @@ func (s *AttachmentService) DeleteAttachment(ctx context.Context, attachmentID, 
 	return nil
 }
 
-// FindAttachment retrieves attachment metadata (without file content)
-func (s *AttachmentService) FindAttachment(ctx context.Context, attachmentID uint) (*models.Attachment, error) {
-	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
-	if err != nil {
-		return nil, ErrAttachmentNotFound
-	}
-	return attachment, nil
-}
-
 // FindAttachmentWithMessage retrieves attachment with its parent message (for access checks)
 func (s *AttachmentService) FindAttachmentWithMessage(ctx context.Context, attachmentID uint) (*models.Attachment, error) {
 	attachment, err := s.attachmentRepo.FindByIDWithMessage(ctx, attachmentID)
@@ -164,21 +154,6 @@ func (s *AttachmentService) FindAttachmentWithMessage(ctx context.Context, attac
 		return nil, ErrAttachmentNotFound
 	}
 	return attachment, nil
-}
-
-// GetAttachment retrieves an attachment and its file reader
-func (s *AttachmentService) GetAttachment(ctx context.Context, attachmentID uint) (*models.Attachment, io.ReadCloser, error) {
-	attachment, err := s.attachmentRepo.FindByID(ctx, attachmentID)
-	if err != nil {
-		return nil, nil, ErrAttachmentNotFound
-	}
-
-	reader, err := s.storage.Get(attachment.StorageKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("retrieve file: %w", err)
-	}
-
-	return attachment, reader, nil
 }
 
 // rollbackUploads deletes uploaded files in case of error

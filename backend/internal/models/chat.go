@@ -2,6 +2,7 @@ package models
 
 import "gorm.io/gorm"
 
+// Chat represents a 1-on-1 or group conversation.
 type Chat struct {
 	gorm.Model
 	User1ID uint `gorm:"index:idx_chat_users,unique;index:idx_user1"`

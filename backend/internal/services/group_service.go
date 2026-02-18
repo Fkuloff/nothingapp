@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	MaxGroupNameLength = 100
-	MaxGroupMembers    = 50
+	maxGroupNameLength = 100
+	maxGroupMembers    = 50
 	unknownActorName   = "Кто-то"
 )
 
+// GroupService handles business logic for group chats.
 type GroupService struct {
 	db              *gorm.DB
 	logger          *zap.Logger
@@ -31,9 +32,10 @@ type GroupService struct {
 	unreadRepo      *repositories.UnreadMessageRepo
 	userRepo        *repositories.UserRepo
 	fileStorage     storage.Storage
-	validator       *FileValidator
+	validator       *fileValidator
 }
 
+// NewGroupService creates a new GroupService.
 func NewGroupService(
 	db *gorm.DB,
 	logger *zap.Logger,
@@ -53,23 +55,23 @@ func NewGroupService(
 		unreadRepo:      unreadRepo,
 		userRepo:        userRepo,
 		fileStorage:     fileStorage,
-		validator:       &FileValidator{},
+		validator:       &fileValidator{},
 	}
 }
 
 // CreateGroup creates a new group chat with the given members.
 func (s *GroupService) CreateGroup(ctx context.Context, creatorID uint, name string, memberIDs []uint) (*models.Chat, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > MaxGroupNameLength {
-		return nil, fmt.Errorf("group name must be 1-%d characters", MaxGroupNameLength)
+	if name == "" || len(name) > maxGroupNameLength {
+		return nil, fmt.Errorf("group name must be 1-%d characters", maxGroupNameLength)
 	}
 
 	cleanMemberIDs := deduplicateIDs(memberIDs, creatorID)
 	if len(cleanMemberIDs) == 0 {
 		return nil, errors.New("group must have at least one member besides the creator")
 	}
-	if len(cleanMemberIDs)+1 > MaxGroupMembers {
-		return nil, fmt.Errorf("group cannot have more than %d members", MaxGroupMembers)
+	if len(cleanMemberIDs)+1 > maxGroupMembers {
+		return nil, fmt.Errorf("group cannot have more than %d members", maxGroupMembers)
 	}
 
 	creator, err := s.userRepo.FindByID(ctx, creatorID)
@@ -122,7 +124,7 @@ func (s *GroupService) createGroupInTx(ctx context.Context, tx *gorm.DB, creator
 	}
 
 	sysText := fmt.Sprintf("%s создал(а) группу", creator.GetDisplayName())
-	if err := s.createSystemMessage(ctx, messageRepo, chat.ID, sysText); err != nil {
+	if err := createSystemMessage(ctx, messageRepo, chat.ID, sysText); err != nil {
 		return nil, err
 	}
 	return chat, nil
@@ -138,6 +140,9 @@ func (s *GroupService) DeleteGroup(ctx context.Context, chatID, userID uint) err
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.ChatParticipant{}).Error; err != nil {
 			return fmt.Errorf("delete participants: %w", err)
+		}
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.PinnedMessage{}).Error; err != nil {
+			return fmt.Errorf("delete pinned messages: %w", err)
 		}
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.UnreadMessage{}).Error; err != nil {
 			return fmt.Errorf("delete unread messages: %w", err)
@@ -176,8 +181,8 @@ func (s *GroupService) AddMembers(ctx context.Context, chatID, actorID uint, mem
 	}
 
 	cleanIDs := deduplicateIDs(memberIDs, 0)
-	if int(currentCount)+len(cleanIDs) > MaxGroupMembers {
-		return nil, fmt.Errorf("group cannot have more than %d members", MaxGroupMembers)
+	if int(currentCount)+len(cleanIDs) > maxGroupMembers {
+		return nil, fmt.Errorf("group cannot have more than %d members", maxGroupMembers)
 	}
 
 	var addedIDs []uint
@@ -250,7 +255,7 @@ func (s *GroupService) createMemberAddedMessage(ctx context.Context, messageRepo
 		return
 	}
 	sysText := fmt.Sprintf("%s добавлен(а) пользователем %s", member.GetDisplayName(), actor.GetDisplayName())
-	if err := s.createSystemMessage(ctx, messageRepo, chatID, sysText); err != nil {
+	if err := createSystemMessage(ctx, messageRepo, chatID, sysText); err != nil {
 		s.logger.Warn("failed to create member added system message", zap.Error(err))
 	}
 }
@@ -313,7 +318,7 @@ func (s *GroupService) RemoveMember(ctx context.Context, chatID, actorID, target
 			targetName = target.GetDisplayName()
 		}
 		sysText := fmt.Sprintf("%s удалён(а) пользователем %s", targetName, actorName)
-		return s.createSystemMessage(ctx, messageRepo, chatID, sysText)
+		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
 
@@ -351,7 +356,7 @@ func (s *GroupService) LeaveGroup(ctx context.Context, chatID, userID uint) erro
 			userName = user.GetDisplayName()
 		}
 		sysText := fmt.Sprintf("%s покинул(а) группу", userName)
-		return s.createSystemMessage(ctx, messageRepo, chatID, sysText)
+		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
 
@@ -413,7 +418,7 @@ func (s *GroupService) ChangeRole(ctx context.Context, chatID, actorID, targetUs
 			action = "снят(а) с должности администратора"
 		}
 		sysText := fmt.Sprintf("%s %s пользователем %s", targetName, action, actorName)
-		return s.createSystemMessage(ctx, messageRepo, chatID, sysText)
+		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
 
@@ -424,13 +429,8 @@ func (s *GroupService) UpdateGroupInfo(ctx context.Context, chatID, actorID uint
 	}
 
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > MaxGroupNameLength {
-		return fmt.Errorf("group name must be 1-%d characters", MaxGroupNameLength)
-	}
-
-	actor, actorErr := s.userRepo.FindByID(ctx, actorID)
-	if actorErr != nil {
-		s.logger.Warn("failed to find actor for system message", zap.Uint("actor_id", actorID), zap.Error(actorErr))
+	if name == "" || len(name) > maxGroupNameLength {
+		return fmt.Errorf("group name must be 1-%d characters", maxGroupNameLength)
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -440,12 +440,9 @@ func (s *GroupService) UpdateGroupInfo(ctx context.Context, chatID, actorID uint
 			return fmt.Errorf("update group name: %w", err)
 		}
 
-		actorName := unknownActorName
-		if actor != nil {
-			actorName = actor.GetDisplayName()
-		}
+		actorName := resolveActorName(ctx, s.userRepo, actorID)
 		sysText := fmt.Sprintf("%s изменил(а) название группы на «%s»", actorName, name)
-		return s.createSystemMessage(ctx, messageRepo, chatID, sysText)
+		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
 
@@ -455,7 +452,7 @@ func (s *GroupService) UploadGroupAvatar(ctx context.Context, chatID, actorID ui
 		return "", err
 	}
 
-	if err := s.validator.ValidateAvatar(fileHeader); err != nil {
+	if err := s.validator.validateAvatar(fileHeader); err != nil {
 		return "", fmt.Errorf("invalid avatar file: %w", err)
 	}
 
@@ -569,34 +566,12 @@ func (s *GroupService) IsUserInGroup(ctx context.Context, chatID, userID uint) (
 	return true, nil
 }
 
-// GetUserRole returns the user's role in a group.
-func (s *GroupService) GetUserRole(ctx context.Context, chatID, userID uint) (models.ParticipantRole, error) {
-	p, err := s.participantRepo.FindByUserAndChat(ctx, chatID, userID)
-	if err != nil {
-		return "", errors.New("user is not a member of this group")
-	}
-	return p.Role, nil
-}
-
 // GetParticipantUserIDs returns all participant user IDs for a chat.
 func (s *GroupService) GetParticipantUserIDs(ctx context.Context, chatID uint) ([]uint, error) {
 	return s.participantRepo.GetParticipantUserIDs(ctx, chatID)
 }
 
 // --- private helpers ---
-
-func (s *GroupService) createSystemMessage(ctx context.Context, messageRepo *repositories.MessageRepo, chatID uint, text string) error {
-	msg := &models.Message{
-		ChatID: chatID,
-		UserID: 0,
-		Text:   text,
-		Type:   models.MessageTypeSystem,
-	}
-	if err := messageRepo.Create(ctx, msg); err != nil {
-		return fmt.Errorf("create system message: %w", err)
-	}
-	return nil
-}
 
 func (s *GroupService) requireAdmin(ctx context.Context, chatID, userID uint) error {
 	p, err := s.participantRepo.FindByUserAndChat(ctx, chatID, userID)
@@ -618,6 +593,31 @@ func (s *GroupService) requireRole(ctx context.Context, chatID, userID uint, rol
 		return fmt.Errorf("%s role required", role)
 	}
 	return nil
+}
+
+// createSystemMessage creates a system message (UserID=0) in the given chat.
+// Shared between GroupService and PinService for transactional system notifications.
+func createSystemMessage(ctx context.Context, messageRepo *repositories.MessageRepo, chatID uint, text string) error {
+	msg := &models.Message{
+		ChatID: chatID,
+		UserID: 0,
+		Text:   text,
+		Type:   models.MessageTypeSystem,
+	}
+	if err := messageRepo.Create(ctx, msg); err != nil {
+		return fmt.Errorf("create system message: %w", err)
+	}
+	return nil
+}
+
+// resolveActorName looks up a user and returns their display name.
+// Falls back to unknownActorName if the user cannot be found.
+func resolveActorName(ctx context.Context, userRepo *repositories.UserRepo, userID uint) string {
+	actor, err := userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return unknownActorName
+	}
+	return actor.GetDisplayName()
 }
 
 // deduplicateIDs returns unique IDs from the input, excluding excludeID (if non-zero).

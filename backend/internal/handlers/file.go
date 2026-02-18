@@ -1,4 +1,3 @@
-// internal/handlers/file.go
 package handlers
 
 import (
@@ -38,22 +37,22 @@ var contentTypesByExtension = map[string]string{
 	".rar":  "application/x-rar-compressed",
 }
 
-// FileHandler handles file serving with authorization
-type FileHandler struct {
+// fileHandler handles file serving with authorization
+type fileHandler struct {
 	storage storage.Storage
 	logger  *zap.Logger
 }
 
-// NewFileHandler creates a new file handler
-func NewFileHandler(storage storage.Storage, logger *zap.Logger) *FileHandler {
-	return &FileHandler{
+// newFileHandler creates a new file handler
+func newFileHandler(storage storage.Storage, logger *zap.Logger) *fileHandler {
+	return &fileHandler{
 		storage: storage,
 		logger:  logger,
 	}
 }
 
 // ServeFile serves a file with authorization check
-func (h *FileHandler) ServeFile(c *gin.Context) {
+func (h *fileHandler) ServeFile(c *gin.Context) {
 	_, ok := requireUserID(c)
 	if !ok {
 		return

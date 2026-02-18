@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -13,8 +14,9 @@ import (
 
 var testSecret = []byte("test-secret-key-for-jwt-middleware-testing")
 
-func init() {
+func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
 }
 
 // createTestToken generates a signed JWT with the given claims and secret.
@@ -45,7 +47,7 @@ func validClaims(userID float64) jwt.MapClaims {
 func setupMiddlewareTest() *gin.Engine {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(JWTMiddleware(testSecret, logger))
+	r.Use(jwtMiddleware(testSecret, logger))
 	r.GET("/api/test", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {
@@ -178,22 +180,108 @@ func TestJWTMiddleware_MissingUserIDClaim(t *testing.T) {
 func TestJWTMiddleware_PublicPathSkipped(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(JWTMiddleware(testSecret, logger))
-	r.POST("/api/auth/login", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-	r.POST("/api/auth/register", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	r.Use(jwtMiddleware(testSecret, logger))
+
+	// Register all public paths and prefixes.
+	publicPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/auth/login"},
+		{http.MethodPost, "/api/auth/register"},
+		{http.MethodPost, "/api/auth/logout"},
+		{http.MethodGet, "/health"},
+		{http.MethodGet, "/api/attachments/123"},
+		{http.MethodGet, "/api/attachments/some-file.jpg"},
+	}
+
+	for _, pp := range publicPaths {
+		switch pp.method {
+		case http.MethodGet:
+			r.GET(pp.path, func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"status": "ok"})
+			})
+		case http.MethodPost:
+			r.POST(pp.path, func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"status": "ok"})
+			})
+		}
+	}
+
+	for _, pp := range publicPaths {
+		t.Run(pp.method+" "+pp.path, func(t *testing.T) {
+			req := httptest.NewRequest(pp.method, pp.path, http.NoBody)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+			}
+		})
+	}
+}
+
+func TestJWTMiddleware_MalformedAuthorizationHeader(t *testing.T) {
+	r := setupMiddlewareTest()
+
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{"empty header", ""},
+		{"no bearer prefix", "Token abc123"},
+		{"bearer only", "Bearer "},
+		{"lowercase bearer with garbage", "bearer not-a-jwt"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestJWTMiddleware_WebSocketQueryToken(t *testing.T) {
+	r := gin.New()
+	logger := zap.NewNop()
+	r.Use(jwtMiddleware(testSecret, logger))
+	r.GET("/ws", func(c *gin.Context) {
+		userID, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "user_id not set"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"user_id": userID})
 	})
 
-	// No token needed for public paths
-	for _, path := range []string{"/api/auth/login", "/api/auth/register"} {
-		req := httptest.NewRequest(http.MethodPost, path, http.NoBody)
+	token := createTestToken(t, validClaims(7), testSecret)
+
+	t.Run("valid token in query param", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ws?token="+token, http.NoBody)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
-			t.Errorf("path %s: status = %d, want %d", path, w.Code, http.StatusOK)
+			t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
 		}
-	}
+	})
+
+	t.Run("missing token in query param", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+		}
+	})
 }

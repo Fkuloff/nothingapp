@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrInvalidKey    = errors.New("encryption key must be exactly 32 bytes (AES-256)")
-	ErrDecryptFailed = errors.New("decryption failed: invalid ciphertext or key")
+	errInvalidKey    = errors.New("encryption key must be exactly 32 bytes (AES-256)")
+	errDecryptFailed = errors.New("decryption failed: invalid ciphertext or key")
 )
 
 // MessageEncryptor handles AES-256-GCM encryption for message text at rest.
@@ -28,7 +28,7 @@ func NewMessageEncryptor(keyBase64 string) (*MessageEncryptor, error) {
 		return nil, fmt.Errorf("decode encryption key: %w", err)
 	}
 	if len(keyBytes) != 32 {
-		return nil, ErrInvalidKey
+		return nil, errInvalidKey
 	}
 
 	block, err := aes.NewCipher(keyBytes)
@@ -81,7 +81,7 @@ func (e *MessageEncryptor) Decrypt(ciphertextB64, ivB64 string) (string, error) 
 
 	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return "", ErrDecryptFailed
+		return "", errDecryptFailed
 	}
 
 	return string(plaintext), nil

@@ -20,8 +20,8 @@ func newFileHeader(filename, contentType string, size int64) *multipart.FileHead
 	}
 }
 
-func TestFileValidator_ValidateAttachment(t *testing.T) {
-	v := &FileValidator{}
+func TestFileValidator_validateAttachment(t *testing.T) {
+	v := &fileValidator{}
 
 	tests := []struct {
 		name      string
@@ -58,7 +58,7 @@ func TestFileValidator_ValidateAttachment(t *testing.T) {
 		},
 		{
 			name:      "oversized file",
-			fh:        newFileHeader("big.jpg", "image/jpeg", MaxFileSize+1),
+			fh:        newFileHeader("big.jpg", "image/jpeg", maxFileSize+1),
 			wantErr:   true,
 			errSubstr: "file too large",
 		},
@@ -86,13 +86,23 @@ func TestFileValidator_ValidateAttachment(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "filename must have an extension",
 		},
+		{
+			name:    "file exactly at max size",
+			fh:      newFileHeader("exact.jpg", "image/jpeg", maxFileSize),
+			wantErr: false,
+		},
+		{
+			name:    "zero size file",
+			fh:      newFileHeader("empty.jpg", "image/jpeg", 0),
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := v.ValidateAttachment(tt.fh)
+			err := v.validateAttachment(tt.fh)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("ValidateAttachment() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("validateAttachment() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil && tt.errSubstr != "" {
 				if !strings.Contains(err.Error(), tt.errSubstr) {
@@ -103,8 +113,8 @@ func TestFileValidator_ValidateAttachment(t *testing.T) {
 	}
 }
 
-func TestFileValidator_ValidateAvatar(t *testing.T) {
-	v := &FileValidator{}
+func TestFileValidator_validateAvatar(t *testing.T) {
+	v := &fileValidator{}
 
 	tests := []struct {
 		name      string
@@ -130,7 +140,7 @@ func TestFileValidator_ValidateAvatar(t *testing.T) {
 		},
 		{
 			name:      "oversized avatar",
-			fh:        newFileHeader("big.jpg", "image/jpeg", MaxAvatarSize+1),
+			fh:        newFileHeader("big.jpg", "image/jpeg", maxAvatarSize+1),
 			wantErr:   true,
 			errSubstr: "avatar too large",
 		},
@@ -146,13 +156,28 @@ func TestFileValidator_ValidateAvatar(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "avatar must be an image",
 		},
+		{
+			name:    "avatar exactly at max size",
+			fh:      newFileHeader("exact.png", "image/png", maxAvatarSize),
+			wantErr: false,
+		},
+		{
+			name:    "valid GIF avatar",
+			fh:      newFileHeader("anim.gif", "image/gif", 512),
+			wantErr: false,
+		},
+		{
+			name:    "valid WebP avatar",
+			fh:      newFileHeader("photo.webp", "image/webp", 512),
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := v.ValidateAvatar(tt.fh)
+			err := v.validateAvatar(tt.fh)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("ValidateAvatar() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("validateAvatar() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil && tt.errSubstr != "" {
 				if !strings.Contains(err.Error(), tt.errSubstr) {
@@ -163,8 +188,8 @@ func TestFileValidator_ValidateAvatar(t *testing.T) {
 	}
 }
 
-func TestFileValidator_DetermineFileType(t *testing.T) {
-	v := &FileValidator{}
+func TestFileValidator_determineFileType(t *testing.T) {
+	v := &fileValidator{}
 
 	tests := []struct {
 		name     string
@@ -184,8 +209,8 @@ func TestFileValidator_DetermineFileType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := v.DetermineFileType(tt.mimeType); got != tt.want {
-				t.Errorf("DetermineFileType(%q) = %q, want %q", tt.mimeType, got, tt.want)
+			if got := v.determineFileType(tt.mimeType); got != tt.want {
+				t.Errorf("determineFileType(%q) = %q, want %q", tt.mimeType, got, tt.want)
 			}
 		})
 	}

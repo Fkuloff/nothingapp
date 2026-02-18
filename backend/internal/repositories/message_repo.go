@@ -1,4 +1,3 @@
-// internal/repositories/message_repo.go
 package repositories
 
 import (
@@ -10,10 +9,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// MessageRepo handles database operations for messages.
 type MessageRepo struct {
 	db *gorm.DB
 }
 
+// NewMessageRepo creates a new MessageRepo instance.
 func NewMessageRepo(db *gorm.DB) *MessageRepo {
 	return &MessageRepo{db: db}
 }
@@ -23,10 +24,12 @@ func (r *MessageRepo) WithTx(tx *gorm.DB) *MessageRepo {
 	return &MessageRepo{db: tx}
 }
 
+// Create stores a new message record.
 func (r *MessageRepo) Create(ctx context.Context, message *models.Message) error {
 	return r.db.WithContext(ctx).Create(message).Error
 }
 
+// GetAllByChatID retrieves all messages for a chat in chronological order, with replies and attachments preloaded.
 func (r *MessageRepo) GetAllByChatID(ctx context.Context, chatID uint) ([]models.Message, error) {
 	var messages []models.Message
 	err := r.db.WithContext(ctx).Where("chat_id = ?", chatID).
@@ -57,6 +60,7 @@ func (r *MessageRepo) GetRecentByChatID(ctx context.Context, chatID uint, limit 
 	return messages, err
 }
 
+// FindByID finds a message by its ID with attachments preloaded.
 func (r *MessageRepo) FindByID(ctx context.Context, id uint) (*models.Message, error) {
 	var msg models.Message
 	err := r.db.WithContext(ctx).Preload("Attachments").First(&msg, id).Error

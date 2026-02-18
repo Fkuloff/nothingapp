@@ -12,24 +12,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AttachmentHandler handles HTTP requests for attachments
-type AttachmentHandler struct {
+// attachmentHandler handles HTTP requests for attachments
+type attachmentHandler struct {
 	attachmentService *services.AttachmentService
 	chatService       *services.ChatService
-	wsHandler         *WebSocketHandler
+	wsHandler         *webSocketHandler
 	participantRepo   *repositories.ChatParticipantRepo
 	storage           storage.Storage
 }
 
-// NewAttachmentHandler creates a new AttachmentHandler instance
-func NewAttachmentHandler(
+// newAttachmentHandler creates a new attachmentHandler instance
+func newAttachmentHandler(
 	attachmentService *services.AttachmentService,
 	chatService *services.ChatService,
-	wsHandler *WebSocketHandler,
+	wsHandler *webSocketHandler,
 	participantRepo *repositories.ChatParticipantRepo,
 	fileStorage storage.Storage,
-) *AttachmentHandler {
-	return &AttachmentHandler{
+) *attachmentHandler {
+	return &attachmentHandler{
 		attachmentService: attachmentService,
 		chatService:       chatService,
 		wsHandler:         wsHandler,
@@ -39,7 +39,7 @@ func NewAttachmentHandler(
 }
 
 // UploadAttachments handles multipart file uploads
-func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
+func (h *attachmentHandler) UploadAttachments(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -63,7 +63,7 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 	}
 
 	// Parse multipart form
-	if parseErr := c.Request.ParseMultipartForm(MultipartFormSizeAttachment); parseErr != nil {
+	if parseErr := c.Request.ParseMultipartForm(multipartFormSizeAttachment); parseErr != nil {
 		sendBadRequest(c, "Failed to parse form")
 		return
 	}
@@ -76,7 +76,7 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
-	if len(files) > MaxAttachmentsPerMessage {
+	if len(files) > maxAttachmentsPerMessage {
 		sendBadRequest(c, "Too many files per message")
 		return
 	}
@@ -108,7 +108,7 @@ func (h *AttachmentHandler) UploadAttachments(c *gin.Context) {
 }
 
 // DownloadAttachment redirects to a presigned S3 URL for direct download (JWT required)
-func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
+func (h *attachmentHandler) DownloadAttachment(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -141,7 +141,7 @@ func (h *AttachmentHandler) DownloadAttachment(c *gin.Context) {
 }
 
 // DeleteAttachment removes an attachment
-func (h *AttachmentHandler) DeleteAttachment(c *gin.Context) {
+func (h *attachmentHandler) DeleteAttachment(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -170,7 +170,7 @@ func (h *AttachmentHandler) DeleteAttachment(c *gin.Context) {
 
 // verifyChatMembership checks that the user is a participant of the given chat.
 // Responds with an HTTP error and returns a non-nil error on failure.
-func (h *AttachmentHandler) verifyChatMembership(c *gin.Context, chatID, userID uint) error {
+func (h *attachmentHandler) verifyChatMembership(c *gin.Context, chatID, userID uint) error {
 	chat, err := h.chatService.FindChatByIDLight(c.Request.Context(), chatID)
 	if err != nil {
 		sendForbidden(c, "Access denied")

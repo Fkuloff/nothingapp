@@ -15,11 +15,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// Sentinel errors
-var (
-	ErrNoMessages = errors.New("no messages found")
-)
+var errNoMessages = errors.New("no messages found")
 
+// ChatService handles business logic for chats, messages, and unread tracking.
 type ChatService struct {
 	db                *gorm.DB
 	logger            *zap.Logger
@@ -31,6 +29,7 @@ type ChatService struct {
 	encryptor         *crypto.MessageEncryptor
 }
 
+// NewChatService creates a new ChatService.
 func NewChatService(
 	db *gorm.DB,
 	logger *zap.Logger,
@@ -53,6 +52,7 @@ func NewChatService(
 	}
 }
 
+// CreateChat creates a 1-on-1 chat between two users, returning the existing chat if one already exists.
 func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*models.Chat, error) {
 	if user1ID == user2ID {
 		return nil, errors.New("cannot create chat with self")
@@ -89,52 +89,6 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 		return nil, fmt.Errorf("create chat: %w", err)
 	}
 	return chat, nil
-}
-
-func (s *ChatService) SendMessage(ctx context.Context, chatID, userID uint, text string, replyToID uint) (*models.Message, error) {
-	// CRITICAL: Verify user is participant in the chat (use light method for performance)
-	chat, err := s.chatRepo.FindByIDLight(ctx, chatID)
-	if err != nil {
-		return nil, errors.New("chat not found")
-	}
-
-	if !chat.HasUser(userID) {
-		return nil, errors.New("unauthorized: user is not a participant in this chat")
-	}
-
-	var replyPtr *uint
-	if replyToID != 0 {
-		msg, err := s.messageRepo.FindByID(ctx, replyToID)
-		if err != nil || msg.ChatID != chatID {
-			return nil, errors.New("invalid reply message")
-		}
-		replyPtr = &replyToID
-	}
-
-	// Encrypt message text before saving
-	ciphertext, iv, err := s.encryptor.Encrypt(text)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt message: %w", err)
-	}
-
-	// Allow empty text if attachments will be added
-	message := &models.Message{
-		ChatID:    chatID,
-		UserID:    userID,
-		Text:      ciphertext,
-		IV:        iv,
-		ReplyToID: replyPtr,
-	}
-
-	if err := s.messageRepo.Create(ctx, message); err != nil {
-		return nil, fmt.Errorf("create message: %w", err)
-	}
-
-	// Restore plaintext for the caller (e.g. broadcast)
-	message.Text = text
-	message.IV = ""
-
-	return message, nil
 }
 
 // SendMessageAtomic sends a message and creates unread record atomically within a transaction
@@ -262,18 +216,6 @@ func (s *ChatService) createUnreadIfNeeded(ctx context.Context, unreadRepo *repo
 	return nil
 }
 
-// GetMessageByID returns a message by its ID
-func (s *ChatService) GetMessageByID(ctx context.Context, messageID uint) (*models.Message, error) {
-	message, err := s.messageRepo.FindByID(ctx, messageID)
-	if err != nil {
-		return nil, fmt.Errorf("find message: %w", err)
-	}
-	messages := []models.Message{*message}
-	s.decryptMessages(messages)
-	*message = messages[0]
-	return message, nil
-}
-
 func (s *ChatService) GetMessages(ctx context.Context, chatID uint) ([]models.Message, error) {
 	messages, err := s.messageRepo.GetAllByChatID(ctx, chatID)
 	if err != nil {
@@ -300,7 +242,7 @@ func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*
 		return nil, fmt.Errorf("get last message: %w", err)
 	}
 	if len(messages) == 0 {
-		return nil, ErrNoMessages
+		return nil, errNoMessages
 	}
 	s.decryptMessages(messages)
 	return &messages[0], nil
@@ -529,6 +471,10 @@ func (s *ChatService) purgeMessagesAndAttachments(ctx context.Context, chatID ui
 	}
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Delete pinned messages
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.PinnedMessage{}).Error; err != nil {
+			return fmt.Errorf("delete pinned messages: %w", err)
+		}
 		// Delete unread messages
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.UnreadMessage{}).Error; err != nil {
 			return fmt.Errorf("delete unread messages: %w", err)
@@ -584,18 +530,18 @@ func (s *ChatService) GetUnreadMessagesForUser(ctx context.Context, userID uint)
 	return unreadMessages, nil
 }
 
-// CreateUnreadMessage creates a new unread message record
-func (s *ChatService) CreateUnreadMessage(ctx context.Context, unreadMsg *models.UnreadMessage) error {
-	if err := s.unreadMessageRepo.Create(ctx, unreadMsg); err != nil {
-		return fmt.Errorf("create unread message: %w", err)
-	}
-	return nil
-}
-
 // MarkChatAsRead marks all messages in a chat as read for a user
 func (s *ChatService) MarkChatAsRead(ctx context.Context, userID, chatID uint) error {
 	if err := s.unreadMessageRepo.DeleteByChat(ctx, userID, chatID); err != nil {
 		return fmt.Errorf("mark chat as read: %w", err)
+	}
+	return nil
+}
+
+// DeleteUnreadForUser removes all unread records for a user (used after pending message delivery)
+func (s *ChatService) DeleteUnreadForUser(ctx context.Context, userID uint) error {
+	if err := s.unreadMessageRepo.DeleteByUser(ctx, userID); err != nil {
+		return fmt.Errorf("delete unread for user: %w", err)
 	}
 	return nil
 }

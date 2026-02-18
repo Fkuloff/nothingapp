@@ -1,4 +1,3 @@
-// internal/handlers/websocket.go
 package handlers
 
 import (
@@ -19,8 +18,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// WebSocket constants are now defined in constants.go
-
 type wsClient struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -32,8 +29,8 @@ type wsClient struct {
 	writeMu      sync.Mutex // Protects all writes to conn (Gorilla WebSocket not thread-safe)
 }
 
-// WebSocketHandler manages global WebSocket connections
-type WebSocketHandler struct {
+// webSocketHandler manages global WebSocket connections
+type webSocketHandler struct {
 	chatService     *services.ChatService
 	presenceService *services.PresenceService
 	pushService     *services.PushNotificationService
@@ -45,11 +42,11 @@ type WebSocketHandler struct {
 	fileStorage     storage.Storage
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
-	broadcastPool   *WorkerPool // Limits concurrent broadcast goroutines
+	broadcastPool   *workerPool // Limits concurrent broadcast goroutines
 }
 
-// NewWebSocketHandler creates a new global WebSocket handler
-func NewWebSocketHandler(
+// newWebSocketHandler creates a new global WebSocket handler.
+func newWebSocketHandler(
 	chatService *services.ChatService,
 	presenceService *services.PresenceService,
 	pushService *services.PushNotificationService,
@@ -57,8 +54,8 @@ func NewWebSocketHandler(
 	logger *zap.Logger,
 	encryptor *crypto.MessageEncryptor,
 	fileStorage storage.Storage,
-) *WebSocketHandler {
-	return &WebSocketHandler{
+) *webSocketHandler {
+	return &webSocketHandler{
 		chatService:     chatService,
 		presenceService: presenceService,
 		pushService:     pushService,
@@ -67,18 +64,18 @@ func NewWebSocketHandler(
 		encryptor:       encryptor,
 		fileStorage:     fileStorage,
 		clients:         make(map[uint][]*wsClient),
-		broadcastPool:   NewWorkerPool(50), // 50 workers for broadcast concurrency
+		broadcastPool:   newWorkerPool(50), // 50 workers for broadcast concurrency
 	}
 }
 
 // SetGroupService sets the group service and participant repo for group chat support.
-func (h *WebSocketHandler) SetGroupService(gs *services.GroupService, pr *repositories.ChatParticipantRepo) {
+func (h *webSocketHandler) SetGroupService(gs *services.GroupService, pr *repositories.ChatParticipantRepo) {
 	h.groupService = gs
 	h.participantRepo = pr
 }
 
 // HandleWebSocket handles the global WebSocket connection for a user
-func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
+func (h *webSocketHandler) HandleWebSocket(c *gin.Context) {
 	h.logger.Info("WebSocket handler called",
 		zap.String("path", c.Request.URL.Path),
 		zap.String("query", c.Request.URL.RawQuery),
@@ -119,12 +116,12 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 }
 
 // checkConnectionLimit verifies the user hasn't exceeded connection limits
-func (h *WebSocketHandler) checkConnectionLimit(c *gin.Context, userID uint) bool {
+func (h *webSocketHandler) checkConnectionLimit(c *gin.Context, userID uint) bool {
 	h.mu.RLock()
 	userConns := len(h.clients[userID])
 	h.mu.RUnlock()
 
-	if userConns >= MaxConnectionsPerUser {
+	if userConns >= maxConnectionsPerUser {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many connections"})
 		return false
 	}
@@ -132,7 +129,7 @@ func (h *WebSocketHandler) checkConnectionLimit(c *gin.Context, userID uint) boo
 }
 
 // upgradeConnection upgrades HTTP connection to WebSocket
-func (h *WebSocketHandler) upgradeConnection(c *gin.Context) (*websocket.Conn, error) {
+func (h *webSocketHandler) upgradeConnection(c *gin.Context) (*websocket.Conn, error) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin:     h.checkOrigin,
 		ReadBufferSize:  1024,
@@ -158,14 +155,14 @@ func (h *WebSocketHandler) upgradeConnection(c *gin.Context) (*websocket.Conn, e
 }
 
 // setupConnection configures the WebSocket connection and creates client
-func (h *WebSocketHandler) setupConnection(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, userID uint) *wsClient {
+func (h *webSocketHandler) setupConnection(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, userID uint) *wsClient {
 	// Configure connection limits
-	conn.SetReadLimit(MaxMessageSize)
-	if err := conn.SetReadDeadline(time.Now().Add(PongWait)); err != nil {
+	conn.SetReadLimit(maxMessageSize)
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 		h.logger.Warn("failed to set initial read deadline", zap.Error(err))
 	}
 	conn.SetPongHandler(func(string) error {
-		if err := conn.SetReadDeadline(time.Now().Add(PongWait)); err != nil {
+		if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 			h.logger.Warn("failed to set read deadline in pong handler", zap.Error(err))
 		}
 		h.presenceService.UpdateActivity(userID)
@@ -192,12 +189,12 @@ func (h *WebSocketHandler) setupConnection(ctx context.Context, cancel context.C
 }
 
 // startBackgroundTasks starts write pump and pending message delivery
-func (h *WebSocketHandler) startBackgroundTasks(client *wsClient, userID uint) chan struct{} {
+func (h *webSocketHandler) startBackgroundTasks(client *wsClient, userID uint) chan struct{} {
 	// Send pending unread messages
 	go h.sendPendingMessages(client, userID)
 
 	// Start ping ticker
-	ticker := time.NewTicker(PingPeriod)
+	ticker := time.NewTicker(pingPeriod)
 	done := make(chan struct{})
 
 	// Start write pump (ping sender)
@@ -218,13 +215,13 @@ func (h *WebSocketHandler) startBackgroundTasks(client *wsClient, userID uint) c
 }
 
 // writePump sends periodic ping messages to keep connection alive
-func (h *WebSocketHandler) writePump(client *wsClient, ticker *time.Ticker, done chan struct{}) {
+func (h *webSocketHandler) writePump(client *wsClient, ticker *time.Ticker, done chan struct{}) {
 	for {
 		select {
 		case <-ticker.C:
 			// Protect writes with mutex (Gorilla WebSocket not thread-safe)
 			client.writeMu.Lock()
-			if err := client.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+			if err := client.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				h.logger.Warn("failed to set write deadline for ping", zap.Error(err))
 				client.writeMu.Unlock()
 				return
@@ -241,7 +238,7 @@ func (h *WebSocketHandler) writePump(client *wsClient, ticker *time.Ticker, done
 }
 
 // cleanup performs cleanup when connection closes
-func (h *WebSocketHandler) cleanup(done chan struct{}, client *wsClient, userID uint, conn *websocket.Conn) {
+func (h *webSocketHandler) cleanup(done chan struct{}, client *wsClient, userID uint, conn *websocket.Conn) {
 	close(done)
 	client.cancel() // Cancel context to stop any pending operations
 	h.removeClient(userID, client)
@@ -252,7 +249,7 @@ func (h *WebSocketHandler) cleanup(done chan struct{}, client *wsClient, userID 
 }
 
 // sendError sends error message to WebSocket client
-func (h *WebSocketHandler) sendError(client *wsClient, errorMsg string) {
+func (h *webSocketHandler) sendError(client *wsClient, errorMsg string) {
 	errData := map[string]any{
 		"error": errorMsg,
 	}
@@ -266,7 +263,7 @@ func (h *WebSocketHandler) sendError(client *wsClient, errorMsg string) {
 	client.writeMu.Lock()
 	defer client.writeMu.Unlock()
 
-	if err := client.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+	if err := client.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 		h.logger.Warn("failed to set write deadline for error message", zap.Error(err))
 	}
 	if err := client.conn.WriteMessage(websocket.TextMessage, errJSON); err != nil {
@@ -275,7 +272,7 @@ func (h *WebSocketHandler) sendError(client *wsClient, errorMsg string) {
 }
 
 // handleReadLoop processes incoming WebSocket messages
-func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *websocket.Conn) {
+func (h *webSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *websocket.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			h.logger.Error("panic in websocket handler",
@@ -315,8 +312,8 @@ func (h *WebSocketHandler) handleReadLoop(client *wsClient, userID uint, conn *w
 }
 
 // processMessage parses and routes a WebSocket message to appropriate handler
-func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, msg []byte) error {
-	var msgData MessageAction
+func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg []byte) error {
+	var msgData messageAction
 	if err := json.Unmarshal(msg, &msgData); err != nil {
 		h.logger.Error("invalid message format", zap.Error(err), zap.Uint("user_id", userID))
 		return &wsError{message: "Invalid message format"}
@@ -348,7 +345,7 @@ func (h *WebSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 }
 
 // checkOrigin validates the WebSocket origin
-func (h *WebSocketHandler) checkOrigin(r *http.Request) bool {
+func (h *webSocketHandler) checkOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	h.logger.Debug("WebSocket origin check",
 		zap.String("origin", origin),
@@ -360,7 +357,7 @@ func (h *WebSocketHandler) checkOrigin(r *http.Request) bool {
 }
 
 // checkRateLimit enforces rate limiting per connection
-func (h *WebSocketHandler) checkRateLimit(client *wsClient) bool {
+func (h *webSocketHandler) checkRateLimit(client *wsClient) bool {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
@@ -370,7 +367,7 @@ func (h *WebSocketHandler) checkRateLimit(client *wsClient) bool {
 		client.lastMessage = now
 	}
 
-	if client.messageCount >= MaxMessagesPerSecond {
+	if client.messageCount >= maxMessagesPerSecond {
 		return false
 	}
 
@@ -379,7 +376,7 @@ func (h *WebSocketHandler) checkRateLimit(client *wsClient) bool {
 }
 
 // removeClient safely removes a client from the map
-func (h *WebSocketHandler) removeClient(userID uint, client *wsClient) {
+func (h *webSocketHandler) removeClient(userID uint, client *wsClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -397,7 +394,7 @@ func (h *WebSocketHandler) removeClient(userID uint, client *wsClient) {
 }
 
 // broadcastToUser sends a message to all connections of a specific user
-func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
+func (h *webSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 	h.mu.RLock()
 	clientsToSend := h.clients[userID]
 	h.mu.RUnlock()
@@ -418,7 +415,7 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 			c.writeMu.Lock()
 			defer c.writeMu.Unlock()
 
-			if err := c.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				h.logger.Warn("failed to set write deadline",
 					zap.Error(err),
 					zap.Uint("user_id", userID),
@@ -436,7 +433,7 @@ func (h *WebSocketHandler) broadcastToUser(userID uint, msgJSON []byte) {
 }
 
 // broadcastToChat sends a message to all participants in a chat (1-on-1 or group)
-func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msgJSON []byte, excludeUserID ...uint) error {
+func (h *webSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msgJSON []byte, excludeUserID ...uint) error {
 	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
 	if err != nil {
 		return err
@@ -475,7 +472,7 @@ func (h *WebSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msg
 // getChatRecipients returns the list of user IDs that should receive a message for the given chat,
 // excluding the specified user. For group chats it returns all participants except excludeUserID;
 // for 1-on-1 chats it returns the other user.
-func (h *WebSocketHandler) getChatRecipients(ctx context.Context, chat *models.Chat, excludeUserID uint) []uint {
+func (h *webSocketHandler) getChatRecipients(ctx context.Context, chat *models.Chat, excludeUserID uint) []uint {
 	if chat.IsGroup && h.participantRepo != nil {
 		memberIDs, err := h.participantRepo.GetParticipantUserIDs(ctx, chat.ID)
 		if err != nil {
@@ -498,7 +495,7 @@ func (h *WebSocketHandler) getChatRecipients(ctx context.Context, chat *models.C
 }
 
 // broadcastPresenceChange notifies all chat participants about a user's online status change
-func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
+func (h *webSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	ctx := context.Background()
 
 	chats, err := h.chatService.GetUserChats(ctx, userID, false)
@@ -546,8 +543,8 @@ func (h *WebSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 }
 
 // broadcastChatEvent notifies chat participants about chat-level operations (clear/delete).
-// Called from ChatHandler via callback before the destructive DB operation executes.
-func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, action string) {
+// Called from chatHandler via callback before the destructive DB operation executes.
+func (h *webSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, action string) {
 	ctx := context.Background()
 
 	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
@@ -589,8 +586,8 @@ func (h *WebSocketHandler) broadcastChatEvent(chatID, initiatorUserID uint, acti
 }
 
 // broadcastGroupEvent broadcasts group-specific events (member changes, updates) to all group participants.
-// Called from GroupHandler via callback.
-func (h *WebSocketHandler) broadcastGroupEvent(event GroupEvent) {
+// Called from groupHandler via callback.
+func (h *webSocketHandler) broadcastGroupEvent(event groupEvent) {
 	ctx := context.Background()
 
 	if h.participantRepo == nil {
@@ -669,8 +666,35 @@ func (h *WebSocketHandler) broadcastGroupEvent(event GroupEvent) {
 	)
 }
 
+// broadcastPinEvent notifies all chat participants about a pin/unpin event.
+// Called from pinHandler via callback.
+func (h *webSocketHandler) broadcastPinEvent(chatID, messageID uint, action string) {
+	ctx := context.Background()
+
+	eventData := map[string]any{
+		"action":     action,
+		"chat_id":    chatID,
+		"message_id": messageID,
+	}
+	msgJSON, err := json.Marshal(eventData)
+	if err != nil {
+		h.logger.Error("failed to marshal pin event",
+			zap.Error(err),
+			zap.Uint("chat_id", chatID),
+		)
+		return
+	}
+
+	if err := h.broadcastToChat(ctx, chatID, msgJSON); err != nil {
+		h.logger.Error("failed to broadcast pin event",
+			zap.Error(err),
+			zap.Uint("chat_id", chatID),
+		)
+	}
+}
+
 // sendPendingMessages sends all unread messages to a newly connected user
-func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
+func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(client.ctx, userID)
 	if err != nil {
 		h.logger.Error("failed to get pending messages",
@@ -740,7 +764,7 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 
 		// Protect writes with mutex (Gorilla WebSocket not thread-safe)
 		client.writeMu.Lock()
-		if err := client.conn.SetWriteDeadline(time.Now().Add(WriteWait)); err != nil {
+		if err := client.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 			h.logger.Warn("failed to set write deadline for pending message",
 				zap.Error(err),
 				zap.Uint("user_id", userID),
@@ -758,11 +782,19 @@ func (h *WebSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 		}
 		client.writeMu.Unlock()
 	}
+
+	// Clean up delivered unread records so they aren't re-sent on next reconnect
+	if err := h.chatService.DeleteUnreadForUser(client.ctx, userID); err != nil {
+		h.logger.Error("failed to delete delivered unread messages",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+		)
+	}
 }
 
 // BroadcastAttachmentsAdded notifies all chat participants that attachments were added to a message.
-// Called from AttachmentHandler after successful upload.
-func (h *WebSocketHandler) BroadcastAttachmentsAdded(chatID, messageID uint, attachments []map[string]any) {
+// Called from attachmentHandler after successful upload.
+func (h *webSocketHandler) BroadcastAttachmentsAdded(chatID, messageID uint, attachments []map[string]any) {
 	ctx := context.Background()
 
 	broadcastData := map[string]any{
@@ -803,7 +835,7 @@ func (e *wsError) Error() string {
 }
 
 // GetUnreadMessagesAPI returns all unread messages for the current user
-func (h *WebSocketHandler) GetUnreadMessagesAPI(c *gin.Context) {
+func (h *webSocketHandler) GetUnreadMessagesAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -825,7 +857,7 @@ func (h *WebSocketHandler) GetUnreadMessagesAPI(c *gin.Context) {
 }
 
 // GetUnreadCountsAPI returns unread message counts per chat
-func (h *WebSocketHandler) GetUnreadCountsAPI(c *gin.Context) {
+func (h *webSocketHandler) GetUnreadCountsAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -847,7 +879,7 @@ func (h *WebSocketHandler) GetUnreadCountsAPI(c *gin.Context) {
 }
 
 // GetUserPresenceAPI returns online status of a user
-func (h *WebSocketHandler) GetUserPresenceAPI(c *gin.Context) {
+func (h *webSocketHandler) GetUserPresenceAPI(c *gin.Context) {
 	_, ok := requireUserID(c)
 	if !ok {
 		return
@@ -868,15 +900,15 @@ func (h *WebSocketHandler) GetUserPresenceAPI(c *gin.Context) {
 	})
 }
 
-// WorkerPool manages a pool of workers to limit concurrent goroutines
-type WorkerPool struct {
+// workerPool manages a pool of workers to limit concurrent goroutines
+type workerPool struct {
 	workers  int
 	jobQueue chan func()
 }
 
-// NewWorkerPool creates a new worker pool with the specified number of workers
-func NewWorkerPool(workers int) *WorkerPool {
-	pool := &WorkerPool{
+// newWorkerPool creates a new worker pool with the specified number of workers
+func newWorkerPool(workers int) *workerPool {
+	pool := &workerPool{
 		workers:  workers,
 		jobQueue: make(chan func(), 1000), // Buffer for 1000 pending jobs
 	}
@@ -890,18 +922,18 @@ func NewWorkerPool(workers int) *WorkerPool {
 }
 
 // worker processes jobs from the queue
-func (p *WorkerPool) worker() {
+func (p *workerPool) worker() {
 	for job := range p.jobQueue {
 		job()
 	}
 }
 
 // Submit adds a job to the worker pool
-func (p *WorkerPool) Submit(job func()) {
+func (p *workerPool) Submit(job func()) {
 	p.jobQueue <- job
 }
 
 // Close shuts down the worker pool (optional, for cleanup)
-func (p *WorkerPool) Close() {
+func (p *workerPool) Close() {
 	close(p.jobQueue)
 }

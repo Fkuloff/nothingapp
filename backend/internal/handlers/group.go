@@ -7,31 +7,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GroupEvent represents a group-level event for WebSocket broadcasting.
-type GroupEvent struct {
+// groupEvent represents a group-level event for WebSocket broadcasting.
+type groupEvent struct {
 	Action  string            `json:"action"`
 	ChatID  uint              `json:"chat_id"`
 	ActorID uint              `json:"actor_id,omitempty"`
 	UserID  uint              `json:"user_id,omitempty"`
-	Members []GroupMemberItem `json:"members,omitempty"`
+	Members []groupMemberItem `json:"members,omitempty"`
 	Name    string            `json:"name,omitempty"`
 	Avatar  string            `json:"avatar_url,omitempty"`
 	NewRole string            `json:"new_role,omitempty"`
 }
 
-type GroupHandler struct {
+// groupHandler handles HTTP requests for group chat operations.
+type groupHandler struct {
 	groupService    *services.GroupService
 	presenceService *services.PresenceService
 	userService     *services.UserService
-	onGroupEvent    func(event GroupEvent)
+	onGroupEvent    func(event groupEvent)
 }
 
-func NewGroupHandler(
+// newGroupHandler creates a new groupHandler.
+func newGroupHandler(
 	groupService *services.GroupService,
 	presenceService *services.PresenceService,
 	userService *services.UserService,
-) *GroupHandler {
-	return &GroupHandler{
+) *groupHandler {
+	return &groupHandler{
 		groupService:    groupService,
 		presenceService: presenceService,
 		userService:     userService,
@@ -39,13 +41,13 @@ func NewGroupHandler(
 }
 
 // SetOnGroupEventCallback registers a callback for group events (member changes, updates).
-func (h *GroupHandler) SetOnGroupEventCallback(cb func(event GroupEvent)) {
+func (h *groupHandler) setOnGroupEventCallback(cb func(event groupEvent)) {
 	h.onGroupEvent = cb
 }
 
 // CreateGroupAPI creates a new group chat.
 // POST /api/groups { "name": "...", "member_ids": [2,3,5] }
-func (h *GroupHandler) CreateGroupAPI(c *gin.Context) {
+func (h *groupHandler) CreateGroupAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -80,7 +82,7 @@ func (h *GroupHandler) CreateGroupAPI(c *gin.Context) {
 
 // GetGroupInfoAPI returns group info with members.
 // GET /api/groups/:id
-func (h *GroupHandler) GetGroupInfoAPI(c *gin.Context) {
+func (h *groupHandler) GetGroupInfoAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -137,7 +139,7 @@ func (h *GroupHandler) GetGroupInfoAPI(c *gin.Context) {
 
 // UpdateGroupInfoAPI updates group name.
 // PUT /api/groups/:id { "name": "New Name" }
-func (h *GroupHandler) UpdateGroupInfoAPI(c *gin.Context) {
+func (h *groupHandler) UpdateGroupInfoAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -163,7 +165,7 @@ func (h *GroupHandler) UpdateGroupInfoAPI(c *gin.Context) {
 	}
 
 	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
+		h.onGroupEvent(groupEvent{
 			Action:  "group_updated",
 			ChatID:  chatID,
 			ActorID: userID,
@@ -176,7 +178,7 @@ func (h *GroupHandler) UpdateGroupInfoAPI(c *gin.Context) {
 
 // AddMembersAPI adds members to a group.
 // POST /api/groups/:id/members { "user_ids": [4,6] }
-func (h *GroupHandler) AddMembersAPI(c *gin.Context) {
+func (h *groupHandler) AddMembersAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -204,14 +206,14 @@ func (h *GroupHandler) AddMembersAPI(c *gin.Context) {
 
 	if h.onGroupEvent != nil && len(addedIDs) > 0 {
 		// Build member items for added users
-		var addedMembers []GroupMemberItem
+		var addedMembers []groupMemberItem
 		for _, id := range addedIDs {
 			user, err := h.userService.GetUserByID(c.Request.Context(), id)
 			if err != nil {
 				continue
 			}
 			h.userService.RefreshUserAvatarURL(user)
-			addedMembers = append(addedMembers, GroupMemberItem{
+			addedMembers = append(addedMembers, groupMemberItem{
 				UserID:    user.ID,
 				Username:  user.Username,
 				Name:      user.GetDisplayName(),
@@ -220,7 +222,7 @@ func (h *GroupHandler) AddMembersAPI(c *gin.Context) {
 				IsOnline:  h.presenceService.IsUserOnline(user.ID),
 			})
 		}
-		h.onGroupEvent(GroupEvent{
+		h.onGroupEvent(groupEvent{
 			Action:  "member_added",
 			ChatID:  chatID,
 			ActorID: userID,
@@ -233,7 +235,7 @@ func (h *GroupHandler) AddMembersAPI(c *gin.Context) {
 
 // RemoveMemberAPI removes a member from the group.
 // DELETE /api/groups/:id/members/:user_id
-func (h *GroupHandler) RemoveMemberAPI(c *gin.Context) {
+func (h *groupHandler) RemoveMemberAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -253,7 +255,7 @@ func (h *GroupHandler) RemoveMemberAPI(c *gin.Context) {
 
 	// Broadcast BEFORE removal (need participant list with the user still in it)
 	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
+		h.onGroupEvent(groupEvent{
 			Action:  "member_removed",
 			ChatID:  chatID,
 			ActorID: userID,
@@ -271,15 +273,15 @@ func (h *GroupHandler) RemoveMemberAPI(c *gin.Context) {
 
 // LeaveGroupAPI allows a member to leave the group.
 // POST /api/groups/:id/leave
-func (h *GroupHandler) LeaveGroupAPI(c *gin.Context) {
-	h.groupAction(c, GroupEvent{Action: "member_left"}, func(ctx *gin.Context, chatID, userID uint) error {
+func (h *groupHandler) LeaveGroupAPI(c *gin.Context) {
+	h.groupAction(c, groupEvent{Action: "member_left"}, func(ctx *gin.Context, chatID, userID uint) error {
 		return h.groupService.LeaveGroup(ctx.Request.Context(), chatID, userID)
 	}, "Left group")
 }
 
 // ChangeRoleAPI changes a member's role.
 // PUT /api/groups/:id/members/:user_id/role { "role": "admin" }
-func (h *GroupHandler) ChangeRoleAPI(c *gin.Context) {
+func (h *groupHandler) ChangeRoleAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -311,7 +313,7 @@ func (h *GroupHandler) ChangeRoleAPI(c *gin.Context) {
 	}
 
 	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
+		h.onGroupEvent(groupEvent{
 			Action:  "role_changed",
 			ChatID:  chatID,
 			ActorID: userID,
@@ -325,14 +327,14 @@ func (h *GroupHandler) ChangeRoleAPI(c *gin.Context) {
 
 // DeleteGroupAPI deletes a group. Creator only.
 // DELETE /api/groups/:id
-func (h *GroupHandler) DeleteGroupAPI(c *gin.Context) {
-	h.groupAction(c, GroupEvent{Action: "group_deleted"}, func(ctx *gin.Context, chatID, userID uint) error {
+func (h *groupHandler) DeleteGroupAPI(c *gin.Context) {
+	h.groupAction(c, groupEvent{Action: "group_deleted"}, func(ctx *gin.Context, chatID, userID uint) error {
 		return h.groupService.DeleteGroup(ctx.Request.Context(), chatID, userID)
 	}, "Group deleted")
 }
 
 // groupAction extracts common logic for group actions that broadcast BEFORE executing.
-func (h *GroupHandler) groupAction(c *gin.Context, event GroupEvent, action func(*gin.Context, uint, uint) error, successMsg string) {
+func (h *groupHandler) groupAction(c *gin.Context, event groupEvent, action func(*gin.Context, uint, uint) error, successMsg string) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -364,7 +366,7 @@ func (h *GroupHandler) groupAction(c *gin.Context, event GroupEvent, action func
 
 // UploadGroupAvatarAPI uploads a group avatar.
 // POST /api/groups/:id/avatar
-func (h *GroupHandler) UploadGroupAvatarAPI(c *gin.Context) {
+func (h *groupHandler) UploadGroupAvatarAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -376,7 +378,7 @@ func (h *GroupHandler) UploadGroupAvatarAPI(c *gin.Context) {
 		return
 	}
 
-	if err := c.Request.ParseMultipartForm(MultipartFormSizeAvatar); err != nil {
+	if err := c.Request.ParseMultipartForm(multipartFormSizeAvatar); err != nil {
 		sendBadRequest(c, "File too large")
 		return
 	}
@@ -394,7 +396,7 @@ func (h *GroupHandler) UploadGroupAvatarAPI(c *gin.Context) {
 	}
 
 	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
+		h.onGroupEvent(groupEvent{
 			Action:  "group_updated",
 			ChatID:  chatID,
 			ActorID: userID,
@@ -410,7 +412,7 @@ func (h *GroupHandler) UploadGroupAvatarAPI(c *gin.Context) {
 
 // DeleteGroupAvatarAPI deletes a group avatar.
 // DELETE /api/groups/:id/avatar
-func (h *GroupHandler) DeleteGroupAvatarAPI(c *gin.Context) {
+func (h *groupHandler) DeleteGroupAvatarAPI(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -428,7 +430,7 @@ func (h *GroupHandler) DeleteGroupAvatarAPI(c *gin.Context) {
 	}
 
 	if h.onGroupEvent != nil {
-		h.onGroupEvent(GroupEvent{
+		h.onGroupEvent(groupEvent{
 			Action:  "group_updated",
 			ChatID:  chatID,
 			ActorID: userID,
@@ -440,7 +442,7 @@ func (h *GroupHandler) DeleteGroupAvatarAPI(c *gin.Context) {
 
 // GetGroupAvatar serves the group avatar image.
 // GET /api/group-avatars/:chat_id (public)
-func (h *GroupHandler) GetGroupAvatar(c *gin.Context) {
+func (h *groupHandler) GetGroupAvatar(c *gin.Context) {
 	chatID, err := parseUintParam(c, "chat_id")
 	if err != nil {
 		sendBadRequest(c, "Invalid group ID")
@@ -456,16 +458,16 @@ func (h *GroupHandler) GetGroupAvatar(c *gin.Context) {
 }
 
 // buildMemberList builds the member list for group API responses.
-func (h *GroupHandler) buildMemberList(c *gin.Context, chatID uint) []GroupMemberItem {
+func (h *groupHandler) buildMemberList(c *gin.Context, chatID uint) []groupMemberItem {
 	participants, err := h.groupService.GetGroupMembers(c.Request.Context(), chatID)
 	if err != nil {
 		return nil
 	}
 
-	members := make([]GroupMemberItem, 0, len(participants))
+	members := make([]groupMemberItem, 0, len(participants))
 	for _, p := range participants {
 		h.userService.RefreshUserAvatarURL(&p.User)
-		members = append(members, GroupMemberItem{
+		members = append(members, groupMemberItem{
 			UserID:    p.UserID,
 			Username:  p.User.Username,
 			Name:      p.User.GetDisplayName(),

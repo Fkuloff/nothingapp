@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -10,29 +11,35 @@ import (
 )
 
 func main() {
-	// Health check flag for Docker healthcheck in distroless containers
+	// Health check flag for Docker healthcheck in distroless containers.
 	if len(os.Args) > 1 && os.Args[1] == "-health" {
-		port := os.Getenv("PORT")
-		if port == "" {
-			port = "8080"
-		}
-
-		client := &http.Client{Timeout: 3 * time.Second}
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%s/health", port))
-		if err != nil {
-			os.Exit(1)
-		}
-
-		status := resp.StatusCode
-		resp.Body.Close()
-
-		if status == http.StatusOK {
-			os.Exit(0)
-		}
-		os.Exit(1)
+		os.Exit(runHealthCheck())
 	}
 
 	if err := app.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "server failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runHealthCheck() int {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/health", port))
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+
+	// Drain body to allow connection reuse.
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode == http.StatusOK {
+		return 0
+	}
+	return 1
 }

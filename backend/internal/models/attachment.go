@@ -10,10 +10,12 @@ import (
 type AttachmentType string
 
 const (
-	AttachmentTypeImage    AttachmentType = "image"
-	AttachmentTypeVideo    AttachmentType = "video"
+	// AttachmentTypeImage represents image files (JPEG, PNG, GIF, WebP).
+	AttachmentTypeImage AttachmentType = "image"
+	// AttachmentTypeVideo represents video files (MP4, WebM).
+	AttachmentTypeVideo AttachmentType = "video"
+	// AttachmentTypeDocument represents documents and other file types.
 	AttachmentTypeDocument AttachmentType = "document"
-	AttachmentTypeAudio    AttachmentType = "audio"
 )
 
 // Attachment represents a file attached to a message
@@ -36,12 +38,3 @@ type Attachment struct {
 	Message  *Message `gorm:"foreignKey:MessageID" json:"-"`
 }
 
-// IsImage returns true if the attachment is an image
-func (a *Attachment) IsImage() bool {
-	return a.FileType == AttachmentTypeImage
-}
-
-// IsVideo returns true if the attachment is a video
-func (a *Attachment) IsVideo() bool {
-	return a.FileType == AttachmentTypeVideo
-}

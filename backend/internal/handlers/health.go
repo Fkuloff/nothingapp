@@ -8,26 +8,26 @@ import (
 	"gorm.io/gorm"
 )
 
-// HealthHandler handles health check requests
-type HealthHandler struct {
+// healthHandler handles health check requests
+type healthHandler struct {
 	db *gorm.DB
 }
 
-// NewHealthHandler creates a new health check handler
-func NewHealthHandler(db *gorm.DB) *HealthHandler {
-	return &HealthHandler{db: db}
+// newHealthHandler creates a new health check handler
+func newHealthHandler(db *gorm.DB) *healthHandler {
+	return &healthHandler{db: db}
 }
 
-// HealthResponse represents the health check response
-type HealthResponse struct {
+// healthResponse represents the health check response
+type healthResponse struct {
 	Status   string            `json:"status"`
 	Time     string            `json:"time"`
 	Services map[string]string `json:"services"`
 }
 
 // GetHealth returns the health status of the application
-func (h *HealthHandler) GetHealth(c *gin.Context) {
-	response := HealthResponse{
+func (h *healthHandler) GetHealth(c *gin.Context) {
+	response := healthResponse{
 		Status:   "healthy",
 		Time:     time.Now().UTC().Format(time.RFC3339),
 		Services: make(map[string]string),

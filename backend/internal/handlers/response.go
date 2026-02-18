@@ -9,12 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Constants for file upload limits
-const (
-	MultipartFormSizeAttachment = 512 << 20 // 512 MB
-	MultipartFormSizeAvatar     = 10 << 20  // 10 MB
-)
-
 // HTTP response helpers
 
 func sendSuccess(c *gin.Context, data any) {

@@ -37,8 +37,8 @@ func TestLoadConfig_MissingDBURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing DB_URL")
 	}
-	if !errors.Is(err, ErrDBURLNotSet) {
-		t.Errorf("expected ErrDBURLNotSet, got: %v", err)
+	if !errors.Is(err, errDBURLNotSet) {
+		t.Errorf("expected errDBURLNotSet, got: %v", err)
 	}
 }
 
@@ -51,8 +51,8 @@ func TestLoadConfig_MissingJWTSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing JWT_SECRET")
 	}
-	if !errors.Is(err, ErrJWTSecretNotSet) {
-		t.Errorf("expected ErrJWTSecretNotSet, got: %v", err)
+	if !errors.Is(err, errJWTSecretNotSet) {
+		t.Errorf("expected errJWTSecretNotSet, got: %v", err)
 	}
 }
 
@@ -65,8 +65,8 @@ func TestLoadConfig_ShortJWTSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for short JWT_SECRET")
 	}
-	if !errors.Is(err, ErrJWTSecretTooShort) {
-		t.Errorf("expected ErrJWTSecretTooShort, got: %v", err)
+	if !errors.Is(err, errJWTSecretTooShort) {
+		t.Errorf("expected errJWTSecretTooShort, got: %v", err)
 	}
 }
 
@@ -111,8 +111,8 @@ func TestLoadConfig_MissingEncryptionKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing MESSAGE_ENCRYPTION_KEY")
 	}
-	if !errors.Is(err, ErrMsgEncKeyNotSet) {
-		t.Errorf("expected ErrMsgEncKeyNotSet, got: %v", err)
+	if !errors.Is(err, errMsgEncKeyNotSet) {
+		t.Errorf("expected errMsgEncKeyNotSet, got: %v", err)
 	}
 }
 
@@ -125,8 +125,8 @@ func TestLoadConfig_InvalidEncryptionKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid MESSAGE_ENCRYPTION_KEY")
 	}
-	if !errors.Is(err, ErrMsgEncKeyInvalid) {
-		t.Errorf("expected ErrMsgEncKeyInvalid, got: %v", err)
+	if !errors.Is(err, errMsgEncKeyInvalid) {
+		t.Errorf("expected errMsgEncKeyInvalid, got: %v", err)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestLoadConfig_ShortEncryptionKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for short MESSAGE_ENCRYPTION_KEY")
 	}
-	if !errors.Is(err, ErrMsgEncKeyInvalid) {
-		t.Errorf("expected ErrMsgEncKeyInvalid, got: %v", err)
+	if !errors.Is(err, errMsgEncKeyInvalid) {
+		t.Errorf("expected errMsgEncKeyInvalid, got: %v", err)
 	}
 }

@@ -20,7 +20,7 @@ type UserService struct {
 	logger    *zap.Logger
 	userRepo  *repositories.UserRepo
 	storage   storage.Storage
-	validator *FileValidator
+	validator *fileValidator
 }
 
 // NewUserService creates a new UserService instance
@@ -33,14 +33,14 @@ func NewUserService(
 		logger:    logger,
 		userRepo:  userRepo,
 		storage:   storage,
-		validator: &FileValidator{},
+		validator: &fileValidator{},
 	}
 }
 
 // UploadAvatar uploads a user avatar
 func (s *UserService) UploadAvatar(ctx context.Context, userID uint, fileHeader *multipart.FileHeader) (string, error) {
 	// Validate file
-	if err := s.validator.ValidateAvatar(fileHeader); err != nil {
+	if err := s.validator.validateAvatar(fileHeader); err != nil {
 		return "", fmt.Errorf("invalid avatar file: %w", err)
 	}
 

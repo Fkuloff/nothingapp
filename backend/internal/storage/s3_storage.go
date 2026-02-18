@@ -18,10 +18,8 @@ import (
 type S3Storage struct {
 	client          *s3.Client
 	bucket          string
-	region          string
 	presignedExpiry time.Duration
 	presignClient   *s3.PresignClient
-	publicEndpoint  string // Public endpoint for presigned URLs
 }
 
 // Verify interface compliance at compile time
@@ -63,10 +61,8 @@ func NewS3Storage(config *StorageConfig) (*S3Storage, error) {
 	return &S3Storage{
 		client:          client,
 		bucket:          config.S3Bucket,
-		region:          config.S3Region,
 		presignedExpiry: time.Duration(config.S3PresignedExpiry) * time.Second,
 		presignClient:   presignClient,
-		publicEndpoint:  config.S3PublicEndpoint,
 	}, nil
 }
 
@@ -113,7 +109,6 @@ func (s *S3Storage) Save(reader io.Reader, fileName, contentType string, size in
 		ContentType: contentType,
 		Size:        written,
 		URL:         s.GetURL(storageKey),
-		UploadedAt:  now,
 	}, nil
 }
 
@@ -165,9 +160,3 @@ func (s *S3Storage) GetURL(key string) string {
 	return presignedReq.URL
 }
 
-// GetPublicURL returns a permanent public URL for a file
-// This requires the bucket to have public read access configured
-func (s *S3Storage) GetPublicURL(key string) string {
-	// Format: {publicEndpoint}/{bucket}/{key}
-	return fmt.Sprintf("%s/%s/%s", s.publicEndpoint, s.bucket, key)
-}

@@ -148,20 +148,6 @@ func (ps *PresenceService) GetUserStatus(userID uint) *UserStatus {
 	}
 }
 
-// GetOnlineUsers returns a list of all currently online user IDs
-func (ps *PresenceService) GetOnlineUsers() []uint {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
-	var onlineUsers []uint
-	for userID, status := range ps.users {
-		if status.IsOnline {
-			onlineUsers = append(onlineUsers, userID)
-		}
-	}
-	return onlineUsers
-}
-
 // cleanupInactiveUsers periodically checks for users with stale connections
 // and marks them as offline if they haven't been active
 func (ps *PresenceService) cleanupInactiveUsers() {
