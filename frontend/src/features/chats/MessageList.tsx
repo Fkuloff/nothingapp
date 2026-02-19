@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useMemo } from 'react'
 
 import type { GroupMember, Message } from '../../shared/api/types'
 import { MessageItem } from './MessageItem'
@@ -63,52 +63,13 @@ export function MessageList({
   onPin,
   onUnpin,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const prevChatIdRef = useRef<number | undefined>(undefined)
-  const prevMessagesLengthRef = useRef<number>(0)
-  const hasScrolledRef = useRef(false)
-
   // Build a lookup map for group members
   const membersMap = new Map(groupMembers.map((m) => [m.user_id, m]))
 
-  // Derive chatId from first message (for scroll tracking)
-  const chatId = messages.length > 0 ? messages[0].chat_id : undefined
-
-  // Reset scroll flag when chat changes
-  useEffect(() => {
-    if (prevChatIdRef.current !== chatId) {
-      hasScrolledRef.current = false
-    }
-  }, [chatId])
-
-  // Scroll to bottom after messages load
-  useEffect(() => {
-    if (!containerRef.current || loading || messages.length === 0) return
-
-    const isNewChat = prevChatIdRef.current !== chatId
-    const hasNewMessages = messages.length > prevMessagesLengthRef.current
-
-    const scrollToBottom = () => {
-      if (containerRef.current) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight
-      }
-    }
-
-    if (isNewChat && !hasScrolledRef.current) {
-      setTimeout(() => {
-        scrollToBottom()
-        hasScrolledRef.current = true
-      }, 50)
-    } else if (hasNewMessages && hasScrolledRef.current) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth'
-      })
-    }
-
-    prevChatIdRef.current = chatId
-    prevMessagesLengthRef.current = messages.length
-  }, [chatId, messages, loading])
+  // Reverse messages for column-reverse layout:
+  // CSS column-reverse flips visual order, so we reverse the array
+  // to display oldest→newest (top→bottom) while scroll starts at bottom
+  const reversedMessages = useMemo(() => messages.slice().reverse(), [messages])
 
   const renderContent = () => {
     if (error) {
@@ -123,7 +84,7 @@ export function MessageList({
       return <div className="text-center text-muted p-4">В этом чате пока нет сообщений.</div>
     }
 
-    return messages.map((message) => {
+    return reversedMessages.map((message) => {
       if (message.type === 'system') {
         return <SystemMessage key={message.id} text={message.text} />
       }
@@ -155,7 +116,7 @@ export function MessageList({
   }
 
   return (
-    <div id="messages" className="chat-body fancy-scroll" ref={containerRef}>
+    <div id="messages" className="chat-body fancy-scroll">
       {renderContent()}
     </div>
   )

@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
-export type ToastContextValue = {
+type ToastContextValue = {
   showToast: (message: string, type?: ToastType) => void
 }
 

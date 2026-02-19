@@ -30,6 +30,7 @@ export default function ChatsPage() {
   const chatsRef = useRef<ChatItem[]>([])
   const loadChatsRef = useRef<() => void>(() => {})
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
+  const messageCacheRef = useRef<Map<number, Message[]>>(new Map())
 
   // Keep chatsRef in sync for use in WS handler
   useEffect(() => {
@@ -89,6 +90,7 @@ export default function ChatsPage() {
       }
 
       if (event.action === 'group_deleted') {
+        messageCacheRef.current.delete(event.chat_id)
         setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
         if (event.chat_id === activeChatId) {
           setActiveChatId(null)
@@ -149,39 +151,50 @@ export default function ChatsPage() {
             created_at: event.created_at,
             attachments: event.attachments ?? [],
           }
-          setMessages((prev) => [...prev, newMessage])
+          setMessages((prev) => {
+            const next = [...prev, newMessage]
+            messageCacheRef.current.set(chatId, next)
+            return next
+          })
         }
         return
       }
 
       if (event.action === 'attachments_added' && chatId === activeChatId) {
-        setMessages((prev) =>
-          prev.map((msg) =>
+        setMessages((prev) => {
+          const next = prev.map((msg) =>
             msg.id === event.message_id ? { ...msg, attachments: event.attachments } : msg
           )
-        )
+          messageCacheRef.current.set(chatId, next)
+          return next
+        })
         return
       }
 
       if (event.action === 'edit' && chatId === activeChatId) {
-        setMessages((prev) =>
-          prev.map((msg) =>
+        setMessages((prev) => {
+          const next = prev.map((msg) =>
             msg.id === event.id
               ? { ...msg, text: event.text, edited_at: event.edited_at ?? new Date().toISOString() }
               : msg
           )
-        )
+          messageCacheRef.current.set(chatId, next)
+          return next
+        })
         return
       }
 
       if (event.action === 'delete' && chatId === activeChatId) {
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
-        )
+        setMessages((prev) => {
+          const next = prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
+          messageCacheRef.current.set(chatId, next)
+          return next
+        })
         return
       }
 
       if (event.action === 'chat_cleared') {
+        messageCacheRef.current.delete(event.chat_id)
         if (event.chat_id === activeChatId) {
           setMessages([])
           setPinnedMessages([])
@@ -195,6 +208,7 @@ export default function ChatsPage() {
       }
 
       if (event.action === 'chat_deleted') {
+        messageCacheRef.current.delete(event.chat_id)
         setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
         if (event.chat_id === activeChatId) {
           setActiveChatId(null)
@@ -240,15 +254,27 @@ export default function ChatsPage() {
   }, [onChatSelectedRef, loadChats])
 
   const loadMessages = useCallback(async (chatId: number) => {
+    // Serve from cache instantly if available
+    const cached = messageCacheRef.current.get(chatId)
+    if (cached) {
+      setMessages(cached)
+      setLoadingMessages(false)
+    } else {
+      setLoadingMessages(true)
+    }
+
+    // Always fetch fresh data in background
     try {
       setMessagesError(null)
-      setLoadingMessages(true)
       const data = await getChatMessages(chatId)
+      messageCacheRef.current.set(chatId, data)
       setMessages(data)
     } catch (err) {
       console.error('Ошибка загрузки сообщений', err)
-      setMessages([])
-      setMessagesError(err instanceof Error ? err.message : 'Не удалось загрузить сообщения')
+      if (!cached) {
+        setMessages([])
+        setMessagesError(err instanceof Error ? err.message : 'Не удалось загрузить сообщения')
+      }
     } finally {
       setLoadingMessages(false)
     }
@@ -319,6 +345,7 @@ export default function ChatsPage() {
   const handleClearChat = useCallback(async (chatId: number) => {
     try {
       await clearChat(chatId)
+      messageCacheRef.current.delete(chatId)
       if (activeChatId === chatId) {
         setMessages([])
       }
@@ -333,6 +360,7 @@ export default function ChatsPage() {
   const handleDeleteChat = useCallback(async (chatId: number) => {
     try {
       await deleteChat(chatId)
+      messageCacheRef.current.delete(chatId)
       setChats((prev) => prev.filter((c) => c.id !== chatId))
       if (activeChatId === chatId) {
         setActiveChatId(null)
@@ -353,6 +381,7 @@ export default function ChatsPage() {
 
   const handleGroupDeleted = useCallback(() => {
     if (activeChatId) {
+      messageCacheRef.current.delete(activeChatId)
       setChats((prev) => prev.filter((c) => c.id !== activeChatId))
       setActiveChatId(null)
       setMessages([])
@@ -363,6 +392,7 @@ export default function ChatsPage() {
 
   const handleGroupLeft = useCallback(() => {
     if (activeChatId) {
+      messageCacheRef.current.delete(activeChatId)
       setChats((prev) => prev.filter((c) => c.id !== activeChatId))
       setActiveChatId(null)
       setMessages([])

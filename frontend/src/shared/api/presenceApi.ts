@@ -1,7 +1,7 @@
 import { endpoints } from './endpoints'
 import { httpGet } from './httpClient'
 
-export type UserPresenceResponse = {
+type UserPresenceResponse = {
   user_id: number
   is_online: boolean
   last_seen: string
