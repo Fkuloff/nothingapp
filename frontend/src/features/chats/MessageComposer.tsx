@@ -18,7 +18,6 @@ type Props = {
   onRemoveFile: (index: number) => void
   onCancelDraft: () => void
   onToggleEmoji: () => void
-  onAddEmoji?: (emoji: string) => void
 }
 
 export function MessageComposer({

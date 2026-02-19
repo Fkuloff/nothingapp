@@ -27,7 +27,6 @@
   --text-secondary: #a8b2bd;
   --text-tertiary: #8b949e;
   --text-inverse: #ffffff;
-  --text-link: #58a6ff;
 
   /* Border colors - softer */
   --border-color: #30363d;
@@ -65,7 +64,6 @@
   /* Transitions - Material motion */
   --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ============================================
@@ -96,7 +94,6 @@
   --text-secondary: #707579;
   --text-tertiary: #9e9e9e;
   --text-inverse: #ffffff;
-  --text-link: #2196f3;
 
   /* Border colors */
   --border-color: #e0e0e0;
@@ -327,27 +324,6 @@ textarea::placeholder,
 }
 
 /* ============================================
-   SCROLLBAR STYLES
-   ============================================ */
-#messages::-webkit-scrollbar {
-  width: 8px;
-}
-
-#messages::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-  border-radius: 4px;
-}
-
-#messages::-webkit-scrollbar-thumb {
-  background: var(--bg-hover);
-  border-radius: 4px;
-}
-
-#messages::-webkit-scrollbar-thumb:hover {
-  background: var(--border-light);
-}
-
-/* ============================================
    CONTEXT MENU
    ============================================ */
 .context-menu {
@@ -401,8 +377,8 @@ textarea::placeholder,
    PINNED MESSAGES BAR
    ============================================ */
 .pinned-bar {
-  background: var(--glass-bg);
-  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
   padding: var(--space-xs) var(--space-md);
   flex-shrink: 0;
 }
@@ -444,7 +420,7 @@ textarea::placeholder,
 .pinned-bar__close {
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 1.1rem;
   line-height: 1;
@@ -598,13 +574,6 @@ textarea::placeholder,
 .fancy-scroll::-webkit-scrollbar-thumb {
   background-color: rgba(148, 163, 184, 0.3);
   border-radius: 8px;
-}
-
-.chat-list__new {
-  background: var(--bg-tertiary);
-  border-radius: 12px;
-  padding: 1rem;
-  border: 1px solid var(--border-color);
 }
 
 .chat-list-item {
@@ -875,7 +844,7 @@ textarea::placeholder,
   padding: var(--space-lg);
   background: var(--bg-primary);
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 2px;
 }
 
@@ -890,18 +859,6 @@ textarea::placeholder,
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
-  animation: messageSlideIn 0.2s ease-out;
-}
-
-@keyframes messageSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 /* Other user's messages - left aligned */
@@ -1076,17 +1033,6 @@ textarea::placeholder,
   display: block;
 }
 
-.attachment-document {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: inherit;
-  border: 1px solid var(--border-color);
-}
-
 .chat-composer {
   padding: var(--space-sm) var(--space-md);
   border-top: 1px solid var(--border-color);
@@ -1186,13 +1132,6 @@ textarea::placeholder,
   border-radius: 10px;
   font-weight: 700;
   color: var(--text-primary);
-}
-
-.composer-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  position: relative;
 }
 
 .composer-right {
@@ -1424,19 +1363,6 @@ textarea::placeholder,
   text-decoration: underline;
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-}
-
-@media (max-width: 480px) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-}
-
-
 .avatar-upload-container {
   position: relative;
   display: inline-block;
@@ -1524,20 +1450,9 @@ textarea::placeholder,
   font-weight: 700;
 }
 
-.profile-username,
-.profile-phone {
+.profile-username {
   margin: 0;
   color: var(--text-secondary);
-}
-
-.chip {
-  padding: var(--space-xs) var(--space-md);
-  border-radius: var(--radius-full);
-  background: var(--accent-primary-dim);
-  color: var(--accent-primary);
-  border: 1px solid var(--accent-primary-muted);
-  font-size: 0.8rem;
-  font-weight: 500;
 }
 
 .profile-actions {
@@ -1834,16 +1749,6 @@ textarea::placeholder,
   color: inherit;
 }
 
-.slide-menu__badge {
-  margin-left: auto;
-  font-size: 0.7rem;
-  padding: 2px 8px;
-  background: var(--accent-primary-dim);
-  color: var(--accent-primary);
-  border-radius: var(--radius-full);
-  font-weight: 500;
-}
-
 .slide-menu__divider {
   height: 1px;
   background: var(--border-color);
@@ -2082,11 +1987,11 @@ textarea::placeholder,
 }
 
 .user-profile-modal__status-dot.online {
-  background: var(--success);
+  background: var(--accent-success);
 }
 
 .user-profile-modal__status-dot.offline {
-  background: var(--text-muted);
+  background: var(--text-tertiary);
 }
 
 .user-profile-modal__status {
@@ -2107,7 +2012,7 @@ textarea::placeholder,
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
-  color: var(--success);
+  color: var(--accent-success);
   font-size: 0.875rem;
 }
 
@@ -2493,7 +2398,7 @@ textarea::placeholder,
   flex-direction: column;
   align-items: flex-end;
   gap: var(--space-sm);
-  animation: confirmActionsIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: confirmFadeIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .profile-confirm-inline__text {
@@ -2558,169 +2463,8 @@ textarea::placeholder,
 }
 
 /* ============================================
-   CONTACT CARDS (ContactsPage list)
+   CONTACT CARD — Confirm actions (used in ContactsModal, ProfilePage, UserProfileModal)
    ============================================ */
-.contact-card {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-lg);
-  transition: background 0.15s ease, border-color 0.15s ease;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  margin-bottom: var(--space-xs);
-  list-style: none;
-  animation: contactItemSlideIn 0.2s ease backwards;
-}
-
-.contact-card:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-light);
-}
-
-/* Avatar */
-.contact-card__avatar-wrap {
-  flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-  position: relative;
-}
-
-.contact-card__avatar {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-full);
-  object-fit: cover;
-  border: 2px solid var(--border-color);
-  transition: border-color 0.2s;
-}
-
-.contact-card:hover .contact-card__avatar {
-  border-color: var(--accent-primary-muted);
-}
-
-/* Info */
-.contact-card__info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.contact-card__name {
-  font-size: 0.92rem;
-  font-weight: 550;
-  color: var(--text-primary);
-  text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-
-.contact-card__name:hover {
-  color: var(--accent-primary);
-}
-
-.contact-card__username {
-  font-size: 0.8rem;
-  color: var(--text-tertiary);
-  line-height: 1.3;
-}
-
-/* Action buttons */
-.contact-card__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  flex-shrink: 0;
-  opacity: 0;
-  transform: translateX(6px);
-  transition: opacity 0.2s, transform 0.2s;
-}
-
-.contact-card:hover .contact-card__actions {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-/* Always show on touch devices */
-@media (hover: none) {
-  .contact-card__actions {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.contact-card__btn {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-full);
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  flex-shrink: 0;
-}
-
-.contact-card__btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.contact-card__btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* Chat button — accent pill */
-.contact-card__btn--chat {
-  background: var(--accent-primary-dim);
-  color: var(--accent-primary);
-}
-
-.contact-card__btn--chat:hover:not(:disabled) {
-  background: var(--accent-primary-subtle);
-  color: var(--text-inverse);
-  box-shadow: 0 2px 8px rgba(56, 139, 253, 0.25);
-  transform: scale(1.08);
-}
-
-/* Remove button — danger ghost */
-.contact-card__btn--remove {
-  background: transparent;
-  color: var(--text-tertiary);
-}
-
-.contact-card__btn--remove:hover {
-  background: rgba(248, 81, 73, 0.1);
-  color: var(--accent-danger);
-}
-
-/* --- Confirming state (inline deletion confirmation) --- */
-.contact-card--confirming {
-  background: rgba(248, 81, 73, 0.06);
-  border-color: rgba(248, 81, 73, 0.25);
-  animation: confirmShake 0.35s ease;
-}
-
-@keyframes confirmShake {
-  0%, 100% { transform: translateX(0); }
-  15% { transform: translateX(-4px); }
-  30% { transform: translateX(4px); }
-  45% { transform: translateX(-3px); }
-  60% { transform: translateX(2px); }
-  75% { transform: translateX(-1px); }
-}
-
-.contact-card--confirming .contact-card__avatar {
-  border-color: var(--accent-danger);
-  opacity: 0.7;
-}
 
 .contact-card__confirm-text {
   font-size: 0.9rem;
@@ -2784,47 +2528,6 @@ textarea::placeholder,
 .contact-card__confirm-btn--cancel:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-/* Contacts page list */
-.contacts-page-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* Contacts page empty state */
-.contacts-page-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-2xl) var(--space-xl);
-  text-align: center;
-}
-
-.contacts-page-empty__icon {
-  width: 48px;
-  height: 48px;
-  color: var(--text-tertiary);
-  opacity: 0.5;
-  margin-bottom: var(--space-sm);
-}
-
-.contacts-page-empty__title {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 550;
-  color: var(--text-secondary);
-}
-
-.contacts-page-empty__hint {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--text-tertiary);
 }
 
 /* ============================================
@@ -2922,41 +2625,6 @@ textarea::placeholder,
 .settings-modal__option-label {
   color: var(--text-primary);
   font-size: 0.95rem;
-}
-
-.settings-modal__theme-buttons {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-.settings-modal__theme-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.settings-modal__theme-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.settings-modal__theme-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.settings-modal__theme-btn.active {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: white;
 }
 
 /* ============================================
@@ -3188,45 +2856,6 @@ textarea::placeholder,
   }
 }
 
-.settings-section {
-  margin-bottom: var(--space-xl);
-}
-
-.settings-section h3 {
-  margin: 0 0 var(--space-md);
-  color: var(--text-primary);
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.settings-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-md);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-sm);
-}
-
-.settings-item span {
-  color: var(--text-primary);
-}
-
-.settings-item select {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.settings-item select:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
 /* Page container for contacts/profile/settings */
 .page-container {
   height: 100%;
@@ -3383,7 +3012,6 @@ textarea::placeholder,
     font-size: 1rem;
   }
 
-  .composer-left,
   .composer-right {
     flex-shrink: 0;
   }
@@ -3459,16 +3087,6 @@ textarea::placeholder,
 
   .chat-list-item__time {
     font-size: 0.7rem;
-  }
-
-  /* Contact card compact */
-  .contact-card {
-    padding: var(--space-sm) var(--space-md);
-  }
-
-  .contact-card__actions {
-    opacity: 1;
-    transform: translateX(0);
   }
 
   /* Telegram sidebar header */
