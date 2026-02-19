@@ -12,13 +12,6 @@ export type AuthResponse = {
 export type AuthLoginResponse = AuthResponse
 export type AuthRegisterResponse = AuthResponse
 
-export type AuthMeResponse = {
-  id: number
-  username: string
-  name: string
-  avatar_url?: string
-}
-
 // User Profile
 export type UserProfile = {
   id: number
