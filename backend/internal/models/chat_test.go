@@ -6,8 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
+func uintPtr(v uint) *uint { return &v }
+
 func TestChat_HasUser(t *testing.T) {
-	chat := &Chat{User1ID: 1, User2ID: 2}
+	chat := &Chat{User1ID: uintPtr(1), User2ID: uintPtr(2)}
 
 	tests := []struct {
 		name   string
@@ -62,22 +64,22 @@ func TestChat_BeforeCreate_NormalizesUserIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chat := &Chat{User1ID: tt.user1ID, User2ID: tt.user2ID}
+			chat := &Chat{User1ID: uintPtr(tt.user1ID), User2ID: uintPtr(tt.user2ID)}
 			if err := chat.BeforeCreate(&gorm.DB{}); err != nil {
 				t.Fatalf("BeforeCreate() error = %v", err)
 			}
-			if chat.User1ID != tt.wantUser1ID {
-				t.Errorf("User1ID = %d, want %d", chat.User1ID, tt.wantUser1ID)
+			if chat.GetUser1ID() != tt.wantUser1ID {
+				t.Errorf("User1ID = %d, want %d", chat.GetUser1ID(), tt.wantUser1ID)
 			}
-			if chat.User2ID != tt.wantUser2ID {
-				t.Errorf("User2ID = %d, want %d", chat.User2ID, tt.wantUser2ID)
+			if chat.GetUser2ID() != tt.wantUser2ID {
+				t.Errorf("User2ID = %d, want %d", chat.GetUser2ID(), tt.wantUser2ID)
 			}
 		})
 	}
 }
 
 func TestChat_HasUser_GroupChat(t *testing.T) {
-	chat := &Chat{IsGroup: true, User1ID: 0, User2ID: 0}
+	chat := &Chat{IsGroup: true}
 
 	tests := []struct {
 		name   string
@@ -98,16 +100,16 @@ func TestChat_HasUser_GroupChat(t *testing.T) {
 }
 
 func TestChat_BeforeCreate_SkipsNormalizationForGroup(t *testing.T) {
-	chat := &Chat{IsGroup: true, User1ID: 10, User2ID: 3}
+	chat := &Chat{IsGroup: true, User1ID: uintPtr(10), User2ID: uintPtr(3)}
 	if err := chat.BeforeCreate(&gorm.DB{}); err != nil {
 		t.Fatalf("BeforeCreate() error = %v", err)
 	}
 	// Group chats should NOT normalize user IDs
-	if chat.User1ID != 10 {
-		t.Errorf("User1ID = %d, want 10 (unchanged)", chat.User1ID)
+	if chat.GetUser1ID() != 10 {
+		t.Errorf("User1ID = %d, want 10 (unchanged)", chat.GetUser1ID())
 	}
-	if chat.User2ID != 3 {
-		t.Errorf("User2ID = %d, want 3 (unchanged)", chat.User2ID)
+	if chat.GetUser2ID() != 3 {
+		t.Errorf("User2ID = %d, want 3 (unchanged)", chat.GetUser2ID())
 	}
 }
 
@@ -142,8 +144,8 @@ func TestChat_GetOtherUser(t *testing.T) {
 	user2.ID = 2
 
 	chat := &Chat{
-		User1ID: 1,
-		User2ID: 2,
+		User1ID: uintPtr(1),
+		User2ID: uintPtr(2),
 		User1:   user1,
 		User2:   user2,
 	}
@@ -167,4 +169,15 @@ func TestChat_GetOtherUser(t *testing.T) {
 			t.Errorf("other.Username = %q, want %q", other.Username, "alice")
 		}
 	})
+}
+
+func TestChat_GetUserID_NilSafety(t *testing.T) {
+	chat := &Chat{IsGroup: true}
+
+	if got := chat.GetUser1ID(); got != 0 {
+		t.Errorf("GetUser1ID() on nil = %d, want 0", got)
+	}
+	if got := chat.GetUser2ID(); got != 0 {
+		t.Errorf("GetUser2ID() on nil = %d, want 0", got)
+	}
 }
