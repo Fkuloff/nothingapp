@@ -73,8 +73,8 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 	}
 
 	chat := &models.Chat{
-		User1ID: user1ID,
-		User2ID: user2ID,
+		User1ID: &user1ID,
+		User2ID: &user2ID,
 	}
 
 	if err := s.chatRepo.Create(ctx, chat); err != nil {

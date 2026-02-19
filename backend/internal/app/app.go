@@ -170,13 +170,20 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 	log.Info("running database migrations...")
 
 	// Drop legacy FK constraints on chats.user1_id/user2_id BEFORE AutoMigrate.
-	// Group chats use chat_participants and leave these fields as 0, which breaks
+	// Group chats use chat_participants and leave these fields as NULL, which breaks
 	// FK constraints. Must drop first so AutoMigrate doesn't fail trying to re-add them.
 	if err := db.Exec("ALTER TABLE chats DROP CONSTRAINT IF EXISTS fk_chats_user1").Error; err != nil {
 		log.Warn("failed to drop fk_chats_user1 constraint", zap.Error(err))
 	}
 	if err := db.Exec("ALTER TABLE chats DROP CONSTRAINT IF EXISTS fk_chats_user2").Error; err != nil {
 		log.Warn("failed to drop fk_chats_user2 constraint", zap.Error(err))
+	}
+
+	// Migrate group chats: set user1_id/user2_id from 0 to NULL.
+	// With *uint fields, NULL values don't violate the idx_chat_users unique index,
+	// allowing multiple group chats to coexist.
+	if err := db.Exec("UPDATE chats SET user1_id = NULL, user2_id = NULL WHERE is_group = true AND (user1_id = 0 OR user2_id = 0)").Error; err != nil {
+		log.Warn("failed to nullify group chat user IDs", zap.Error(err))
 	}
 
 	return db.AutoMigrate(

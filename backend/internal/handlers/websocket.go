@@ -449,7 +449,7 @@ func (h *webSocketHandler) broadcastToChat(ctx context.Context, chatID uint, msg
 			return err
 		}
 	} else {
-		participants = []uint{chat.User1ID, chat.User2ID}
+		participants = []uint{chat.GetUser1ID(), chat.GetUser2ID()}
 	}
 
 	for _, userID := range participants {
@@ -490,9 +490,9 @@ func (h *webSocketHandler) getChatRecipients(ctx context.Context, chat *models.C
 		return recipients
 	}
 
-	otherUserID := chat.User1ID
-	if chat.User1ID == excludeUserID {
-		otherUserID = chat.User2ID
+	otherUserID := chat.GetUser1ID()
+	if chat.GetUser1ID() == excludeUserID {
+		otherUserID = chat.GetUser2ID()
 	}
 	return []uint{otherUserID}
 }

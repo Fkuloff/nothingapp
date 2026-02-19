@@ -79,9 +79,9 @@ func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID u
 		return nil, &wsError{message: "Access denied to this chat"}
 	}
 
-	otherUserID := chat.User1ID
-	if chat.User1ID == userID {
-		otherUserID = chat.User2ID
+	otherUserID := chat.GetUser1ID()
+	if chat.GetUser1ID() == userID {
+		otherUserID = chat.GetUser2ID()
 	}
 
 	isRecipientOffline := !h.presenceService.IsUserOnline(otherUserID)
