@@ -345,8 +345,8 @@ func (h *chatHandler) CreateChatAPI(c *gin.Context) {
 
 	sendCreated(c, gin.H{
 		"id":         chat.ID,
-		"user1_id":   chat.User1ID,
-		"user2_id":   chat.User2ID,
+		"user1_id":   chat.GetUser1ID(),
+		"user2_id":   chat.GetUser2ID(),
 		"created_at": chat.CreatedAt,
 	})
 }
