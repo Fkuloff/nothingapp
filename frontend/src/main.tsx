@@ -6,6 +6,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { AuthProvider } from './features/auth/AuthContext'
+import { CallProvider } from './features/calls/CallProvider'
 import { AppRouter } from './router/AppRouter'
 import { ToastProvider } from './shared/components/Toast'
 import { ThemeProvider } from './shared/context/ThemeContext'
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root') as HTMLElement).render(
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
-          <AppRouter />
+          <CallProvider>
+            <AppRouter />
+          </CallProvider>
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>

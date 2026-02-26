@@ -339,6 +339,8 @@ func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 		return h.handleDeleteMessage(ctx, userID, msgData)
 	case "mark_read":
 		return h.handleMarkRead(ctx, userID, msgData)
+	case "call_offer", "call_answer", "call_ice", "call_hangup", "call_reject":
+		return h.handleCallSignaling(ctx, userID, msg)
 	default:
 		return &wsError{message: "Unknown action: " + msgData.Action}
 	}

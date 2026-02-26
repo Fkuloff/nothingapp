@@ -171,7 +171,45 @@ export type WSMessageMarkRead = {
   chat_id: number
 }
 
-export type WSMessageAction = WSMessageSend | WSMessageEdit | WSMessageDelete | WSMessageMarkRead
+// Call signaling (client -> server)
+export type WSCallOffer = {
+  action: 'call_offer'
+  chat_id: number
+  call_id: string
+  sdp: string
+  sdp_type: 'offer'
+}
+
+export type WSCallAnswer = {
+  action: 'call_answer'
+  chat_id: number
+  call_id: string
+  sdp: string
+  sdp_type: 'answer'
+}
+
+export type WSCallIce = {
+  action: 'call_ice'
+  chat_id: number
+  call_id: string
+  candidate: string
+}
+
+export type WSCallHangup = {
+  action: 'call_hangup'
+  chat_id: number
+  call_id: string
+}
+
+export type WSCallReject = {
+  action: 'call_reject'
+  chat_id: number
+  call_id: string
+}
+
+export type WSMessageAction =
+  | WSMessageSend | WSMessageEdit | WSMessageDelete | WSMessageMarkRead
+  | WSCallOffer | WSCallAnswer | WSCallIce | WSCallHangup | WSCallReject
 
 // WebSocket events (server -> client)
 export type WSEventNew = {
@@ -293,6 +331,47 @@ export type WSEventMessageUnpinned = {
   message_id: number
 }
 
+// Call signaling events (server -> client)
+export type WSEventCallOffer = {
+  action: 'call_offer'
+  chat_id: number
+  call_id: string
+  user_id: number
+  sdp: string
+  sdp_type: 'offer'
+}
+
+export type WSEventCallAnswer = {
+  action: 'call_answer'
+  chat_id: number
+  call_id: string
+  user_id: number
+  sdp: string
+  sdp_type: 'answer'
+}
+
+export type WSEventCallIce = {
+  action: 'call_ice'
+  chat_id: number
+  call_id: string
+  user_id: number
+  candidate: string
+}
+
+export type WSEventCallHangup = {
+  action: 'call_hangup'
+  chat_id: number
+  call_id: string
+  user_id: number
+}
+
+export type WSEventCallReject = {
+  action: 'call_reject'
+  chat_id: number
+  call_id: string
+  user_id: number
+}
+
 export type WSEvent =
   | WSEventNew
   | WSEventEdit
@@ -309,4 +388,9 @@ export type WSEvent =
   | WSEventGroupDeleted
   | WSEventMessagePinned
   | WSEventMessageUnpinned
+  | WSEventCallOffer
+  | WSEventCallAnswer
+  | WSEventCallIce
+  | WSEventCallHangup
+  | WSEventCallReject
   | ApiError
