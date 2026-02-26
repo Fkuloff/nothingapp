@@ -369,11 +369,11 @@ export function ChatWindow({
             </button>
           </div>
           <div className="chat-header__actions">
-            {!isGroup && otherUserId && isOtherUserOnline && (
+            {!isGroup && otherUserId && (
               <button
                 className="chat-header__call-btn"
                 onClick={handleStartCall}
-                disabled={callState.status !== 'idle'}
+                disabled={callState.status !== 'idle' || !isOtherUserOnline}
                 aria-label="Аудиозвонок"
               >
                 <PhoneIcon size={20} />

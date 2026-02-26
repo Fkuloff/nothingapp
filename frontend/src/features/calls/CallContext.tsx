@@ -22,7 +22,7 @@ type CallContextType = {
   rejectCall: () => void
   hangup: () => void
   toggleMute: () => void
-  handleCallEvent: (event: WSEvent) => void
+  handleCallEvent: (event: WSEvent, callerInfo?: { username: string; avatar?: string | null }) => void
   registerSend: (fn: ((data: WSMessageAction) => boolean) | null) => void
 }
 

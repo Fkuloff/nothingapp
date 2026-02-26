@@ -19,6 +19,7 @@ type callAction struct {
 	SDP       string `json:"sdp,omitempty"`
 	SDPType   string `json:"sdp_type,omitempty"`
 	Candidate string `json:"candidate,omitempty"`
+	Duration  int    `json:"duration,omitempty"` // Call duration in seconds (sent with call_hangup)
 }
 
 // userListItem represents a user in a list (contacts, search results).

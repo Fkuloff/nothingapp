@@ -199,6 +199,7 @@ export type WSCallHangup = {
   action: 'call_hangup'
   chat_id: number
   call_id: string
+  duration?: number
 }
 
 export type WSCallReject = {

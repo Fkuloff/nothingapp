@@ -64,7 +64,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const hangup = useCallback(() => {
     const state = callStateRef.current
     if (state.status !== 'idle' && state.callId && state.chatId) {
-      send({ action: 'call_hangup', chat_id: state.chatId, call_id: state.callId })
+      send({ action: 'call_hangup', chat_id: state.chatId, call_id: state.callId, duration: state.callDuration })
     }
     webrtc.hangup()
     resetState()
@@ -137,7 +137,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setCallState((prev) => ({ ...prev, isMuted: !prev.isMuted }))
   }, [webrtc])
 
-  const handleCallEvent = useCallback((event: WSEvent) => {
+  const handleCallEvent = useCallback((event: WSEvent, callerInfo?: { username: string; avatar?: string | null }) => {
     if ('error' in event) return
     const state = callStateRef.current
 
@@ -153,8 +153,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callId: event.call_id,
           chatId: event.chat_id,
           otherUserId: event.user_id,
-          otherUsername: null,
-          otherAvatar: null,
+          otherUsername: callerInfo?.username ?? null,
+          otherAvatar: callerInfo?.avatar ?? null,
           isMuted: false,
           callDuration: 0,
         })

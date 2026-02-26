@@ -1,4 +1,4 @@
-import { MicIcon, MicOffIcon, PhoneOffIcon } from '../../shared/components/Icons'
+import { CloseIcon, MicIcon, MicOffIcon } from '../../shared/components/Icons'
 
 type Props = {
   otherUsername: string
@@ -45,7 +45,7 @@ export function ActiveCallOverlay({ otherUsername, otherAvatar, duration, isMute
           onClick={onHangup}
           aria-label="Завершить звонок"
         >
-          <PhoneOffIcon size={18} />
+          <CloseIcon size={18} />
         </button>
       </div>
     </div>

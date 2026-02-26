@@ -23,6 +23,13 @@ export default function AppLayout() {
     onChatSelectedRef.current?.(chatId)
   }, [])
 
+  const handleAcceptCall = useCallback(() => {
+    if (callState.chatId) {
+      onChatSelectedRef.current?.(callState.chatId)
+    }
+    acceptCall()
+  }, [callState.chatId, acceptCall])
+
   return (
     <div className="telegram-layout">
       <SlideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} onChatSelected={handleChatSelected} />
@@ -34,7 +41,7 @@ export default function AppLayout() {
         <IncomingCallModal
           callerName={callState.otherUsername || 'Неизвестный'}
           callerAvatar={callState.otherAvatar}
-          onAccept={acceptCall}
+          onAccept={handleAcceptCall}
           onReject={rejectCall}
         />
       )}

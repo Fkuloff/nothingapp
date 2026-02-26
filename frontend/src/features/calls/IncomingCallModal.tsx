@@ -1,4 +1,4 @@
-import { PhoneIcon, PhoneOffIcon } from '../../shared/components/Icons'
+import { CloseIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -22,7 +22,7 @@ export function IncomingCallModal({ callerName, callerAvatar, onAccept, onReject
         <div className="incoming-call-modal__label">Входящий звонок...</div>
         <div className="incoming-call-modal__actions">
           <button className="incoming-call-modal__btn incoming-call-modal__btn--reject" onClick={onReject} aria-label="Отклонить">
-            <PhoneOffIcon size={24} />
+            <CloseIcon size={24} />
           </button>
           <button className="incoming-call-modal__btn incoming-call-modal__btn--accept" onClick={onAccept} aria-label="Принять">
             <PhoneIcon size={24} />

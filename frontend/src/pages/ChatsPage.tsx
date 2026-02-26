@@ -66,7 +66,12 @@ export default function ChatsPage() {
 
       // Route call signaling events to CallContext
       if ('action' in event && event.action.startsWith('call_')) {
-        handleCallEventRef.current(event)
+        if (event.action === 'call_offer') {
+          const chat = chatsRef.current.find((c) => c.id === event.chat_id)
+          handleCallEventRef.current(event, chat ? { username: chat.other_user_name || '', avatar: chat.avatar_url } : undefined)
+        } else {
+          handleCallEventRef.current(event)
+        }
         return
       }
 

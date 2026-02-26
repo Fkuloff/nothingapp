@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"go.uber.org/zap"
 )
@@ -63,6 +64,11 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 
 	h.broadcastToUser(otherUserID, msgJSON)
 
+	// Create system message for call termination events
+	if ca.Action == "call_hangup" || ca.Action == "call_reject" {
+		h.saveCallSystemMessage(ctx, ca)
+	}
+
 	h.logger.Debug("relayed call signal",
 		zap.String("action", ca.Action),
 		zap.Uint("from", userID),
@@ -71,4 +77,43 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 	)
 
 	return nil
+}
+
+// saveCallSystemMessage creates a system message summarizing the call and broadcasts it to both users.
+func (h *webSocketHandler) saveCallSystemMessage(ctx context.Context, ca callAction) {
+	var text string
+	switch {
+	case ca.Action == "call_reject":
+		text = "Пропущенный звонок"
+	case ca.Duration > 0:
+		text = fmt.Sprintf("Звонок · %02d:%02d", ca.Duration/60, ca.Duration%60)
+	default:
+		text = "Отменённый звонок"
+	}
+
+	msg, err := h.chatService.SaveCallSystemMessage(ctx, ca.ChatID, text)
+	if err != nil {
+		h.logger.Error("failed to save call system message", zap.Error(err))
+		return
+	}
+
+	broadcastData := map[string]any{
+		"action":     "new",
+		"chat_id":    ca.ChatID,
+		"user_id":    0,
+		"text":       text,
+		"id":         msg.ID,
+		"type":       "system",
+		"created_at": msg.CreatedAt,
+		"is_deleted": false,
+	}
+	broadcastJSON, err := json.Marshal(broadcastData)
+	if err != nil {
+		h.logger.Error("failed to marshal call system message", zap.Error(err))
+		return
+	}
+
+	if err := h.broadcastToChat(ctx, ca.ChatID, broadcastJSON); err != nil {
+		h.logger.Error("failed to broadcast call system message", zap.Error(err))
+	}
 }

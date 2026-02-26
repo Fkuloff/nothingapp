@@ -555,6 +555,26 @@ func (s *ChatService) GetUnreadCounts(ctx context.Context, userID uint) (map[uin
 	return counts, nil
 }
 
+// SaveCallSystemMessage creates a system message for a completed or missed call.
+func (s *ChatService) SaveCallSystemMessage(ctx context.Context, chatID uint, text string) (*models.Message, error) {
+	msg := &models.Message{
+		ChatID: chatID,
+		UserID: 0,
+		Text:   text,
+		Type:   models.MessageTypeSystem,
+	}
+	if err := s.messageRepo.Create(ctx, msg); err != nil {
+		return nil, fmt.Errorf("create call system message: %w", err)
+	}
+
+	// Update chat timestamp so the chat appears at the top of the list
+	if err := s.db.WithContext(ctx).Model(&models.Chat{}).Where("id = ?", chatID).Update("updated_at", msg.CreatedAt).Error; err != nil {
+		s.logger.Error("failed to update chat timestamp after call", zap.Error(err))
+	}
+
+	return msg, nil
+}
+
 // decryptMessages decrypts all messages in a slice (including ReplyTo).
 func (s *ChatService) decryptMessages(messages []models.Message) {
 	for i := range messages {
