@@ -17,7 +17,7 @@ const (
 
 // Message and chat constants.
 const (
-	maxMessageSize           = 10000               // 10KB max message size
+	maxMessageSize           = 65536               // 64KB max message size (SDP payloads can be 2-5KB)
 	maxRecentMessages        = 100                 // Max messages to load in recent history
 	maxChatListPreview       = 100                 // Max characters for last message preview
 	maxConnectionsPerUser    = 5                   // Max WebSocket connections per user

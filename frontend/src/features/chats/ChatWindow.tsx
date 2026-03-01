@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost } from '../../shared/api/httpClient'
 import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
+import { PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
+import { useCallContext } from '../calls/CallContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
 import { EmojiPicker } from './EmojiPicker'
@@ -127,6 +129,12 @@ export function ChatWindow({
   }, [chatId, onDeleteChat])
 
   const { showToast } = useToast()
+  const { callState, initiateCall } = useCallContext()
+
+  const handleStartCall = useCallback(() => {
+    if (!chatId || !otherUserId || !otherUsername) return
+    initiateCall(chatId, otherUserId, otherUsername, otherAvatar)
+  }, [chatId, otherUserId, otherUsername, otherAvatar, initiateCall])
 
   // Upload files when the sender's new message arrives via WebSocket broadcast
   useEffect(() => {
@@ -361,6 +369,16 @@ export function ChatWindow({
             </button>
           </div>
           <div className="chat-header__actions">
+            {!isGroup && otherUserId && (
+              <button
+                className="chat-header__call-btn"
+                onClick={handleStartCall}
+                disabled={callState.status !== 'idle' || !isOtherUserOnline}
+                aria-label="Аудиозвонок"
+              >
+                <PhoneIcon size={20} />
+              </button>
+            )}
             <button
               className="chat-header__search-btn"
               onClick={() => setIsSearchOpen(!isSearchOpen)}
