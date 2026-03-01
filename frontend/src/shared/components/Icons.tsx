@@ -116,17 +116,6 @@ export function PhoneIcon({ className, size = 20 }: IconProps) {
   )
 }
 
-/** Phone-off icon — used for hanging up calls */
-export function PhoneOffIcon({ className, size = 20 }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67" />
-      <path d="M14.91 9.09a16 16 0 0 0-2.6-3.41L13.58 4.41a2 2 0 0 1 .45-2.11 12.84 12.84 0 0 0-.7-2.81A2 2 0 0 1 11.3.21h-3a2 2 0 0 1-2 2.18 19.79 19.79 0 0 1 3.07 8.63" transform="rotate(90 12 12)" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  )
-}
-
 /** Microphone icon — used for unmuted state */
 export function MicIcon({ className, size = 20 }: IconProps) {
   return (
