@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 
 import type { OutletContextType } from '../App'
 import { useAuthContext } from '../features/auth/AuthContext'
+import { useCallContext } from '../features/calls/CallContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
@@ -15,6 +16,7 @@ import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
+  const callContext = useCallContext()
   const [chats, setChats] = useState<ChatItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
@@ -31,11 +33,16 @@ export default function ChatsPage() {
   const loadChatsRef = useRef<() => void>(() => {})
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
   const messageCacheRef = useRef<Map<number, Message[]>>(new Map())
+  const handleCallEventRef = useRef(callContext.handleCallEvent)
 
-  // Keep chatsRef in sync for use in WS handler
+  // Keep refs in sync for use in WS handler
   useEffect(() => {
     chatsRef.current = chats
   }, [chats])
+
+  useEffect(() => {
+    handleCallEventRef.current = callContext.handleCallEvent
+  }, [callContext.handleCallEvent])
 
   useEffect(() => {
     const computeIsMobile = () => {
@@ -54,6 +61,17 @@ export default function ChatsPage() {
     (event: WSEvent) => {
       if ('error' in event) {
         console.error('WebSocket error:', event.error)
+        return
+      }
+
+      // Route call signaling events to CallContext
+      if ('action' in event && event.action.startsWith('call_')) {
+        if (event.action === 'call_offer') {
+          const chat = chatsRef.current.find((c) => c.id === event.chat_id)
+          handleCallEventRef.current(event, chat ? { username: chat.other_user_name || '', avatar: chat.avatar_url } : undefined)
+        } else {
+          handleCallEventRef.current(event)
+        }
         return
       }
 
@@ -225,6 +243,14 @@ export default function ChatsPage() {
     onMessage: handleWebSocketMessage,
     enabled: Boolean(user),
   })
+
+  // Register WS send function with CallContext so it can send signaling messages
+  useEffect(() => {
+    if (isConnected) {
+      callContext.registerSend(send)
+    }
+    return () => callContext.registerSend(null)
+  }, [isConnected, send, callContext])
 
   const loadChats = useCallback(async () => {
     try {

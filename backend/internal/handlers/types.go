@@ -11,6 +11,16 @@ type messageAction struct {
 	MessageID uint   `json:"message_id"`
 }
 
+// callAction represents a WebSocket call signaling message (offer, answer, ICE, hangup, reject).
+type callAction struct {
+	Action    string `json:"action"`
+	ChatID    uint   `json:"chat_id"`
+	CallID    string `json:"call_id"`
+	SDP       string `json:"sdp,omitempty"`
+	SDPType   string `json:"sdp_type,omitempty"`
+	Candidate string `json:"candidate,omitempty"`
+}
+
 // userListItem represents a user in a list (contacts, search results).
 type userListItem struct {
 	ID        uint    `json:"id"`
