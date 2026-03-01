@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WSEvent, WSMessageAction } from '../../shared/api/types'
 import type { CallState } from './CallContext'
 import { CallContext } from './CallContext'
+import { createRingback, createRingtone } from './ringback'
 import { useWebRTC } from './useWebRTC'
 
 const initialState: CallState = {
@@ -28,6 +29,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     callStateRef.current = callState
   }, [callState])
+
+  // Ringback tone while outgoing
+  useEffect(() => {
+    if (callState.status !== 'outgoing') return
+    const ringback = createRingback()
+    ringback.start()
+    return () => ringback.stop()
+  }, [callState.status])
+
+  // Ringtone for incoming call
+  useEffect(() => {
+    if (callState.status !== 'incoming') return
+    const ringtone = createRingtone()
+    ringtone.start()
+    return () => ringtone.stop()
+  }, [callState.status])
 
   // Call duration timer
   useEffect(() => {
@@ -64,7 +81,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const hangup = useCallback(() => {
     const state = callStateRef.current
     if (state.status !== 'idle' && state.callId && state.chatId) {
-      send({ action: 'call_hangup', chat_id: state.chatId, call_id: state.callId, duration: state.callDuration })
+      send({ action: 'call_hangup', chat_id: state.chatId, call_id: state.callId })
     }
     webrtc.hangup()
     resetState()

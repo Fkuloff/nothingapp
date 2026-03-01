@@ -50,7 +50,8 @@ export function useWebRTC() {
       if (stream) {
         const audio = new Audio()
         audio.srcObject = stream
-        audio.autoplay = true
+        audio.volume = 1.0
+        audio.play().catch(console.error)
         remoteAudioRef.current = audio
       }
     }
@@ -77,7 +78,9 @@ export function useWebRTC() {
   const startCall = useCallback(async (onIceCandidate: OnIceCandidateFn): Promise<string> => {
     cleanup()
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+    })
     localStreamRef.current = stream
 
     const pc = createPeerConnection(onIceCandidate)
@@ -93,7 +96,9 @@ export function useWebRTC() {
   const answerCall = useCallback(async (remoteSdp: string, onIceCandidate: OnIceCandidateFn): Promise<string> => {
     cleanup()
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+    })
     localStreamRef.current = stream
 
     const pc = createPeerConnection(onIceCandidate)
