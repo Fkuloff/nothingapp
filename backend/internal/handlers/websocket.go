@@ -47,9 +47,9 @@ type webSocketHandler struct {
 	logger          *zap.Logger
 	encryptor       *crypto.MessageEncryptor
 	fileStorage     storage.Storage
-	clients         map[uint][]*wsClient      // userID -> []clients
+	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
-	activeCalls     map[uint]activeCallInfo    // userID -> active call peer
+	activeCalls     map[uint]activeCallInfo // userID -> active call peer
 	callsMu         sync.Mutex
 	broadcastPool   *workerPool // Limits concurrent broadcast goroutines
 }
@@ -288,7 +288,7 @@ func (h *webSocketHandler) notifyCallPeerOnDisconnect(userID uint) {
 	}
 
 	hangupData := map[string]any{
-		"action":  "call_hangup",
+		"action":  actionCallHangup,
 		"chat_id": info.chatID,
 		"call_id": info.callID,
 		"user_id": userID,
@@ -410,7 +410,7 @@ func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 		return h.handleDeleteMessage(ctx, userID, msgData)
 	case "mark_read":
 		return h.handleMarkRead(ctx, userID, msgData)
-	case "call_offer", "call_answer", "call_ice", "call_hangup", "call_reject":
+	case actionCallOffer, actionCallAnswer, actionCallICE, actionCallHangup, actionCallReject:
 		return h.handleCallSignaling(ctx, userID, msg)
 	default:
 		return &wsError{message: "Unknown action: " + msgData.Action}

@@ -38,15 +38,15 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 		otherUserID = chat.GetUser2ID()
 	}
 
-	if ca.Action == "call_offer" && !h.presenceService.IsUserOnline(otherUserID) {
+	if ca.Action == actionCallOffer && !h.presenceService.IsUserOnline(otherUserID) {
 		return &wsError{message: "User is offline"}
 	}
 
 	// Track active calls for disconnect notification
 	switch ca.Action {
-	case "call_offer":
+	case actionCallOffer:
 		h.registerCall(userID, otherUserID, ca.CallID, ca.ChatID)
-	case "call_hangup", "call_reject":
+	case actionCallHangup, actionCallReject:
 		h.unregisterCall(userID)
 	}
 
