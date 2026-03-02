@@ -55,6 +55,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval)
   }, [callState.status])
 
+  // Send hangup when page is about to unload (refresh/close tab)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const state = callStateRef.current
+      if (state.status !== 'idle' && state.callId && state.chatId) {
+        sendRef.current?.({ action: 'call_hangup', chat_id: state.chatId, call_id: state.callId })
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
+
   // Auto-hangup on WebRTC connection failure
   useEffect(() => {
     if (webrtc.connectionState === 'failed' || webrtc.connectionState === 'disconnected') {

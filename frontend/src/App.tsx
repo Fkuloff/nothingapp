@@ -30,33 +30,37 @@ export default function AppLayout() {
     acceptCall()
   }, [callState.chatId, acceptCall])
 
+  const hasActiveCall = callState.status === 'outgoing' || callState.status === 'active'
+
   return (
-    <div className="telegram-layout">
-      <SlideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} onChatSelected={handleChatSelected} />
-      <div className="telegram-main">
-        <Outlet context={{ menuOpen, setMenuOpen, onChatSelectedRef } satisfies OutletContextType} />
-      </div>
-
-      {callState.status === 'incoming' && (
-        <IncomingCallModal
-          callerName={callState.otherUsername || 'Неизвестный'}
-          callerAvatar={callState.otherAvatar}
-          onAccept={handleAcceptCall}
-          onReject={rejectCall}
-        />
-      )}
-
-      {(callState.status === 'outgoing' || callState.status === 'active') && (
+    <>
+      {hasActiveCall && (
         <ActiveCallOverlay
           otherUsername={callState.otherUsername || ''}
           otherAvatar={callState.otherAvatar}
           duration={callState.callDuration}
           isMuted={callState.isMuted}
-          status={callState.status}
+          status={callState.status as 'outgoing' | 'active'}
           onToggleMute={toggleMute}
           onHangup={hangup}
         />
       )}
-    </div>
+
+      <div className={`telegram-layout${hasActiveCall ? ' has-active-call' : ''}`}>
+        <SlideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} onChatSelected={handleChatSelected} />
+        <div className="telegram-main">
+          <Outlet context={{ menuOpen, setMenuOpen, onChatSelectedRef } satisfies OutletContextType} />
+        </div>
+
+        {callState.status === 'incoming' && (
+          <IncomingCallModal
+            callerName={callState.otherUsername || 'Неизвестный'}
+            callerAvatar={callState.otherAvatar}
+            onAccept={handleAcceptCall}
+            onReject={rejectCall}
+          />
+        )}
+      </div>
+    </>
   )
 }

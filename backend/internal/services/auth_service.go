@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,6 +12,9 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// ErrInvalidPassword is returned when the provided password does not match.
+var ErrInvalidPassword = errors.New("invalid password")
 
 // AuthService handles user authentication (registration, login, lookup).
 type AuthService struct {
@@ -63,6 +67,29 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*mo
 	}
 
 	return user, nil
+}
+
+// ChangePassword validates the old password and updates to a new one.
+func (s *AuthService) ChangePassword(ctx context.Context, userID uint, oldPassword, newPassword string) error {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to find user: %w", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return ErrInvalidPassword
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if err := s.userRepo.UpdatePassword(ctx, userID, string(hashedPassword)); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
 }
 
 // GetUserByID retrieves a user by their ID.
