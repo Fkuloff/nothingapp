@@ -1637,7 +1637,7 @@ textarea::placeholder,
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 999;
+  z-index: 1060;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s ease, visibility 0.3s ease;
@@ -1655,7 +1655,7 @@ textarea::placeholder,
   width: 280px;
   height: 100vh;
   background: var(--bg-secondary);
-  z-index: 1000;
+  z-index: 1061;
   transform: translateX(-100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
@@ -2596,6 +2596,38 @@ textarea::placeholder,
   height: 20px;
 }
 
+/* Menu list */
+.settings-modal__list {
+  padding: var(--space-sm) 0;
+}
+
+.settings-modal__list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md) var(--space-xl);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+
+.settings-modal__list-item:hover {
+  background: var(--bg-hover);
+}
+
+.settings-modal__list-icon {
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
 .settings-modal__content {
   flex: 1;
   overflow-y: auto;
@@ -2604,15 +2636,6 @@ textarea::placeholder,
 
 .settings-modal__section {
   padding: var(--space-md) var(--space-xl);
-}
-
-.settings-modal__section-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin: 0 0 var(--space-md) 0;
 }
 
 .settings-modal__option {
@@ -2694,16 +2717,78 @@ textarea::placeholder,
   padding: var(--space-md) 0;
 }
 
+/* Change Password Form */
+.change-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.change-password-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.change-password-form__field label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.change-password-form__field .form-control {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
+}
+
+.change-password-form__hint {
+  font-size: 0.8rem;
+  color: var(--accent-danger);
+}
+
+.change-password-form__error {
+  font-size: 0.85rem;
+  color: var(--accent-danger);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent-danger-dim, rgba(220, 53, 69, 0.1));
+  border-radius: var(--radius-md);
+}
+
+.change-password-form__success {
+  font-size: 0.85rem;
+  color: var(--accent-success);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent-success-dim, rgba(25, 135, 84, 0.1));
+  border-radius: var(--radius-md);
+}
+
+.change-password-form__submit {
+  align-self: flex-start;
+  margin-top: var(--space-xs);
+}
+
 /* ============================================
    TELEGRAM-STYLE LAYOUT
    ============================================ */
 .telegram-layout {
-  height: 100vh;
-  height: 100dvh; /* Dynamic viewport height - accounts for mobile browser UI */
-  width: 100vw;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   background: var(--bg-primary);
   overflow: hidden;
+}
+
+/* Outer layout (direct child of #root): explicit viewport height for reliable % resolution */
+#root > .telegram-layout {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+
+#root > .telegram-layout.has-active-call {
+  padding-top: 48px; /* box-sizing: border-box → content area = 100dvh − 48px */
 }
 
 .telegram-main {
@@ -2800,8 +2885,6 @@ textarea::placeholder,
 @media (max-width: 768px) {
   .telegram-layout {
     position: relative;
-    height: 100vh;
-    height: 100dvh; /* Dynamic viewport height for mobile browsers */
   }
 
   .telegram-sidebar {
@@ -4093,15 +4176,6 @@ textarea::placeholder,
 
 .active-call-overlay__btn--hangup:hover {
   background: #e5443d;
-}
-
-/* Push down main content when call overlay is visible */
-.telegram-layout:has(.active-call-overlay) .telegram-main {
-  margin-top: 48px;
-}
-
-.telegram-layout:has(.active-call-overlay) .telegram-sidebar {
-  margin-top: 48px;
 }
 
 /* ============================================

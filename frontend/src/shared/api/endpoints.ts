@@ -3,6 +3,7 @@ export const endpoints = {
     login: '/api/auth/login',
     register: '/api/auth/register',
     logout: '/api/auth/logout',
+    changePassword: '/api/auth/password',
     me: '/api/auth/me',
   },
   profile: (userId?: number | string) => (userId ? `/api/profile/${userId}` : '/api/profile'),

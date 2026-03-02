@@ -42,6 +42,14 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 		return &wsError{message: "User is offline"}
 	}
 
+	// Track active calls for disconnect notification
+	switch ca.Action {
+	case "call_offer":
+		h.registerCall(userID, otherUserID, ca.CallID, ca.ChatID)
+	case "call_hangup", "call_reject":
+		h.unregisterCall(userID)
+	}
+
 	relayData := map[string]any{
 		"action":  ca.Action,
 		"chat_id": ca.ChatID,

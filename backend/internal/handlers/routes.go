@@ -105,6 +105,7 @@ func SetupRoutes(
 func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {
 	auth := api.Group("/auth")
 	auth.POST("/logout", h.LogoutAPI)
+	auth.PUT("/password", h.ChangePasswordAPI)
 	auth.GET("/me", h.GetCurrentUser)
 }
 
