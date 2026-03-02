@@ -28,6 +28,15 @@ const (
 	pingPeriod               = (pongWait * 9) / 10 // Send pings to peer with this period
 )
 
+// WebRTC call signaling action names.
+const (
+	actionCallOffer  = "call_offer"
+	actionCallAnswer = "call_answer"
+	actionCallICE    = "call_ice"
+	actionCallHangup = "call_hangup"
+	actionCallReject = "call_reject"
+)
+
 // Multipart form parse limits.
 const (
 	multipartFormSizeAttachment = 512 << 20 // 512 MB

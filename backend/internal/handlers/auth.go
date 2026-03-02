@@ -185,6 +185,43 @@ func (h *authHandler) LoginAPI(c *gin.Context) {
 	})
 }
 
+// ChangePasswordAPI handles password change for authenticated users
+func (h *authHandler) ChangePasswordAPI(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		sendBadRequest(c, "Old password and new password are required")
+		return
+	}
+
+	if err := validatePasswordStrength(req.NewPassword); err != nil {
+		sendBadRequest(c, err.Error())
+		return
+	}
+
+	err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidPassword) {
+			sendBadRequest(c, "Неверный текущий пароль")
+			return
+		}
+		sendInternalError(c, "Failed to change password")
+		return
+	}
+
+	sendSuccess(c, gin.H{
+		"message": "Password changed successfully",
+	})
+}
+
 // LogoutAPI handles JSON logout
 func (h *authHandler) LogoutAPI(c *gin.Context) {
 	sendSuccess(c, gin.H{

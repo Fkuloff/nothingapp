@@ -53,6 +53,11 @@ func (r *UserRepo) UpdateName(ctx context.Context, userID uint, name string) err
 	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("name", name).Error
 }
 
+// UpdatePassword updates a user's hashed password.
+func (r *UserRepo) UpdatePassword(ctx context.Context, userID uint, hashedPassword string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("password", hashedPassword).Error
+}
+
 // SearchByUsernameOrName searches users by username or name (case-insensitive, partial match)
 func (r *UserRepo) SearchByUsernameOrName(ctx context.Context, query string) ([]*models.User, error) {
 	var users []*models.User

@@ -29,6 +29,13 @@ type wsClient struct {
 	writeMu      sync.Mutex // Protects all writes to conn (Gorilla WebSocket not thread-safe)
 }
 
+// activeCallInfo tracks an in-progress call for disconnect notification.
+type activeCallInfo struct {
+	peerUserID uint
+	callID     string
+	chatID     uint
+}
+
 // webSocketHandler manages global WebSocket connections
 type webSocketHandler struct {
 	chatService     *services.ChatService
@@ -42,6 +49,8 @@ type webSocketHandler struct {
 	fileStorage     storage.Storage
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
+	activeCalls     map[uint]activeCallInfo // userID -> active call peer
+	callsMu         sync.Mutex
 	broadcastPool   *workerPool // Limits concurrent broadcast goroutines
 }
 
@@ -64,6 +73,7 @@ func newWebSocketHandler(
 		encryptor:       encryptor,
 		fileStorage:     fileStorage,
 		clients:         make(map[uint][]*wsClient),
+		activeCalls:     make(map[uint]activeCallInfo),
 		broadcastPool:   newWorkerPool(50), // 50 workers for broadcast concurrency
 	}
 }
@@ -237,11 +247,72 @@ func (h *webSocketHandler) writePump(client *wsClient, ticker *time.Ticker, done
 	}
 }
 
+// registerCall tracks an active call between two users for disconnect notification.
+func (h *webSocketHandler) registerCall(userID, peerUserID uint, callID string, chatID uint) {
+	h.callsMu.Lock()
+	defer h.callsMu.Unlock()
+	h.activeCalls[userID] = activeCallInfo{peerUserID: peerUserID, callID: callID, chatID: chatID}
+	h.activeCalls[peerUserID] = activeCallInfo{peerUserID: userID, callID: callID, chatID: chatID}
+}
+
+// unregisterCall removes call tracking for a user and their peer.
+func (h *webSocketHandler) unregisterCall(userID uint) {
+	h.callsMu.Lock()
+	defer h.callsMu.Unlock()
+	if info, ok := h.activeCalls[userID]; ok {
+		delete(h.activeCalls, info.peerUserID)
+		delete(h.activeCalls, userID)
+	}
+}
+
+// notifyCallPeerOnDisconnect sends call_hangup to the peer if the user had an active call
+// and has no remaining connections (avoids TOCTOU race by checking under lock).
+func (h *webSocketHandler) notifyCallPeerOnDisconnect(userID uint) {
+	h.mu.RLock()
+	hasConnections := len(h.clients[userID]) > 0
+	h.mu.RUnlock()
+	if hasConnections {
+		return
+	}
+
+	h.callsMu.Lock()
+	info, ok := h.activeCalls[userID]
+	if ok {
+		delete(h.activeCalls, userID)
+		delete(h.activeCalls, info.peerUserID)
+	}
+	h.callsMu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	hangupData := map[string]any{
+		"action":  actionCallHangup,
+		"chat_id": info.chatID,
+		"call_id": info.callID,
+		"user_id": userID,
+	}
+	msgJSON, err := json.Marshal(hangupData)
+	if err != nil {
+		h.logger.Error("failed to marshal disconnect hangup", zap.Error(err), zap.Uint("user_id", userID))
+		return
+	}
+
+	h.broadcastToUser(info.peerUserID, msgJSON)
+	h.logger.Debug("sent call_hangup on disconnect",
+		zap.Uint("disconnected_user", userID),
+		zap.Uint("notified_peer", info.peerUserID),
+		zap.String("call_id", info.callID),
+	)
+}
+
 // cleanup performs cleanup when connection closes
 func (h *webSocketHandler) cleanup(done chan struct{}, client *wsClient, userID uint, conn *websocket.Conn) {
 	close(done)
 	client.cancel() // Cancel context to stop any pending operations
 	h.removeClient(userID, client)
+	h.notifyCallPeerOnDisconnect(userID)
 	h.presenceService.UserDisconnected(userID)
 	if closeErr := conn.Close(); closeErr != nil {
 		h.logger.Warn("failed to close websocket connection", zap.Error(closeErr), zap.Uint("user_id", userID))
@@ -339,7 +410,7 @@ func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 		return h.handleDeleteMessage(ctx, userID, msgData)
 	case "mark_read":
 		return h.handleMarkRead(ctx, userID, msgData)
-	case "call_offer", "call_answer", "call_ice", "call_hangup", "call_reject":
+	case actionCallOffer, actionCallAnswer, actionCallICE, actionCallHangup, actionCallReject:
 		return h.handleCallSignaling(ctx, userID, msg)
 	default:
 		return &wsError{message: "Unknown action: " + msgData.Action}
