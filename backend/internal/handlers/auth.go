@@ -209,7 +209,7 @@ func (h *authHandler) ChangePasswordAPI(c *gin.Context) {
 
 	err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword)
 	if err != nil {
-		if strings.Contains(err.Error(), "invalid old password") {
+		if errors.Is(err, services.ErrInvalidPassword) {
 			sendBadRequest(c, "Неверный текущий пароль")
 			return
 		}

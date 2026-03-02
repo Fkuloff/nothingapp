@@ -265,8 +265,16 @@ func (h *webSocketHandler) unregisterCall(userID uint) {
 	}
 }
 
-// notifyCallPeerOnDisconnect sends call_hangup to the peer if the user had an active call.
+// notifyCallPeerOnDisconnect sends call_hangup to the peer if the user had an active call
+// and has no remaining connections (avoids TOCTOU race by checking under lock).
 func (h *webSocketHandler) notifyCallPeerOnDisconnect(userID uint) {
+	h.mu.RLock()
+	hasConnections := len(h.clients[userID]) > 0
+	h.mu.RUnlock()
+	if hasConnections {
+		return
+	}
+
 	h.callsMu.Lock()
 	info, ok := h.activeCalls[userID]
 	if ok {
@@ -292,7 +300,7 @@ func (h *webSocketHandler) notifyCallPeerOnDisconnect(userID uint) {
 	}
 
 	h.broadcastToUser(info.peerUserID, msgJSON)
-	h.logger.Info("sent call_hangup on disconnect",
+	h.logger.Debug("sent call_hangup on disconnect",
 		zap.Uint("disconnected_user", userID),
 		zap.Uint("notified_peer", info.peerUserID),
 		zap.String("call_id", info.callID),
@@ -304,15 +312,7 @@ func (h *webSocketHandler) cleanup(done chan struct{}, client *wsClient, userID 
 	close(done)
 	client.cancel() // Cancel context to stop any pending operations
 	h.removeClient(userID, client)
-
-	// If this was the user's last connection, notify call peer about disconnect
-	h.mu.RLock()
-	hasConnections := len(h.clients[userID]) > 0
-	h.mu.RUnlock()
-	if !hasConnections {
-		h.notifyCallPeerOnDisconnect(userID)
-	}
-
+	h.notifyCallPeerOnDisconnect(userID)
 	h.presenceService.UserDisconnected(userID)
 	if closeErr := conn.Close(); closeErr != nil {
 		h.logger.Warn("failed to close websocket connection", zap.Error(closeErr), zap.Uint("user_id", userID))
