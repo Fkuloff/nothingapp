@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 
+import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { ChatItem } from '../../shared/api/types'
 import { GroupIcon } from '../../shared/components/Icons'
 
@@ -51,7 +52,7 @@ export function ChatList({ chats, activeChatId, onSelect, loading, error }: Prop
                   tabIndex={0}
                 >
                   <span className="avatar avatar-md">
-                    <img src={chat.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+                    <img src={resolveApiUrl(chat.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" />
                   </span>
                   <div className="chat-list-item-content">
                     <div className="chat-list-item__top">

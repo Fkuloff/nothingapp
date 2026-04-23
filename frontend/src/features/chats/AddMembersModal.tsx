@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { getContacts } from '../../shared/api/contactsApi'
 import { addGroupMembers } from '../../shared/api/groupsApi'
+import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
 import { CheckIcon, CloseIcon, SearchIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -122,7 +123,7 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
                 >
                   <div className="contacts-modal__avatar-wrap">
                     <img
-                      src={contact.avatar_url || '/img/default-avatar.svg'}
+                      src={resolveApiUrl(contact.avatar_url) || '/img/default-avatar.svg'}
                       alt=""
                       className="contacts-modal__avatar"
                     />

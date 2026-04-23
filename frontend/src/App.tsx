@@ -7,6 +7,7 @@ import { ActiveCallOverlay } from './features/calls/ActiveCallOverlay'
 import { useCallContext } from './features/calls/CallContext'
 import { IncomingCallModal } from './features/calls/IncomingCallModal'
 import { SlideMenu } from './features/menu/SlideMenu'
+import { useFCMNotifications } from './shared/hooks/useFCMNotifications'
 
 export type OutletContextType = {
   menuOpen: boolean
@@ -18,6 +19,8 @@ export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const onChatSelectedRef = useRef<((chatId: number) => void) | null>(null)
   const { callState, acceptCall, rejectCall, hangup, toggleMute } = useCallContext()
+
+  useFCMNotifications(true)
 
   const handleChatSelected = useCallback((chatId: number) => {
     onChatSelectedRef.current?.(chatId)

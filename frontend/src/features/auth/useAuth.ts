@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { endpoints } from '../../shared/api/endpoints'
 import { getAuthToken, httpGet, setAuthToken } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
+import { unregisterFCMDevice } from '../../shared/hooks/useFCMNotifications'
 
 export function useAuth() {
   const [user, setUser] = useState<UserProfile | null>(null)
@@ -31,6 +32,7 @@ export function useAuth() {
   const logout = useCallback(async () => {
     try {
       setLoading(true)
+      await unregisterFCMDevice()
       await httpGet(endpoints.auth.logout)
     } catch (err) {
       console.error('Не удалось выйти из аккаунта', err)

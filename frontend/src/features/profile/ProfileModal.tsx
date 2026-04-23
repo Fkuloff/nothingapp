@@ -1,7 +1,7 @@
 import { useEffect, useRef,useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
-import { httpPost, httpPut } from '../../shared/api/httpClient'
+import { httpPost, httpPut, resolveApiUrl } from '../../shared/api/httpClient'
 import type { AvatarUploadResponse } from '../../shared/api/types'
 import { CloseIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
@@ -100,7 +100,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
 
         <div className="profile-modal__avatar-wrapper" onClick={handleAvatarClick}>
           <img
-            src={user?.avatar_url || '/img/default-avatar.svg'}
+            src={resolveApiUrl(user?.avatar_url) || '/img/default-avatar.svg'}
             alt="avatar"
             className="profile-modal__avatar"
           />
