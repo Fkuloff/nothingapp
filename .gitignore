@@ -42,6 +42,19 @@ uploads/
 .env
 .env.production
 
+# Firebase service account JSON — SECRET, never commit
+fcm-credentials.json
+*-firebase-adminsdk-*.json
+
+# Capacitor build artifacts (android source itself is committed)
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/app/src/main/assets/capacitor.config.json
+frontend/android/app/src/main/assets/capacitor.plugins.json
+frontend/android/app/src/main/assets/public/
+
 # Backups and database dumps
 backups/
 *.tar.gz

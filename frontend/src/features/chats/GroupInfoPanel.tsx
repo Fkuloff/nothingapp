@@ -9,6 +9,7 @@ import {
   updateGroupInfo,
   uploadGroupAvatar,
 } from '../../shared/api/groupsApi'
+import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember } from '../../shared/api/types'
 import { BanIcon, CameraIcon, CloseIcon, GroupIcon, LogOutIcon, PersonAddIcon, ShieldIcon, TrashIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -183,7 +184,7 @@ export function GroupInfoPanel({
         <div className="gip__hero">
           <div className="gip__avatar-wrap">
             <img
-              src={avatarUrl || '/img/default-avatar.svg'}
+              src={resolveApiUrl(avatarUrl) || '/img/default-avatar.svg'}
               alt="Group avatar"
               className="gip__avatar"
             />
@@ -255,7 +256,7 @@ export function GroupInfoPanel({
                 onContextMenu={(e) => handleMemberContextMenu(e, member.user_id)}
               >
                 <div className="gip-member__avatar-wrap">
-                  <img src={member.avatar_url || '/img/default-avatar.svg'} alt="" className="gip-member__avatar" />
+                  <img src={resolveApiUrl(member.avatar_url) || '/img/default-avatar.svg'} alt="" className="gip-member__avatar" />
                   <span className={`gip-member__dot ${member.is_online ? 'online' : ''}`} />
                 </div>
                 <div className="gip-member__info">

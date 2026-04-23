@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
-import { httpPost } from '../../shared/api/httpClient'
+import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
 import { PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
@@ -351,7 +351,7 @@ export function ChatWindow({
               onClick={handleHeaderClick}
             >
               <span className="avatar avatar-sm">
-                <img src={displayAvatar || '/img/default-avatar.svg'} alt="avatar" />
+                <img src={resolveApiUrl(displayAvatar) || '/img/default-avatar.svg'} alt="avatar" />
               </span>
               <div className="chat-header__info">
                 <span className="chat-peer">{displayName}</span>

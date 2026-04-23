@@ -2,7 +2,7 @@ import { useCallback,useEffect, useState } from 'react'
 
 import { removeContact } from '../../shared/api/contactsApi'
 import { endpoints } from '../../shared/api/endpoints'
-import { httpGet, httpPost } from '../../shared/api/httpClient'
+import { httpGet, httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { CloseIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
@@ -97,7 +97,7 @@ export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl,
           <>
             <div className="profile-modal__avatar-wrapper user-profile-modal__avatar-wrapper">
               <img
-                src={profile?.avatar_url || avatarUrl || '/img/default-avatar.svg'}
+                src={resolveApiUrl(profile?.avatar_url || avatarUrl) || '/img/default-avatar.svg'}
                 alt="avatar"
                 className="profile-modal__avatar"
               />

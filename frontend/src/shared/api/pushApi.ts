@@ -46,3 +46,11 @@ export function unsubscribePush(endpoint: string) {
 export function getPushStatus() {
   return httpGet<PushStatusResponse>(endpoints.push.status)
 }
+
+export function registerFCMToken(token: string, platform: 'android' | 'ios') {
+  return httpPost(endpoints.push.fcmRegister, { token, platform })
+}
+
+export function unregisterFCMToken(token: string) {
+  return httpPost(endpoints.push.fcmUnregister, { token })
+}

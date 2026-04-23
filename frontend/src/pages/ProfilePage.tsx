@@ -6,7 +6,7 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { addContact, removeContact } from '../shared/api/contactsApi'
 import { endpoints } from '../shared/api/endpoints'
-import { httpGet, httpPost } from '../shared/api/httpClient'
+import { httpGet, httpPost, resolveApiUrl } from '../shared/api/httpClient'
 import type { AvatarUploadResponse,UserProfile } from '../shared/api/types'
 import { useToast } from '../shared/components/ToastContext'
 import { useConfirmAction } from '../shared/hooks/useConfirmAction'
@@ -199,7 +199,7 @@ export default function ProfilePage() {
               {isOwnProfile ? (
                 <div className="avatar-upload-container">
                   <span className="avatar avatar-xl" id="profile-avatar">
-                    <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+                    <img src={resolveApiUrl(displayUser.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" />
                   </span>
                   <label htmlFor="avatar-input" className="avatar-upload-overlay" title="Загрузить аватар">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -218,7 +218,7 @@ export default function ProfilePage() {
                 </div>
               ) : (
                 <span className="avatar avatar-xl">
-                  <img src={displayUser.avatar_url || '/img/default-avatar.svg'} alt="Avatar" />
+                  <img src={resolveApiUrl(displayUser.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" />
                 </span>
               )}
             </div>

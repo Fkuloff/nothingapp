@@ -22,13 +22,15 @@ func validatePushEndpoint(endpoint string) bool {
 // pushHandler handles push notification REST endpoints
 type pushHandler struct {
 	pushService *services.PushNotificationService
+	fcmService  *services.FCMService
 	logger      *zap.Logger
 }
 
 // newPushHandler creates a new pushHandler
-func newPushHandler(pushService *services.PushNotificationService, logger *zap.Logger) *pushHandler {
+func newPushHandler(pushService *services.PushNotificationService, fcmService *services.FCMService, logger *zap.Logger) *pushHandler {
 	return &pushHandler{
 		pushService: pushService,
+		fcmService:  fcmService,
 		logger:      logger,
 	}
 }
@@ -111,6 +113,65 @@ func (h *pushHandler) Unsubscribe(c *gin.Context) {
 	}
 
 	sendSuccess(c, gin.H{"message": "Unsubscribed from push notifications"})
+}
+
+type fcmRegisterRequest struct {
+	Token    string `json:"token" binding:"required"`
+	Platform string `json:"platform" binding:"required"`
+}
+
+// RegisterFCM stores an FCM device token for the current user.
+func (h *pushHandler) RegisterFCM(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	var req fcmRegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		sendBadRequest(c, "Invalid FCM registration data")
+		return
+	}
+	if req.Platform != "android" && req.Platform != "ios" {
+		sendBadRequest(c, "Unsupported platform")
+		return
+	}
+
+	if err := h.fcmService.Register(c.Request.Context(), userID, req.Token, req.Platform); err != nil {
+		if strings.Contains(err.Error(), "limit reached") {
+			sendBadRequest(c, err.Error())
+			return
+		}
+		h.logger.Error("failed to register FCM token", zap.Error(err), zap.Uint("user_id", userID))
+		sendInternalError(c, "Failed to register FCM token")
+		return
+	}
+	sendSuccess(c, gin.H{"message": "FCM token registered"})
+}
+
+type fcmUnregisterRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
+// UnregisterFCM removes an FCM device token.
+func (h *pushHandler) UnregisterFCM(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	var req fcmUnregisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		sendBadRequest(c, "Invalid request")
+		return
+	}
+
+	if err := h.fcmService.Unregister(c.Request.Context(), userID, req.Token); err != nil {
+		h.logger.Error("failed to unregister FCM token", zap.Error(err), zap.Uint("user_id", userID))
+		sendInternalError(c, "Failed to unregister FCM token")
+		return
+	}
+	sendSuccess(c, gin.H{"message": "FCM token unregistered"})
 }
 
 // GetStatus returns whether push notifications are enabled for the current user

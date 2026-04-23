@@ -196,6 +196,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.PushSubscription{},
 		&models.ChatParticipant{},
 		&models.PinnedMessage{},
+		&models.FCMToken{},
 	)
 }
 
@@ -207,8 +208,14 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 	router.Use(ginZapLogger(log))
 	router.Use(gin.Recovery())
 
-	// CORS
-	allowedOrigins := []string{"http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173"}
+	// CORS — Capacitor Android WebView with androidScheme=https reports origin https://localhost.
+	// gin-contrib/cors rejects custom schemes (capacitor://), so we only need https://localhost.
+	allowedOrigins := []string{
+		"http://localhost:8080",
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"https://localhost",
+	}
 	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
 		allowedOrigins = strings.Split(origins, ",")
 	}

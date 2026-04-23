@@ -22,10 +22,11 @@ type PushPayload struct {
 	Tag    string `json:"tag,omitempty"`
 }
 
-// PushNotificationService handles Web Push notifications
+// PushNotificationService fans push notifications out to Web Push (VAPID) and FCM (mobile).
 type PushNotificationService struct {
 	logger          *zap.Logger
 	pushSubRepo     *repositories.PushSubscriptionRepo
+	fcm             *FCMService
 	vapidPublicKey  string
 	vapidPrivateKey string
 	vapidSubject    string
@@ -53,9 +54,14 @@ func NewPushNotificationService(
 	}
 }
 
-// IsEnabled returns whether push notifications are configured
+// SetFCMService attaches an FCMService for mobile push fan-out. Optional.
+func (s *PushNotificationService) SetFCMService(fcm *FCMService) {
+	s.fcm = fcm
+}
+
+// IsEnabled returns whether at least one push channel (VAPID or FCM) is configured.
 func (s *PushNotificationService) IsEnabled() bool {
-	return s.enabled
+	return s.enabled || (s.fcm != nil && s.fcm.IsEnabled())
 }
 
 // GetVAPIDPublicKey returns the public key for frontend subscription
@@ -97,10 +103,16 @@ func (s *PushNotificationService) HasSubscriptions(ctx context.Context, userID u
 	return s.pushSubRepo.ExistsByUser(ctx, userID)
 }
 
-// SendNotification sends a push notification to all subscriptions of a user
+// SendNotification fans a notification out to all Web Push subscriptions and FCM tokens of a user.
 func (s *PushNotificationService) SendNotification(ctx context.Context, recipientUserID uint, payload PushPayload) error {
+	// FCM fan-out (mobile) runs in parallel to VAPID (web).
+	if s.fcm != nil && s.fcm.IsEnabled() {
+		if err := s.fcm.SendNotification(ctx, recipientUserID, payload); err != nil {
+			s.logger.Warn("FCM fan-out failed", zap.Error(err), zap.Uint("user_id", recipientUserID))
+		}
+	}
+
 	if !s.enabled {
-		s.logger.Debug("push notification skipped: not enabled")
 		return nil
 	}
 
@@ -110,9 +122,6 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 	}
 
 	if len(subs) == 0 {
-		s.logger.Debug("push notification skipped: no subscriptions for user",
-			zap.Uint("user_id", recipientUserID),
-		)
 		return nil
 	}
 
