@@ -4,22 +4,32 @@ const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true'
 const BASE_URL = USE_PROXY ? '' : import.meta.env.VITE_API_BASE_URL ?? ''
 const TOKEN_KEY = 'auth_token'
 
-async function getPreferences() {
+async function prefsGet(key: string): Promise<string | null> {
   const { Preferences } = await import('@capacitor/preferences')
-  return Preferences
+  const { value } = await Preferences.get({ key })
+  return value
+}
+
+async function prefsSet(key: string, value: string): Promise<void> {
+  const { Preferences } = await import('@capacitor/preferences')
+  await Preferences.set({ key, value })
+}
+
+async function prefsRemove(key: string): Promise<void> {
+  const { Preferences } = await import('@capacitor/preferences')
+  await Preferences.remove({ key })
 }
 
 export async function hydrateAuthToken(): Promise<void> {
   if (!isNative()) return
   try {
-    const prefs = await getPreferences()
-    const { value } = await prefs.get({ key: TOKEN_KEY })
+    const value = await prefsGet(TOKEN_KEY)
     if (value) {
       localStorage.setItem(TOKEN_KEY, value)
     } else {
       const existing = localStorage.getItem(TOKEN_KEY)
       if (existing) {
-        await prefs.set({ key: TOKEN_KEY, value: existing })
+        await prefsSet(TOKEN_KEY, existing)
       }
     }
   } catch (err) {
@@ -42,13 +52,13 @@ export function setAuthToken(token?: string) {
   if (!token) {
     localStorage.removeItem(TOKEN_KEY)
     if (isNative()) {
-      void getPreferences().then((p) => p.remove({ key: TOKEN_KEY }))
+      void prefsRemove(TOKEN_KEY).catch((err) => console.error('Failed to clear token from Preferences:', err))
     }
     return
   }
   localStorage.setItem(TOKEN_KEY, token)
   if (isNative()) {
-    void getPreferences().then((p) => p.set({ key: TOKEN_KEY, value: token }))
+    void prefsSet(TOKEN_KEY, token).catch((err) => console.error('Failed to mirror token to Preferences:', err))
   }
 }
 
