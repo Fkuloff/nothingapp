@@ -20,6 +20,7 @@ type Config struct {
 	VAPIDPublicKey       string
 	VAPIDPrivateKey      string
 	VAPIDSubject         string
+	FCMCredentialsPath   string
 }
 
 // Sentinel errors for configuration validation.
@@ -67,5 +68,6 @@ func LoadConfig() (*Config, error) {
 		VAPIDPublicKey:       os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:      os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:         os.Getenv("VAPID_SUBJECT"),
+		FCMCredentialsPath:   os.Getenv("FCM_CREDENTIALS_PATH"),
 	}, nil
 }

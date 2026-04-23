@@ -130,10 +130,14 @@ services:
       STORAGE_S3_PRESIGNED_EXPIRY: ${STORAGE_S3_PRESIGNED_EXPIRY:-3600}
       # Message encryption at rest (AES-256-GCM)
       MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY:?MESSAGE_ENCRYPTION_KEY is required (base64 32 bytes)}
-      # VAPID keys for Web Push Notifications
+      # VAPID keys for Web Push Notifications (web)
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # FCM service account credentials (mobile push) — JSON file mounted below
+      FCM_CREDENTIALS_PATH: ${FCM_CREDENTIALS_PATH:-/app/fcm-credentials.json}
+    volumes:
+      - ./fcm-credentials.json:/app/fcm-credentials.json:ro
     networks:
       - messenger-network
     healthcheck:

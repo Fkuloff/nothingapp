@@ -1,8 +1,9 @@
 import { type ComponentType,lazy, Suspense } from 'react'
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
+import { createBrowserRouter, createHashRouter, Navigate, RouterProvider } from 'react-router-dom'
 
 import AppLayout from '../App'
 import { ProtectedRoute } from '../features/auth/ProtectedRoute'
+import { isNative } from '../shared/platform'
 
 const LoginPage = lazy(() => import('../pages/LoginPage'))
 const RegisterPage = lazy(() => import('../pages/RegisterPage'))
@@ -15,7 +16,9 @@ const withSuspense = (Component: ComponentType) => (
   </Suspense>
 )
 
-const router = createBrowserRouter([
+const createRouter = isNative() ? createHashRouter : createBrowserRouter
+
+const router = createRouter([
   {
     element: <ProtectedRoute />,
     children: [

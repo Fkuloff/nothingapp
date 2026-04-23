@@ -56,6 +56,8 @@ export const endpoints = {
     subscribe: '/api/push/subscribe',
     unsubscribe: '/api/push/unsubscribe',
     status: '/api/push/status',
+    fcmRegister: '/api/push/fcm/register',
+    fcmUnregister: '/api/push/fcm/unregister',
   },
   ws: {
     global: '/ws',

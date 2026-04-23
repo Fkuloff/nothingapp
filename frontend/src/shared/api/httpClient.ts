@@ -1,6 +1,38 @@
+import { isNative } from '../platform'
+
 const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true'
 const BASE_URL = USE_PROXY ? '' : import.meta.env.VITE_API_BASE_URL ?? ''
 const TOKEN_KEY = 'auth_token'
+
+async function getPreferences() {
+  const { Preferences } = await import('@capacitor/preferences')
+  return Preferences
+}
+
+export async function hydrateAuthToken(): Promise<void> {
+  if (!isNative()) return
+  try {
+    const prefs = await getPreferences()
+    const { value } = await prefs.get({ key: TOKEN_KEY })
+    if (value) {
+      localStorage.setItem(TOKEN_KEY, value)
+    } else {
+      const existing = localStorage.getItem(TOKEN_KEY)
+      if (existing) {
+        await prefs.set({ key: TOKEN_KEY, value: existing })
+      }
+    }
+  } catch (err) {
+    console.error('Failed to hydrate auth token from Preferences:', err)
+  }
+}
+
+export function resolveApiUrl(path: string | null | undefined): string | undefined {
+  if (!path) return undefined
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  if (path.startsWith('/api/')) return `${BASE_URL}${path}`
+  return path
+}
 
 export function getAuthToken() {
   return localStorage.getItem(TOKEN_KEY)
@@ -9,9 +41,15 @@ export function getAuthToken() {
 export function setAuthToken(token?: string) {
   if (!token) {
     localStorage.removeItem(TOKEN_KEY)
+    if (isNative()) {
+      void getPreferences().then((p) => p.remove({ key: TOKEN_KEY }))
+    }
     return
   }
   localStorage.setItem(TOKEN_KEY, token)
+  if (isNative()) {
+    void getPreferences().then((p) => p.set({ key: TOKEN_KEY, value: token }))
+  }
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {

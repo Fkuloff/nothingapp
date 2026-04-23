@@ -1,3 +1,4 @@
+import { resolveApiUrl } from '../../shared/api/httpClient'
 import { CloseIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
@@ -16,7 +17,7 @@ export function IncomingCallModal({ callerName, callerAvatar, onAccept, onReject
       <div className="incoming-call-modal" role="dialog" aria-modal="true">
         <div className="incoming-call-modal__pulse" />
         <div className="incoming-call-modal__avatar">
-          <img src={callerAvatar || '/img/default-avatar.svg'} alt={callerName} />
+          <img src={resolveApiUrl(callerAvatar) || '/img/default-avatar.svg'} alt={callerName} />
         </div>
         <div className="incoming-call-modal__name">{callerName}</div>
         <div className="incoming-call-modal__label">Входящий звонок...</div>

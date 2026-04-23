@@ -30,6 +30,7 @@ func SetupRoutes(
 	attachmentRepo := repositories.NewAttachmentRepo(db)
 	unreadMessageRepo := repositories.NewUnreadMessageRepo(db)
 	pushSubRepo := repositories.NewPushSubscriptionRepo(db)
+	fcmTokenRepo := repositories.NewFCMTokenRepo(db)
 	participantRepo := repositories.NewChatParticipantRepo(db)
 
 	// Initialize services
@@ -40,6 +41,8 @@ func SetupRoutes(
 	userService := services.NewUserService(logger, userRepo, fileStorage)
 	presenceService := services.NewPresenceService(logger)
 	pushService := services.NewPushNotificationService(logger, pushSubRepo, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
+	fcmService := services.NewFCMService(logger, fcmTokenRepo, cfg.FCMCredentialsPath)
+	pushService.SetFCMService(fcmService)
 	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
 	pinnedMessageRepo := repositories.NewPinnedMessageRepo(db)
 	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, chatRepo, participantRepo, userRepo, msgEncryptor)
@@ -54,7 +57,7 @@ func SetupRoutes(
 	wsH.SetGroupService(groupService, participantRepo)
 	attachH := newAttachmentHandler(attachmentService, chatService, wsH, participantRepo, fileStorage)
 	fileH := newFileHandler(fileStorage, logger)
-	pushH := newPushHandler(pushService, logger)
+	pushH := newPushHandler(pushService, fcmService, logger)
 	healthH := newHealthHandler(db)
 	groupH := newGroupHandler(groupService, presenceService, userService)
 	pinH := newPinHandler(pinService, fileStorage)
@@ -159,6 +162,8 @@ func registerPushRoutes(api *gin.RouterGroup, h *pushHandler) {
 	push.POST("/subscribe", h.Subscribe)
 	push.POST("/unsubscribe", h.Unsubscribe)
 	push.GET("/status", h.GetStatus)
+	push.POST("/fcm/register", h.RegisterFCM)
+	push.POST("/fcm/unregister", h.UnregisterFCM)
 }
 
 //nolint:dupl // See registerChatRoutes.

@@ -3,6 +3,7 @@ import { useLocation,useNavigate } from 'react-router-dom'
 
 import { createChat } from '../../shared/api/chatsApi'
 import { removeContact } from '../../shared/api/contactsApi'
+import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
 import { GroupIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -124,7 +125,7 @@ export function SlideMenu({ isOpen, onClose, onChatSelected }: Props) {
         <div className="slide-menu__header">
           <span className="avatar avatar-lg">
             <img
-              src={user?.avatar_url || '/img/default-avatar.svg'}
+              src={resolveApiUrl(user?.avatar_url) || '/img/default-avatar.svg'}
               alt="avatar"
             />
           </span>

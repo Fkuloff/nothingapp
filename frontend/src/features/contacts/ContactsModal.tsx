@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { addContact, getContacts, searchUsers } from '../../shared/api/contactsApi'
+import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
 import { ChatBubbleIcon, CloseIcon, PersonAddIcon } from '../../shared/components/Icons'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -149,7 +150,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
       >
         <div className="contacts-modal__avatar-wrap">
           <img
-            src={user.avatar_url || '/img/default-avatar.svg'}
+            src={resolveApiUrl(user.avatar_url) || '/img/default-avatar.svg'}
             alt=""
             className="contacts-modal__avatar"
           />
