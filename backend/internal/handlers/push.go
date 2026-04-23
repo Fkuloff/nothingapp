@@ -91,6 +91,8 @@ type pushUnsubscribeRequest struct {
 }
 
 // Unsubscribe removes a push subscription
+//
+//nolint:dupl // Structural twin of UnregisterFCM, but operates on different subscription types.
 func (h *pushHandler) Unsubscribe(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -154,6 +156,8 @@ type fcmUnregisterRequest struct {
 }
 
 // UnregisterFCM removes an FCM device token.
+//
+//nolint:dupl // Structural twin of Unsubscribe.
 func (h *pushHandler) UnregisterFCM(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {

@@ -147,7 +147,7 @@ func (s *FCMService) sendToToken(ctx context.Context, t models.FCMToken, payload
 	}
 
 	if _, err := s.client.Send(ctx, msg); err != nil {
-		if messaging.IsRegistrationTokenNotRegistered(err) || messaging.IsInvalidArgument(err) {
+		if messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err) {
 			s.logger.Info("FCM token invalid, removing",
 				zap.Uint("user_id", t.UserID),
 			)
