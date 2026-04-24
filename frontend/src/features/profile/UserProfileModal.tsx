@@ -6,6 +6,7 @@ import { httpGet, httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { CloseIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useConfirmAction } from '../../shared/hooks/useConfirmAction'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
@@ -21,6 +22,7 @@ type Props = {
 export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl, isOnline }: Props) {
   const { showToast } = useToast()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(false)
   const [addingContact, setAddingContact] = useState(false)

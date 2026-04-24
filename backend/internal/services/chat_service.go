@@ -235,15 +235,18 @@ func (s *ChatService) GetRecentMessages(ctx context.Context, chatID uint, limit 
 	return messages, nil
 }
 
-// GetLastMessageForChat retrieves the most recent message for a chat
+// GetLastMessageForChat retrieves the most recent non-deleted message for a chat.
+// Deleted messages are skipped entirely so the chat-list preview never shows a "deleted" placeholder.
 func (s *ChatService) GetLastMessageForChat(ctx context.Context, chatID uint) (*models.Message, error) {
-	messages, err := s.messageRepo.GetRecentByChatID(ctx, chatID, 1)
+	msg, err := s.messageRepo.GetLastNonDeletedByChatID(ctx, chatID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errNoMessages
+		}
 		return nil, fmt.Errorf("get last message: %w", err)
 	}
-	if len(messages) == 0 {
-		return nil, errNoMessages
-	}
+	// Decrypt in-place (slice of one so we can reuse the batch helper).
+	messages := []models.Message{*msg}
 	s.decryptMessages(messages)
 	return &messages[0], nil
 }
@@ -316,27 +319,62 @@ func (s *ChatService) EditMessage(ctx context.Context, messageID, userID uint, n
 	return nil
 }
 
-// DeleteMessage allows a user to delete their own message
+// DeleteMessage marks a message as deleted, wipes its content from the DB, and purges any attachments
+// (both the rows and the files in object storage). The row itself is kept so that replies pointing
+// at this message still render a "deleted" placeholder in their quote block.
 func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint) error {
-	// Find the message
 	message, err := s.messageRepo.FindByID(ctx, messageID)
 	if err != nil {
 		return errors.New("message not found")
 	}
 
-	// Verify ownership
 	if message.UserID != userID {
 		return errors.New("unauthorized: you can only delete your own messages")
 	}
 
-	// Check if already deleted
 	if message.IsDeleted {
 		return errors.New("message already deleted")
 	}
 
-	if err := s.messageRepo.SoftDeleteMessage(ctx, messageID); err != nil {
-		return fmt.Errorf("delete message: %w", err)
+	// Collect attachment storage keys before we blow away the rows.
+	var storageKeys []string
+	if err := s.db.WithContext(ctx).Model(&models.Attachment{}).
+		Where("message_id = ?", messageID).
+		Pluck("storage_key", &storageKeys).Error; err != nil {
+		return fmt.Errorf("fetch attachment keys: %w", err)
 	}
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Wipe attachment rows for this message
+		if err := tx.Unscoped().Where("message_id = ?", messageID).Delete(&models.Attachment{}).Error; err != nil {
+			return fmt.Errorf("delete attachments: %w", err)
+		}
+		// Drop unread entries so offline recipients don't see a ghost of this message
+		if err := tx.Unscoped().Where("message_id = ?", messageID).Delete(&models.UnreadMessage{}).Error; err != nil {
+			return fmt.Errorf("delete unread entries: %w", err)
+		}
+		// Drop pin entries — a deleted message can't remain pinned
+		if err := tx.Unscoped().Where("message_id = ?", messageID).Delete(&models.PinnedMessage{}).Error; err != nil {
+			return fmt.Errorf("delete pin entries: %w", err)
+		}
+		// Mark the message deleted and clear its content. The row stays so reply chains keep resolving.
+		if err := tx.Model(&models.Message{}).
+			Where("id = ?", messageID).
+			Updates(map[string]interface{}{
+				"is_deleted": true,
+				"text":       "",
+				"iv":         "",
+			}).Error; err != nil {
+			return fmt.Errorf("mark message deleted: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Best-effort storage cleanup (doesn't block the delete op)
+	s.deleteStorageFiles(storageKeys)
 
 	return nil
 }

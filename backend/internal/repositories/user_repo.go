@@ -58,11 +58,13 @@ func (r *UserRepo) UpdatePassword(ctx context.Context, userID uint, hashedPasswo
 	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("password", hashedPassword).Error
 }
 
-// SearchByUsernameOrName searches users by username or name (case-insensitive, partial match)
-func (r *UserRepo) SearchByUsernameOrName(ctx context.Context, query string) ([]*models.User, error) {
+// SearchByUsernameOrName searches users by username or name (case-insensitive, partial match).
+// The caller's own user_id is excluded from the results.
+func (r *UserRepo) SearchByUsernameOrName(ctx context.Context, query string, excludeUserID uint) ([]*models.User, error) {
 	var users []*models.User
 	searchPattern := "%" + query + "%"
-	err := r.db.WithContext(ctx).Where("username ILIKE ? OR name ILIKE ?", searchPattern, searchPattern).
+	err := r.db.WithContext(ctx).
+		Where("(username ILIKE ? OR name ILIKE ?) AND id <> ?", searchPattern, searchPattern, excludeUserID).
 		Limit(20).
 		Find(&users).Error
 	if err != nil {
