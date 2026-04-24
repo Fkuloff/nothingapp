@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,12 +15,33 @@ import (
 	"github.com/google/uuid"
 )
 
+// presignCacheSafetyMargin is subtracted from the presigned URL expiry before
+// we consider it "stale" — ensures clients don't start a download 10 seconds
+// before the URL expires.
+const presignCacheSafetyMargin = 30 * time.Second
+
+// presignCacheMaxEntries caps the in-memory cache to avoid unbounded growth.
+// Old entries are simply evicted wholesale when the cap is hit — the cache is
+// opportunistic, not authoritative.
+const presignCacheMaxEntries = 10_000
+
+type cachedPresignedURL struct {
+	url       string
+	expiresAt time.Time
+}
+
 // S3Storage implements Storage interface for S3-compatible storage (MinIO, AWS S3)
 type S3Storage struct {
 	client          *s3.Client
 	bucket          string
 	presignedExpiry time.Duration
 	presignClient   *s3.PresignClient
+	// urlCache memoises presigned URLs for the remainder of their validity window.
+	// Without it, every message fetch with N attachments hits PresignGetObject N times
+	// (HMAC signing per call). A single chat open with lots of media can be dozens of
+	// signs per request.
+	urlCacheMu sync.RWMutex
+	urlCache   map[string]cachedPresignedURL
 }
 
 // Verify interface compliance at compile time
@@ -63,6 +85,7 @@ func NewS3Storage(config *StorageConfig) (*S3Storage, error) {
 		bucket:          config.S3Bucket,
 		presignedExpiry: time.Duration(config.S3PresignedExpiry) * time.Second,
 		presignClient:   presignClient,
+		urlCache:        make(map[string]cachedPresignedURL),
 	}, nil
 }
 
@@ -140,23 +163,48 @@ func (s *S3Storage) Delete(key string) error {
 		return fmt.Errorf("failed to delete object from S3: %w", err)
 	}
 
+	// Invalidate the presigned URL cache for this key so we don't serve a link to a
+	// just-deleted object.
+	s.urlCacheMu.Lock()
+	delete(s.urlCache, key)
+	s.urlCacheMu.Unlock()
+
 	return nil
 }
 
-// GetURL returns a presigned URL for file access
+// GetURL returns a presigned URL for file access. Result is cached in-process for
+// most of the presigned-expiry window (minus a safety margin), so repeated calls
+// for the same key during chat rendering don't re-sign on every hit.
 func (s *S3Storage) GetURL(key string) string {
-	ctx := context.Background()
+	// Fast path: cached and still valid.
+	s.urlCacheMu.RLock()
+	cached, ok := s.urlCache[key]
+	s.urlCacheMu.RUnlock()
+	if ok && time.Now().Before(cached.expiresAt) {
+		return cached.url
+	}
 
+	// Slow path: sign a fresh URL.
+	ctx := context.Background()
 	presignedReq, err := s.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	}, func(opts *s3.PresignOptions) {
 		opts.Expires = s.presignedExpiry
 	})
-
 	if err != nil {
 		return fmt.Sprintf("s3://%s/%s", s.bucket, key)
 	}
+
+	expiresAt := time.Now().Add(s.presignedExpiry - presignCacheSafetyMargin)
+	s.urlCacheMu.Lock()
+	// Simple size cap: on overflow, reset the cache. Opportunistic eviction is fine —
+	// signing is cheap enough that losing a few entries costs nothing.
+	if len(s.urlCache) >= presignCacheMaxEntries {
+		s.urlCache = make(map[string]cachedPresignedURL)
+	}
+	s.urlCache[key] = cachedPresignedURL{url: presignedReq.URL, expiresAt: expiresAt}
+	s.urlCacheMu.Unlock()
 
 	return presignedReq.URL
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
@@ -12,6 +13,10 @@ import (
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"go.uber.org/zap"
 )
+
+// webpushSendTimeout caps a single WebPush delivery so a slow/hung push endpoint
+// doesn't leak goroutines while we keep firing per-subscription sends.
+const webpushSendTimeout = 10 * time.Second
 
 // PushPayload represents the JSON payload sent to the browser
 type PushPayload struct {
@@ -27,6 +32,7 @@ type PushNotificationService struct {
 	logger          *zap.Logger
 	pushSubRepo     *repositories.PushSubscriptionRepo
 	fcm             *FCMService
+	httpClient      *http.Client
 	vapidPublicKey  string
 	vapidPrivateKey string
 	vapidSubject    string
@@ -47,6 +53,7 @@ func NewPushNotificationService(
 	return &PushNotificationService{
 		logger:          logger,
 		pushSubRepo:     pushSubRepo,
+		httpClient:      &http.Client{Timeout: webpushSendTimeout},
 		vapidPublicKey:  vapidPublicKey,
 		vapidPrivateKey: vapidPrivateKey,
 		vapidSubject:    vapidSubject,
@@ -155,6 +162,7 @@ func (s *PushNotificationService) sendToSubscription(ctx context.Context, sub mo
 	}
 
 	resp, err := webpush.SendNotification(payload, subscription, &webpush.Options{
+		HTTPClient:      s.httpClient,
 		Subscriber:      s.vapidSubject,
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,

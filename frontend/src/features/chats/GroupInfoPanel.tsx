@@ -12,6 +12,7 @@ import {
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember } from '../../shared/api/types'
 import { BanIcon, CameraIcon, CloseIcon, GroupIcon, LogOutIcon, PersonAddIcon, ShieldIcon, TrashIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { AddMembersModal } from './AddMembersModal'
 
@@ -64,6 +65,7 @@ export function GroupInfoPanel({
   const [contextMenu, setContextMenu] = useState<{ memberId: number; x: number; y: number } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
 
   const currentMember = members.find((m) => m.user_id === currentUserId)
   const isAdmin = currentMember?.role === 'admin' || currentMember?.role === 'creator'
@@ -256,7 +258,7 @@ export function GroupInfoPanel({
                 onContextMenu={(e) => handleMemberContextMenu(e, member.user_id)}
               >
                 <div className="gip-member__avatar-wrap">
-                  <img src={resolveApiUrl(member.avatar_url) || '/img/default-avatar.svg'} alt="" className="gip-member__avatar" />
+                  <img src={resolveApiUrl(member.avatar_url) || '/img/default-avatar.svg'} alt="" className="gip-member__avatar" loading="lazy" />
                   <span className={`gip-member__dot ${member.is_online ? 'online' : ''}`} />
                 </div>
                 <div className="gip-member__info">

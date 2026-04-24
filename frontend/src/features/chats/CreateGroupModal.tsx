@@ -5,6 +5,7 @@ import { createGroup } from '../../shared/api/groupsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupCreateResponse, UserListItem } from '../../shared/api/types'
 import { CheckIcon, CloseIcon, SearchIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -23,6 +24,7 @@ export function CreateGroupModal({ isOpen, onClose, onGroupCreated }: Props) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
 
   useEffect(() => {
     if (!isOpen) return
@@ -137,6 +139,7 @@ export function CreateGroupModal({ isOpen, onClose, onGroupCreated }: Props) {
                           src={resolveApiUrl(contact.avatar_url) || '/img/default-avatar.svg'}
                           alt=""
                           className="contacts-modal__avatar"
+                          loading="lazy"
                         />
                       </div>
                       <div className="contacts-modal__info">

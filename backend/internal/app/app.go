@@ -77,7 +77,8 @@ func Run() error {
 	router := setupRouter(log)
 
 	// Setup routes with dependencies
-	if err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg, encryptor); err != nil {
+	wsCleanup, err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg, encryptor)
+	if err != nil {
 		return fmt.Errorf("setup routes: %w", err)
 	}
 
@@ -93,8 +94,13 @@ func Run() error {
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
-	// Graceful shutdown
+	// Graceful shutdown. Drain WebSocket clients first (send CloseGoingAway so the
+	// frontend reconnect loop doesn't flap), then stop the HTTP server, then close DB.
 	shutdownMgr := shutdown.New(log, shutdownTimeout)
+	shutdownMgr.Register(func(ctx context.Context) error {
+		log.Info("draining WebSocket connections...")
+		return wsCleanup(ctx)
+	})
 	shutdownMgr.Register(func(ctx context.Context) error {
 		log.Info("stopping HTTP server...")
 		return srv.Shutdown(ctx)
@@ -186,6 +192,13 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		log.Warn("failed to nullify group chat user IDs", zap.Error(err))
 	}
 
+	// Composite index for the most common message query pattern:
+	//   WHERE chat_id = ? AND is_deleted = false ORDER BY created_at DESC LIMIT N
+	// gorm.Model's CreatedAt is embedded so we can't retag it; create the index via SQL.
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_chat_created ON messages (chat_id, created_at DESC)").Error; err != nil {
+		log.Warn("failed to create idx_messages_chat_created", zap.Error(err))
+	}
+
 	return db.AutoMigrate(
 		&models.User{},
 		&models.Chat{},
@@ -248,6 +261,21 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 			return
 		}
 		rateLimiterMiddleware(c)
+	})
+
+	// Cap JSON/form-urlencoded request bodies at 1 MB to keep attackers from streaming
+	// gigabyte payloads into ShouldBindJSON and blowing memory. Multipart uploads are
+	// exempt — they have their own size ceilings (see handlers/constants.go and the
+	// per-type limits applied inside attachment handlers).
+	const maxJSONBodyBytes = 1 << 20 // 1 MiB
+	router.Use(func(c *gin.Context) {
+		ct := c.GetHeader("Content-Type")
+		if strings.HasPrefix(ct, "multipart/") {
+			c.Next()
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONBodyBytes)
+		c.Next()
 	})
 
 	return router

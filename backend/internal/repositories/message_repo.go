@@ -79,9 +79,30 @@ func (r *MessageRepo) UpdateMessage(ctx context.Context, id uint, newText, iv st
 		}).Error
 }
 
-// SoftDeleteMessage marks message as deleted without removing it from DB
+// SoftDeleteMessage marks message as deleted and wipes its content.
+// The row is kept so reply chains referring to this message still resolve (quote shows a "deleted" placeholder),
+// but the actual text and encryption IV are cleared from storage.
 func (r *MessageRepo) SoftDeleteMessage(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Model(&models.Message{}).
 		Where("id = ?", id).
-		Update("is_deleted", true).Error
+		Updates(map[string]interface{}{
+			"is_deleted": true,
+			"text":       "",
+			"iv":         "",
+		}).Error
+}
+
+// GetLastNonDeletedByChatID returns the most recent non-deleted message in a chat.
+// Used for chat-list previews where deleted messages should be skipped entirely.
+func (r *MessageRepo) GetLastNonDeletedByChatID(ctx context.Context, chatID uint) (*models.Message, error) {
+	var msg models.Message
+	err := r.db.WithContext(ctx).
+		Where("chat_id = ? AND is_deleted = ?", chatID, false).
+		Order("created_at desc").
+		Limit(1).
+		First(&msg).Error
+	if err != nil {
+		return nil, err
+	}
+	return &msg, nil
 }

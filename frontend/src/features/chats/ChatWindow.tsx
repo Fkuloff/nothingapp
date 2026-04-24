@@ -244,23 +244,26 @@ export function ChatWindow({
     setSelectedFiles((prev) => prev.filter((_, idx) => idx !== index))
   }
 
-  const handleReply = (msgId: number) => {
+  // Stable refs so the memoised MessageItem doesn't re-render the whole list on every
+  // parent state change. Setters from useState are already stable; only chatId + send
+  // change identity.
+  const handleReply = useCallback((msgId: number) => {
     setEditingMessageId(null)
     setReplyToId(msgId)
     setMessageText('')
-  }
+  }, [])
 
-  const handleEdit = (msgId: number, text: string) => {
+  const handleEdit = useCallback((msgId: number, text: string) => {
     setReplyToId(null)
     setEditingMessageId(msgId)
     setMessageText(text)
-  }
+  }, [])
 
-  const handleDelete = (msgId: number) => {
+  const handleDelete = useCallback((msgId: number) => {
     if (!confirm('Удалить сообщение?')) return
     if (!chatId) return
     send({ action: 'delete', chat_id: chatId, message_id: msgId })
-  }
+  }, [chatId, send])
 
   const handleCancelDraft = () => {
     setReplyToId(null)

@@ -1,5 +1,6 @@
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import { CloseIcon, PhoneIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
 
 export function IncomingCallModal({ callerName, callerAvatar, onAccept, onReject }: Props) {
   const { handleBackdropClick } = useModalBehavior({ isOpen: true, onClose: onReject })
+  useAndroidBack(() => { onReject(); return true }, true)
 
   return (
     <div className="incoming-call-backdrop" onClick={handleBackdropClick}>

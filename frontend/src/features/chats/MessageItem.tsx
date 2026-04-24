@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 
 import type { Attachment, Message } from '../../shared/api/types'
 import { formatFileSize, formatMessageTime } from '../../shared/utils'
@@ -72,7 +72,7 @@ function AttachmentView({ att, onImageClick }: AttachmentViewProps) {
   )
 }
 
-export function MessageItem({
+function MessageItemInner({
   message,
   isOwn,
   senderName,
@@ -279,3 +279,8 @@ export function MessageItem({
     </>
   )
 }
+
+// Memoised export — a chat with 500+ messages re-renders every bubble on every parent
+// state update (presence tick, new incoming message, etc.). With stable callbacks from
+// ChatWindow, the default shallow prop compare lets React skip N-1 renders.
+export const MessageItem = memo(MessageItemInner)

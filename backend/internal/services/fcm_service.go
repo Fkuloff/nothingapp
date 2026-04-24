@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
@@ -13,6 +14,10 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
 )
+
+// fcmSendTimeout caps a single FCM Send call so a hung Firebase connection
+// doesn't leak goroutines indefinitely.
+const fcmSendTimeout = 10 * time.Second
 
 // maxFCMTokensPerUser limits how many device tokens a user can register.
 const maxFCMTokensPerUser = 10
@@ -139,14 +144,19 @@ func (s *FCMService) sendToToken(ctx context.Context, t models.FCMToken, payload
 		Android: &messaging.AndroidConfig{
 			Priority: "high",
 			Notification: &messaging.AndroidNotification{
-				Tag:         payload.Tag,
-				ChannelID:   "messages",
-				ClickAction: "FLUTTER_NOTIFICATION_CLICK",
+				Tag:       payload.Tag,
+				ChannelID: "messages",
+				// No ClickAction: Capacitor's MainActivity has no custom intent-filter, so the
+				// notification tap must resolve to the default LAUNCHER intent (null click_action)
+				// and flow through to pushNotificationActionPerformed.
 			},
 		},
 	}
 
-	if _, err := s.client.Send(ctx, msg); err != nil {
+	sendCtx, cancel := context.WithTimeout(ctx, fcmSendTimeout)
+	defer cancel()
+
+	if _, err := s.client.Send(sendCtx, msg); err != nil {
 		if messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err) {
 			s.logger.Info("FCM token invalid, removing",
 				zap.Uint("user_id", t.UserID),

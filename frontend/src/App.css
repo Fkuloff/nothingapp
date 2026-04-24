@@ -618,11 +618,17 @@ textarea::placeholder,
 .chat-list-item__name {
   font-weight: 600;
   color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-list-item__time {
   color: var(--text-tertiary);
   font-size: 0.8rem;
+  flex-shrink: 0;
 }
 
 .chat-list-item__preview {
@@ -857,6 +863,10 @@ textarea::placeholder,
   color: var(--text-primary);
   box-shadow: var(--shadow-xs);
   word-wrap: break-word;
+  /* Disable native text selection and long-press callout so our custom context menu shows up unobscured */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   word-break: break-word;
   overflow-wrap: break-word;
 }
@@ -2831,6 +2841,7 @@ textarea::placeholder,
 
 .telegram-sidebar__content {
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
   min-height: 0;
 }

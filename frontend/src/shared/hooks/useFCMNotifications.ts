@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 import { registerFCMToken, unregisterFCMToken } from '../api/pushApi'
 import { getPlatform, isNative } from '../platform'
@@ -7,21 +6,21 @@ import { getPlatform, isNative } from '../platform'
 const STORED_TOKEN_KEY = 'fcm_token'
 
 /**
- * Registers the device with FCM on native platforms, posts the token to the
- * backend, and navigates to the relevant chat when a notification is tapped.
+ * Registers the device with FCM on native platforms and posts the token to the backend.
+ * Permission is requested on mount if not yet granted.
+ *
+ * Tap-handling lives in `earlyPush.ts` (module-load time) so a cold-start tap isn't lost
+ * while this hook waits for React + auth hydration. This hook owns only registration.
  *
  * Noop on web — Web Push via VAPID handles that case.
  */
 export function useFCMNotifications(enabled: boolean) {
-  const navigate = useNavigate()
-
   useEffect(() => {
     if (!enabled || !isNative()) return
 
     let mounted = true
     let registrationListener: { remove: () => void } | undefined
     let errorListener: { remove: () => void } | undefined
-    let actionListener: { remove: () => void } | undefined
 
     async function setup() {
       const { PushNotifications } = await import('@capacitor/push-notifications')
@@ -54,13 +53,6 @@ export function useFCMNotifications(enabled: boolean) {
         console.error('FCM registration error', err)
       })
 
-      actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-        const chatIdRaw = action.notification.data?.chat_id
-        if (chatIdRaw) {
-          navigate(`/?chat=${chatIdRaw}`)
-        }
-      })
-
       await PushNotifications.register()
     }
 
@@ -70,9 +62,8 @@ export function useFCMNotifications(enabled: boolean) {
       mounted = false
       registrationListener?.remove()
       errorListener?.remove()
-      actionListener?.remove()
     }
-  }, [enabled, navigate])
+  }, [enabled])
 }
 
 /** Unregister the current device token (called on logout). */
