@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { registerFCMToken, unregisterFCMToken } from '../api/pushApi'
+import { setPendingChat } from '../pendingChat'
 import { getPlatform, isNative } from '../platform'
 
 const STORED_TOKEN_KEY = 'fcm_token'
@@ -56,9 +57,13 @@ export function useFCMNotifications(enabled: boolean) {
 
       actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
         const chatIdRaw = action.notification.data?.chat_id
-        if (chatIdRaw) {
-          navigate(`/?chat=${chatIdRaw}`)
-        }
+        if (!chatIdRaw) return
+        const chatId = Number(chatIdRaw)
+        if (!Number.isFinite(chatId)) return
+        // Navigate to the chats page, then hand the id off via pendingChat — router-free,
+        // so it works the same whether HashRouter or BrowserRouter is in use.
+        navigate('/')
+        setPendingChat(chatId)
       })
 
       await PushNotifications.register()

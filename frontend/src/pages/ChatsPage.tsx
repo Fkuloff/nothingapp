@@ -13,6 +13,7 @@ import { getUserPresence } from '../shared/api/presenceApi'
 import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEvent } from '../shared/api/types'
 import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
+import { subscribePendingChat } from '../shared/pendingChat'
 
 export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
@@ -204,12 +205,17 @@ export default function ChatsPage() {
         return
       }
 
-      if (event.action === 'delete' && chatId === activeChatId) {
-        setMessages((prev) => {
-          const next = prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
-          messageCacheRef.current.set(chatId, next)
-          return next
-        })
+      if (event.action === 'delete') {
+        if (chatId === activeChatId) {
+          setMessages((prev) => {
+            const next = prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
+            messageCacheRef.current.set(chatId, next)
+            return next
+          })
+        }
+        // Refresh chat list so the sidebar preview drops the deleted message's text
+        // and falls back to the previous non-deleted message (or empty).
+        loadChatsRef.current()
         return
       }
 
@@ -332,7 +338,13 @@ export default function ChatsPage() {
     return false
   }, true)
 
-  // Handle ?chat= param (from notification tap — works on both BrowserRouter and HashRouter)
+  // Open a chat on push notification tap. Uses a router-free pub/sub (pendingChat) because
+  // HashRouter on native doesn't reliably expose search params from navigate('/?chat=X').
+  // Cold-start taps are covered too — subscribePendingChat replays a value that was set
+  // before ChatsPage mounted.
+  useEffect(() => subscribePendingChat((id) => setActiveChatId(id)), [])
+
+  // Web browser path: ?chat= in the actual URL (BrowserRouter)
   useEffect(() => {
     const chatId = searchParams.get('chat')
     if (chatId) {

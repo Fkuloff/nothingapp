@@ -139,9 +139,11 @@ func (s *FCMService) sendToToken(ctx context.Context, t models.FCMToken, payload
 		Android: &messaging.AndroidConfig{
 			Priority: "high",
 			Notification: &messaging.AndroidNotification{
-				Tag:         payload.Tag,
-				ChannelID:   "messages",
-				ClickAction: "FLUTTER_NOTIFICATION_CLICK",
+				Tag:       payload.Tag,
+				ChannelID: "messages",
+				// No ClickAction: Capacitor's MainActivity has no custom intent-filter, so the
+				// notification tap must resolve to the default LAUNCHER intent (null click_action)
+				// and flow through to pushNotificationActionPerformed.
 			},
 		},
 	}
