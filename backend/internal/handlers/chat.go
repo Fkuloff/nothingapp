@@ -179,14 +179,12 @@ func (h *chatHandler) checkChatAccess(c *gin.Context, chat *models.Chat, userID 
 	return nil
 }
 
-// formatLastMessage extracts display text from the last message in a chat.
+// formatLastMessage extracts display text from the last non-deleted message in a chat.
+// Deleted messages are filtered out upstream (see ChatService.GetLastMessageForChat), so we don't
+// need a "deleted" fallback here — an empty chat simply renders no preview.
 func formatLastMessage(lastMsg *models.Message, err error) string {
 	if err != nil || lastMsg == nil {
 		return ""
-	}
-
-	if lastMsg.IsDeleted {
-		return "Сообщение удалено"
 	}
 
 	text := lastMsg.Text

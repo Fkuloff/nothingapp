@@ -11,19 +11,22 @@ import { AppRouter } from './router/AppRouter'
 import { hydrateAuthToken } from './shared/api/httpClient'
 import { ToastProvider } from './shared/components/Toast'
 import { ThemeProvider } from './shared/context/ThemeContext'
+import { AndroidBackProvider } from './shared/hooks/useAndroidBack'
 
 hydrateAuthToken().finally(() => {
   createRoot(document.getElementById('root') as HTMLElement).render(
     <StrictMode>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <CallProvider>
-              <AppRouter />
-            </CallProvider>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
+      <AndroidBackProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <CallProvider>
+                <AppRouter />
+              </CallProvider>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </AndroidBackProvider>
     </StrictMode>,
   )
 })

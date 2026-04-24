@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import type { GroupMember, Message } from '../../shared/api/types'
 import { MessageItem } from './MessageItem'
@@ -71,6 +71,25 @@ export function MessageList({
   // to display oldest→newest (top→bottom) while scroll starts at bottom
   const reversedMessages = useMemo(() => messages.slice().reverse(), [messages])
 
+  // Auto-scroll to newest message. Column-reverse layout means scrollTop=0 is the visual bottom.
+  // Android WebView loses the column-reverse scroll anchor when the list updates, so we pin it manually:
+  // - always pin when the caller sent the message (they just hit send)
+  // - pin when the user is already near the bottom (live-reading)
+  // - leave alone when the user scrolled up reading history (don't yank them down)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : undefined
+  const lastMessageOwner = messages.length > 0 ? messages[messages.length - 1].user_id : undefined
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || lastMessageId === undefined) return
+    const isOwn = lastMessageOwner === currentUserId
+    // In column-reverse, scrollTop is 0 at the bottom and negative as you scroll up.
+    const isNearBottom = el.scrollTop > -120
+    if (isOwn || isNearBottom) {
+      el.scrollTop = 0
+    }
+  }, [lastMessageId, lastMessageOwner, currentUserId])
+
   const renderContent = () => {
     if (error) {
       return <div className="alert alert-danger m-3">{error}</div>
@@ -85,6 +104,10 @@ export function MessageList({
     }
 
     return reversedMessages.map((message) => {
+      // Deleted messages are kept in the array so reply quotes can still resolve them,
+      // but they are not rendered as standalone messages in the chat.
+      if (message.is_deleted) return null
+
       if (message.type === 'system') {
         return <SystemMessage key={message.id} text={message.text} />
       }
@@ -116,7 +139,7 @@ export function MessageList({
   }
 
   return (
-    <div id="messages" className="chat-body fancy-scroll">
+    <div id="messages" className="chat-body fancy-scroll" ref={containerRef}>
       {renderContent()}
     </div>
   )

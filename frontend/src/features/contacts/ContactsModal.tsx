@@ -4,6 +4,7 @@ import { addContact, getContacts, searchUsers } from '../../shared/api/contactsA
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
 import { ChatBubbleIcon, CloseIcon, PersonAddIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 
 type Props = {
@@ -24,6 +25,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [addingId, setAddingId] = useState<number | null>(null)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
 
   // Auto-reset confirmation after 5 seconds
   useEffect(() => {

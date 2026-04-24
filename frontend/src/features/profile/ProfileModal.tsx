@@ -5,6 +5,7 @@ import { httpPost, httpPut, resolveApiUrl } from '../../shared/api/httpClient'
 import type { AvatarUploadResponse } from '../../shared/api/types'
 import { CloseIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { useAuthContext } from '../auth/AuthContext'
 
@@ -21,6 +22,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
   const [saving, setSaving] = useState(false)
   const { showToast } = useToast()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
 
   useEffect(() => {
     if (user) {

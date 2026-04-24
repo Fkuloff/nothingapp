@@ -177,9 +177,9 @@ func (s *UserService) FindByUsername(ctx context.Context, username string) (*mod
 	return user, nil
 }
 
-// SearchUsers searches for users by username or name
-func (s *UserService) SearchUsers(ctx context.Context, query string) ([]*models.User, error) {
-	users, err := s.userRepo.SearchByUsernameOrName(ctx, query)
+// SearchUsers searches for users by username or name. The caller's own user_id is excluded.
+func (s *UserService) SearchUsers(ctx context.Context, query string, excludeUserID uint) ([]*models.User, error) {
+	users, err := s.userRepo.SearchByUsernameOrName(ctx, query, excludeUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search users: %w", err)
 	}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 
 import type { OutletContextType } from '../App'
 import { useAuthContext } from '../features/auth/AuthContext'
@@ -11,12 +11,14 @@ import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedM
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
 import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEvent } from '../shared/api/types'
+import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 
 export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const callContext = useCallContext()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<ChatItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
@@ -321,15 +323,24 @@ export default function ChatsPage() {
     }
   }, [])
 
-  // Handle ?chat= URL parameter (opened from notification in new window)
+  // Android back: if a chat is open, deselect it (return to list); otherwise let system handle (exit app).
+  useAndroidBack(() => {
+    if (activeChatId !== null) {
+      setActiveChatId(null)
+      return true
+    }
+    return false
+  }, true)
+
+  // Handle ?chat= param (from notification tap — works on both BrowserRouter and HashRouter)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const chatId = params.get('chat')
+    const chatId = searchParams.get('chat')
     if (chatId) {
       setActiveChatId(Number(chatId))
-      window.history.replaceState({}, '', '/')
+      searchParams.delete('chat')
+      setSearchParams(searchParams, { replace: true })
     }
-  }, [])
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     loadChats()

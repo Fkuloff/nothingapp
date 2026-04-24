@@ -12,6 +12,7 @@ import {
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember } from '../../shared/api/types'
 import { BanIcon, CameraIcon, CloseIcon, GroupIcon, LogOutIcon, PersonAddIcon, ShieldIcon, TrashIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { AddMembersModal } from './AddMembersModal'
 
@@ -64,6 +65,7 @@ export function GroupInfoPanel({
   const [contextMenu, setContextMenu] = useState<{ memberId: number; x: number; y: number } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
 
   const currentMember = members.find((m) => m.user_id === currentUserId)
   const isAdmin = currentMember?.role === 'admin' || currentMember?.role === 'creator'

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <!-- Chat bubble sized to fit within the adaptive-icon safe zone (~66% of canvas),
+       centered around 512,512. Viewport stays 1024 so @capacitor/assets renders at the expected DPI. -->
+  <path d="M512 672c88.36 0 160-62.68 160-140s-71.64-140-160-140-160 62.68-160 140c0 35.2 14.86 67.4 39.4 92 -1.94 20.32 -8.34 42.6 -15.42 59.32 -1.58 3.72 1.48 7.88 5.46 7.24 45.12 -7.4 71.94 -18.76 83.6 -24.68A181.2 181.2 0 0 0 512 672z" fill="white"/>
+</svg>
