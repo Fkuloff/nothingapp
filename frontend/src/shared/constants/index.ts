@@ -4,7 +4,6 @@ export const FILE_TYPE_ICONS = {
   video: '🎬',
   audio: '🎵',
   pdf: '📕',
-  document: '📄',
   default: '📎',
 } as const
 

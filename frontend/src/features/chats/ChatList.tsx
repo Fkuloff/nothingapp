@@ -52,7 +52,7 @@ export function ChatList({ chats, activeChatId, onSelect, loading, error }: Prop
                   tabIndex={0}
                 >
                   <span className="avatar avatar-md">
-                    <img src={resolveApiUrl(chat.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" />
+                    <img src={resolveApiUrl(chat.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" loading="lazy" />
                   </span>
                   <div className="chat-list-item-content">
                     <div className="chat-list-item__top">

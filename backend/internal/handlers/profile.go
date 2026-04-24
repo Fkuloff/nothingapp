@@ -118,7 +118,7 @@ func (h *profileHandler) RemoveContactAPI(c *gin.Context) {
 
 // SearchUsers searches for users by username or name
 func (h *profileHandler) SearchUsers(c *gin.Context) {
-	_, ok := requireUserID(c)
+	callerID, ok := requireUserID(c)
 	if !ok {
 		return
 	}
@@ -129,7 +129,7 @@ func (h *profileHandler) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	users, err := h.userService.SearchUsers(c.Request.Context(), query)
+	users, err := h.userService.SearchUsers(c.Request.Context(), query, callerID)
 	if err != nil {
 		h.logger.Error("failed to search users", zap.Error(err), zap.String("query", query))
 		sendInternalError(c, "Failed to search users")

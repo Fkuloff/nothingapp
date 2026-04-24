@@ -11,19 +11,27 @@ import { AppRouter } from './router/AppRouter'
 import { hydrateAuthToken } from './shared/api/httpClient'
 import { ToastProvider } from './shared/components/Toast'
 import { ThemeProvider } from './shared/context/ThemeContext'
+import { initEarlyPushHandlers } from './shared/earlyPush'
+import { AndroidBackProvider } from './shared/hooks/useAndroidBack'
+
+// Must run synchronously at module load, before hydrateAuthToken awaits, so we register
+// the push action listener in time for Capacitor's cold-start buffered event.
+initEarlyPushHandlers()
 
 hydrateAuthToken().finally(() => {
   createRoot(document.getElementById('root') as HTMLElement).render(
     <StrictMode>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <CallProvider>
-              <AppRouter />
-            </CallProvider>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
+      <AndroidBackProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <CallProvider>
+                <AppRouter />
+              </CallProvider>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </AndroidBackProvider>
     </StrictMode>,
   )
 })

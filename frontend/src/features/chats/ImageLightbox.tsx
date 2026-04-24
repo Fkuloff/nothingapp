@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import { CloseIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 
 type Props = {
   src: string
@@ -9,6 +10,8 @@ type Props = {
 }
 
 export function ImageLightbox({ src, alt, onClose }: Props) {
+  useAndroidBack(() => { onClose(); return true }, true)
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

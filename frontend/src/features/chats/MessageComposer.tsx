@@ -132,6 +132,9 @@ export function MessageComposer({
           </button>
           <button
             type="submit"
+            // Prevent the button from stealing focus on tap — keeps the Android soft keyboard open
+            // after send (browser default on mousedown is to shift focus to the button).
+            onMouseDown={(e) => e.preventDefault()}
             className={`btn icon-btn send-btn${sending ? ' send-btn--sending' : ''}`}
             title="Отправить"
             disabled={uploading || sending || (!messageText.trim() && selectedFiles.length === 0)}

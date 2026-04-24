@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 
 import { ArrowLeftIcon, BellIcon, CloseIcon, LockIcon } from '../../shared/components/Icons'
 import { PushToggle } from '../../shared/components/PushToggle'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { ChangePasswordForm } from './ChangePasswordForm'
 
@@ -35,6 +36,7 @@ export function SettingsModal({ isOpen, onClose }: Props) {
   }, [activeView, closeModal])
 
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose: handleEscape })
+  useAndroidBack(() => { handleEscape(); return true }, isOpen)
 
   if (!isOpen) return null
 

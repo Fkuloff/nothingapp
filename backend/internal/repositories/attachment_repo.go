@@ -55,3 +55,20 @@ func (r *AttachmentRepo) FindByIDWithMessage(ctx context.Context, id uint) (*mod
 func (r *AttachmentRepo) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Attachment{}, id).Error
 }
+
+// GetStorageKeysByMessageID returns storage keys for every attachment belonging to the given message.
+// Used before deleting so the caller can remove the underlying files from object storage.
+func (r *AttachmentRepo) GetStorageKeysByMessageID(ctx context.Context, messageID uint) ([]string, error) {
+	var keys []string
+	err := r.db.WithContext(ctx).Model(&models.Attachment{}).
+		Where("message_id = ?", messageID).
+		Pluck("storage_key", &keys).Error
+	return keys, err
+}
+
+// DeleteByMessageID hard-deletes every attachment row for a given message.
+func (r *AttachmentRepo) DeleteByMessageID(ctx context.Context, messageID uint) error {
+	return r.db.WithContext(ctx).Unscoped().
+		Where("message_id = ?", messageID).
+		Delete(&models.Attachment{}).Error
+}

@@ -6,6 +6,7 @@ import { removeContact } from '../../shared/api/contactsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
 import { GroupIcon } from '../../shared/components/Icons'
+import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { useTheme } from '../../shared/hooks/useTheme'
 import { useAuthContext } from '../auth/AuthContext'
@@ -30,6 +31,7 @@ export function SlideMenu({ isOpen, onClose, onChatSelected }: Props) {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
+  useAndroidBack(() => { onClose(); return true }, isOpen)
 
   const handleLogout = async () => {
     await logout()

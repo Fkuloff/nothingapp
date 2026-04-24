@@ -3,6 +3,10 @@ import { isNative } from '../platform'
 const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true'
 const BASE_URL = USE_PROXY ? '' : import.meta.env.VITE_API_BASE_URL ?? ''
 const TOKEN_KEY = 'auth_token'
+// Hard ceiling for any single HTTP request. Without this, fetch() has no default timeout,
+// so a silently-dead backend (e.g. on a flaky mobile network) hangs the promise forever
+// and the UI gets stuck on "loading...". 15 seconds covers slow 3G uploads with margin.
+const REQUEST_TIMEOUT_MS = 15_000
 
 async function prefsGet(key: string): Promise<string | null> {
   const { Preferences } = await import('@capacitor/preferences')
@@ -65,35 +69,48 @@ export function setAuthToken(token?: string) {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken()
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    credentials: 'include',
-    ...options,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-  if (!response.ok) {
-    const errorBody = await response.text()
-    throw new Error(errorBody || `Request failed: ${response.status}`)
+  try {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      credentials: 'include',
+      signal: controller.signal,
+      ...options,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers ?? {}),
+      },
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(errorBody || `Request failed: ${response.status}`)
+    }
+
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    const rawBody = await response.text()
+    if (!rawBody) {
+      return undefined as T
+    }
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.includes('application/json')) {
+      return JSON.parse(rawBody) as T
+    }
+
+    return rawBody as unknown as T
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Request timed out')
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  const rawBody = await response.text()
-  if (!rawBody) {
-    return undefined as T
-  }
-
-  const contentType = response.headers.get('content-type') ?? ''
-  if (contentType.includes('application/json')) {
-    return JSON.parse(rawBody) as T
-  }
-
-  return rawBody as unknown as T
 }
 
 export function httpGet<T>(path: string, init?: RequestInit) {

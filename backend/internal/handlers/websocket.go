@@ -84,6 +84,47 @@ func (h *webSocketHandler) SetGroupService(gs *services.GroupService, pr *reposi
 	h.participantRepo = pr
 }
 
+// Close drains all active WebSocket connections and stops the broadcast worker pool.
+// Sends a "going away" close frame to every client so they reconnect cleanly on restart.
+// Intended to be registered with the graceful-shutdown manager before srv.Shutdown.
+func (h *webSocketHandler) Close(ctx context.Context) error {
+	h.mu.Lock()
+	clients := make([]*wsClient, 0)
+	for _, conns := range h.clients {
+		clients = append(clients, conns...)
+	}
+	// Don't wipe the map yet — the read/write loops cleanup themselves and this lets
+	// any in-flight broadcast still find its target until conn.Close flushes.
+	h.mu.Unlock()
+
+	h.logger.Info("draining WebSocket clients", zap.Int("count", len(clients)))
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(5 * time.Second)
+	}
+
+	closeFrame := websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down")
+	for _, c := range clients {
+		c.writeMu.Lock()
+		// Best-effort — the connection is already on its way out, so errors here are expected
+		// (peer closed the socket, deadline exceeded). Log at debug so we have a trail without
+		// spamming warnings on every shutdown.
+		if err := c.conn.WriteControl(websocket.CloseMessage, closeFrame, deadline); err != nil {
+			h.logger.Debug("close frame write failed", zap.Error(err), zap.Uint("user_id", c.userID))
+		}
+		c.writeMu.Unlock()
+		if err := c.conn.Close(); err != nil {
+			h.logger.Debug("conn close failed", zap.Error(err), zap.Uint("user_id", c.userID))
+		}
+	}
+
+	// Stop the broadcast pool so worker goroutines exit their range loop.
+	h.broadcastPool.Close()
+
+	return nil
+}
+
 // HandleWebSocket handles the global WebSocket connection for a user
 func (h *webSocketHandler) HandleWebSocket(c *gin.Context) {
 	h.logger.Info("WebSocket handler called",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 
 import type { OutletContextType } from '../App'
 import { useAuthContext } from '../features/auth/AuthContext'
@@ -11,12 +11,15 @@ import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedM
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
 import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEvent } from '../shared/api/types'
+import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
+import { subscribePendingChat } from '../shared/pendingChat'
 
 export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const callContext = useCallContext()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<ChatItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
@@ -170,6 +173,11 @@ export default function ChatsPage() {
             attachments: event.attachments ?? [],
           }
           setMessages((prev) => {
+            // Deduplicate: after a WebSocket reconnect the server replays unread messages,
+            // which may already be in prev from the HTTP fetch we triggered on reconnect.
+            // Blindly appending would show the same message two or three times until the
+            // user re-enters the chat and the list is freshly loaded.
+            if (prev.some((m) => m.id === newMessage.id)) return prev
             const next = [...prev, newMessage]
             messageCacheRef.current.set(chatId, next)
             return next
@@ -202,12 +210,17 @@ export default function ChatsPage() {
         return
       }
 
-      if (event.action === 'delete' && chatId === activeChatId) {
-        setMessages((prev) => {
-          const next = prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
-          messageCacheRef.current.set(chatId, next)
-          return next
-        })
+      if (event.action === 'delete') {
+        if (chatId === activeChatId) {
+          setMessages((prev) => {
+            const next = prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
+            messageCacheRef.current.set(chatId, next)
+            return next
+          })
+        }
+        // Refresh chat list so the sidebar preview drops the deleted message's text
+        // and falls back to the previous non-deleted message (or empty).
+        loadChatsRef.current()
         return
       }
 
@@ -251,6 +264,24 @@ export default function ChatsPage() {
     }
     return () => callContext.registerSend(null)
   }, [isConnected, send, callContext])
+
+  // On WebSocket reconnect (typically after the app was backgrounded and Android froze the
+  // process), pull fresh state — the chat list preview + active-chat messages may be stale
+  // because we missed events while offline. Skip the very first connect: that's just the
+  // initial mount, and the other effects already cover it.
+  const hasConnectedRef = useRef(false)
+  useEffect(() => {
+    if (!isConnected) return
+    if (!hasConnectedRef.current) {
+      hasConnectedRef.current = true
+      return
+    }
+    loadChatsRef.current()
+    if (activeChatId !== null) {
+      messageCacheRef.current.delete(activeChatId)
+      loadMessagesRef.current(activeChatId)
+    }
+  }, [isConnected, activeChatId])
 
   const loadChats = useCallback(async () => {
     try {
@@ -321,15 +352,37 @@ export default function ChatsPage() {
     }
   }, [])
 
-  // Handle ?chat= URL parameter (opened from notification in new window)
+  // Android back: if a chat is open, deselect it (return to list); otherwise let system handle (exit app).
+  useAndroidBack(() => {
+    if (activeChatId !== null) {
+      setActiveChatId(null)
+      return true
+    }
+    return false
+  }, true)
+
+  // Open a chat on push notification tap. Uses a router-free pub/sub (pendingChat) because
+  // HashRouter on native doesn't reliably expose search params from navigate('/?chat=X').
+  // Cold-start taps are covered too — subscribePendingChat replays a value that was set
+  // before ChatsPage mounted. We drop the cached messages for that chat so the subsequent
+  // useEffect → loadMessages fetches fresh from the server (otherwise we'd flash stale
+  // cached messages and the message that triggered the push wouldn't appear until the
+  // background fetch completed).
+  useEffect(() => subscribePendingChat((id) => {
+    messageCacheRef.current.delete(id)
+    setActiveChatId(id)
+    loadChatsRef.current()
+  }), [])
+
+  // Web browser path: ?chat= in the actual URL (BrowserRouter)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const chatId = params.get('chat')
+    const chatId = searchParams.get('chat')
     if (chatId) {
       setActiveChatId(Number(chatId))
-      window.history.replaceState({}, '', '/')
+      searchParams.delete('chat')
+      setSearchParams(searchParams, { replace: true })
     }
-  }, [])
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     loadChats()

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+
 	"messenger/internal/config"
 	"messenger/internal/crypto"
 	"messenger/internal/repositories"
@@ -13,6 +15,9 @@ import (
 )
 
 // SetupRoutes registers all HTTP and WebSocket routes on the given router.
+// Returns a cleanup function that drains active WebSocket connections and stops the
+// broadcast worker pool — register it with the graceful-shutdown manager before
+// the HTTP server's own Shutdown is called so clients get a clean CloseGoingAway.
 func SetupRoutes(
 	router *gin.Engine,
 	db *gorm.DB,
@@ -21,7 +26,7 @@ func SetupRoutes(
 	logger *zap.Logger,
 	cfg *config.Config,
 	msgEncryptor *crypto.MessageEncryptor,
-) error {
+) (func(context.Context) error, error) {
 	// Initialize repositories
 	userRepo := repositories.NewUserRepo(db)
 	chatRepo := repositories.NewChatRepo(db)
@@ -102,7 +107,7 @@ func SetupRoutes(
 	registerPushRoutes(api, pushH)
 	registerGroupRoutes(api, groupH)
 
-	return nil
+	return wsH.Close, nil
 }
 
 func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {
