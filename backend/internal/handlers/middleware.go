@@ -109,22 +109,43 @@ func jwtMiddleware(secret []byte, log *zap.Logger, tokenTTL time.Duration) gin.H
 		// Sliding refresh: if the token is older than the threshold, issue a fresh one.
 		// Skip for WebSocket upgrades — the response is already a 101 handshake and any
 		// X-Refresh-Token header would be invisible to a JS WebSocket client.
-		if tokenTTL > 0 && !isWebsocket {
-			if iatFloat, iatOk := claims["iat"].(float64); iatOk {
-				age := time.Now().Unix() - int64(iatFloat)
-				if age >= config.TokenRefreshThresholdSeconds() {
-					if fresh, mintErr := issueJWT(secret, userID, tokenTTL); mintErr == nil {
-						c.Header(refreshTokenHeader, fresh)
-					} else {
-						log.Warn("failed to mint refresh token", zap.Error(mintErr))
-					}
-				}
-			}
+		if !isWebsocket {
+			maybeRefreshToken(c, secret, userID, tokenTTL, claims, log)
 		}
 
 		c.Set("user_id", userID)
 		c.Next()
 	}
+}
+
+// maybeRefreshToken mints a fresh JWT into the X-Refresh-Token response header when the
+// active token has been alive longer than the refresh threshold. Pulled out of the
+// middleware body so the nested branches don't blow past the nestif threshold.
+func maybeRefreshToken(
+	c *gin.Context,
+	secret []byte,
+	userID uint,
+	tokenTTL time.Duration,
+	claims jwt.MapClaims,
+	log *zap.Logger,
+) {
+	if tokenTTL <= 0 {
+		return
+	}
+	iatFloat, ok := claims["iat"].(float64)
+	if !ok {
+		return
+	}
+	age := time.Now().Unix() - int64(iatFloat)
+	if age < config.TokenRefreshThresholdSeconds() {
+		return
+	}
+	fresh, err := issueJWT(secret, userID, tokenTTL)
+	if err != nil {
+		log.Warn("failed to mint refresh token", zap.Error(err))
+		return
+	}
+	c.Header(refreshTokenHeader, fresh)
 }
 
 // handleUnauthorized responds with JSON
