@@ -47,7 +47,7 @@ func validClaims(userID float64) jwt.MapClaims {
 func setupMiddlewareTest() *gin.Engine {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger))
+	r.Use(jwtMiddleware(testSecret, logger, 0))
 	r.GET("/api/test", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {
@@ -180,7 +180,7 @@ func TestJWTMiddleware_MissingUserIDClaim(t *testing.T) {
 func TestJWTMiddleware_PublicPathSkipped(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger))
+	r.Use(jwtMiddleware(testSecret, logger, 0))
 
 	// Register all public paths and prefixes.
 	publicPaths := []struct {
@@ -250,10 +250,84 @@ func TestJWTMiddleware_MalformedAuthorizationHeader(t *testing.T) {
 	}
 }
 
+// TestJWTMiddleware_SlidingRefresh verifies the middleware emits a fresh token in the
+// X-Refresh-Token response header when the active token is older than the refresh
+// threshold. This is what keeps active users' sessions from expiring.
+func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
+	r := gin.New()
+	logger := zap.NewNop()
+	r.Use(jwtMiddleware(testSecret, logger, time.Hour*24*365))
+	r.GET("/api/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	t.Run("stale token gets refreshed", func(t *testing.T) {
+		claims := validClaims(42)
+		// iat well past the 24h refresh threshold
+		claims["iat"] = time.Now().Add(-48 * time.Hour).Unix()
+		claims["exp"] = time.Now().Add(time.Hour).Unix() // still valid
+		token := createTestToken(t, claims, testSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+		refreshed := w.Header().Get("X-Refresh-Token")
+		if refreshed == "" {
+			t.Fatal("expected X-Refresh-Token header, got empty")
+		}
+		if refreshed == token {
+			t.Fatal("expected a freshly-minted token distinct from the request token")
+		}
+	})
+
+	t.Run("fresh token is not rotated", func(t *testing.T) {
+		token := createTestToken(t, validClaims(42), testSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+		if got := w.Header().Get("X-Refresh-Token"); got != "" {
+			t.Fatalf("X-Refresh-Token = %q, want empty", got)
+		}
+	})
+
+	t.Run("refresh skipped when ttl is zero", func(t *testing.T) {
+		rNoRefresh := gin.New()
+		rNoRefresh.Use(jwtMiddleware(testSecret, logger, 0))
+		rNoRefresh.GET("/api/test", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"ok": true})
+		})
+
+		claims := validClaims(42)
+		claims["iat"] = time.Now().Add(-48 * time.Hour).Unix()
+		claims["exp"] = time.Now().Add(time.Hour).Unix()
+		token := createTestToken(t, claims, testSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		rNoRefresh.ServeHTTP(w, req)
+
+		if got := w.Header().Get("X-Refresh-Token"); got != "" {
+			t.Fatalf("X-Refresh-Token = %q, want empty when ttl is zero", got)
+		}
+	})
+}
+
 func TestJWTMiddleware_WebSocketQueryToken(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger))
+	r.Use(jwtMiddleware(testSecret, logger, 0))
 	r.GET("/ws", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {

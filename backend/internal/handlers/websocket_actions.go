@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"messenger/internal/models"
@@ -11,6 +12,12 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// pushBodyAttachmentPlaceholder is the fallback body shown in a push notification when the
+// sender's message is whitespace-only — this happens when they post a message with only
+// file attachments. The composer sends `text: ' '` to satisfy the non-empty-text rule, so
+// without the substitution recipients would see an empty notification body.
+const pushBodyAttachmentPlaceholder = "📎 Вложение"
 
 // handleSendMessage processes a new message
 func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, msgData messageAction) error {
@@ -183,6 +190,9 @@ func (h *webSocketHandler) sendPushNotification(senderID, recipientID, chatID ui
 	}
 
 	body := text
+	if strings.TrimSpace(body) == "" {
+		body = pushBodyAttachmentPlaceholder
+	}
 	if utf8.RuneCountInString(body) > 200 {
 		runes := []rune(body)
 		body = string(runes[:200]) + "..."

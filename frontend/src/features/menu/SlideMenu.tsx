@@ -5,6 +5,7 @@ import { createChat } from '../../shared/api/chatsApi'
 import { removeContact } from '../../shared/api/contactsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
+import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { GroupIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -30,13 +31,25 @@ export function SlideMenu({ isOpen, onClose, onChatSelected }: Props) {
   const [contactsModalOpen, setContactsModalOpen] = useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
   useAndroidBack(() => { onClose(); return true }, isOpen)
 
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login')
-    onClose()
+  const handleLogout = () => {
+    setLogoutConfirmOpen(true)
+  }
+
+  const confirmLogout = async () => {
+    setLoggingOut(true)
+    try {
+      await logout()
+      setLogoutConfirmOpen(false)
+      navigate('/login')
+      onClose()
+    } finally {
+      setLoggingOut(false)
+    }
   }
 
   const handleNavigate = (path: string) => {
@@ -237,6 +250,17 @@ export function SlideMenu({ isOpen, onClose, onChatSelected }: Props) {
           </button>
         </nav>
       </div>
+
+      <ConfirmDialog
+        isOpen={logoutConfirmOpen}
+        title="Выйти из аккаунта?"
+        message="Вам потребуется ввести логин и пароль при следующем входе."
+        confirmLabel="Выйти"
+        variant="danger"
+        busy={loggingOut}
+        onConfirm={confirmLogout}
+        onCancel={() => { if (!loggingOut) setLogoutConfirmOpen(false) }}
+      />
     </>
   )
 }

@@ -5,10 +5,27 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	"messenger/internal/storage"
 
 	"github.com/joho/godotenv"
+)
+
+// JWT lifetime constants.
+//
+// We chose long-lived tokens (default 10 years) because the product is a personal
+// messenger and the UX requirement is "sessions never expire, even if the user doesn't
+// open the app for half a year". For active users, the auth middleware silently issues
+// a refreshed token via the X-Refresh-Token response header every 24 hours, sliding the
+// expiration forward. For inactive users, the long initial TTL covers the gap.
+//
+// The 10-year horizon is the worst-case validity of a stolen device-stored token.
+// Acceptable for this product; users can rotate by changing their password and
+// triggering JWT_SECRET rotation if needed.
+const (
+	defaultJWTExpiryDays  = 3650 // ~10 years
+	tokenRefreshThreshold = 86400 // seconds; reissue when the current token is older than a day
 )
 
 // Config holds application configuration.
@@ -21,6 +38,14 @@ type Config struct {
 	VAPIDPrivateKey      string
 	VAPIDSubject         string
 	FCMCredentialsPath   string
+	JWTExpiryDays        int
+}
+
+// TokenRefreshThresholdSeconds returns the age (in seconds) at which the auth middleware
+// rotates an active token. Exposed as a function so callers don't import the unexported
+// constant directly.
+func TokenRefreshThresholdSeconds() int64 {
+	return tokenRefreshThreshold
 }
 
 // Sentinel errors for configuration validation.
@@ -60,6 +85,13 @@ func LoadConfig() (*Config, error) {
 		return nil, errMsgEncKeyInvalid
 	}
 
+	jwtExpiryDays := defaultJWTExpiryDays
+	if raw := os.Getenv("JWT_EXPIRY_DAYS"); raw != "" {
+		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
+			jwtExpiryDays = parsed
+		}
+	}
+
 	return &Config{
 		DBURL:                dbURL,
 		JWTSecret:            jwtSecret,
@@ -69,5 +101,6 @@ func LoadConfig() (*Config, error) {
 		VAPIDPrivateKey:      os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:         os.Getenv("VAPID_SUBJECT"),
 		FCMCredentialsPath:   os.Getenv("FCM_CREDENTIALS_PATH"),
+		JWTExpiryDays:        jwtExpiryDays,
 	}, nil
 }

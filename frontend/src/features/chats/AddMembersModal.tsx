@@ -55,11 +55,20 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
 
   const existingSet = useMemo(() => new Set(existingMemberIds), [existingMemberIds])
   const availableContacts = contacts.filter((c) => !existingSet.has(c.id))
-  const filteredContacts = availableContacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.username.toLowerCase().includes(search.toLowerCase())
-  )
+
+  const normalizedTokens = search
+    .replace(/^@/, '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  const filteredContacts = normalizedTokens.length === 0
+    ? availableContacts
+    : availableContacts.filter((c) => {
+        const name = c.name.toLowerCase()
+        const username = c.username.toLowerCase()
+        return normalizedTokens.every((t) => name.includes(t) || username.includes(t))
+      })
 
   const handleAdd = async () => {
     if (selectedIds.size === 0) return
