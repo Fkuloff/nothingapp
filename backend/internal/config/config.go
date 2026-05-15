@@ -24,7 +24,7 @@ import (
 // Acceptable for this product; users can rotate by changing their password and
 // triggering JWT_SECRET rotation if needed.
 const (
-	defaultJWTExpiryDays  = 3650 // ~10 years
+	defaultJWTExpiryDays  = 3650  // ~10 years
 	tokenRefreshThreshold = 86400 // seconds; reissue when the current token is older than a day
 )
 

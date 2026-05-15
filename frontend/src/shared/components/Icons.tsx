@@ -15,15 +15,6 @@ export function CloseIcon({ className, size = 24 }: IconProps) {
   )
 }
 
-/** Chat bubble icon — used in contacts, menus */
-export function ChatBubbleIcon({ className, size = 24 }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  )
-}
-
 /** Group icon — used in chat list for group chats */
 export function GroupIcon({ className, size = 24 }: IconProps) {
   return (
