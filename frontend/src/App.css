@@ -2268,6 +2268,82 @@ textarea::placeholder,
   height: 20px;
 }
 
+/* --- Selection mode (multi-select like Telegram) --- */
+.contacts-modal__header--selection {
+  gap: var(--space-lg);
+  animation: contactsSelectionSlideIn 0.18s ease-out;
+}
+
+.contacts-modal__selection-count {
+  flex: 1;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.contacts-modal__icon-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.contacts-modal__icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.contacts-modal__icon-btn--danger {
+  color: var(--accent-danger);
+}
+
+.contacts-modal__icon-btn--danger:hover {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--accent-danger);
+}
+
+/* Green check badge anchored to the bottom-right of the avatar (Telegram-style) */
+.contacts-modal__select-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--accent-success);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-secondary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  animation: contactsSelectBadgePop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.contacts-modal__select-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes contactsSelectBadgePop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+@keyframes contactsSelectionSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .contacts-modal__search {
   display: flex;
   align-items: center;
@@ -2435,15 +2511,11 @@ textarea::placeholder,
   pointer-events: none;
 }
 
-/* On touch devices, the row itself is the primary click target — hide the desktop-only
-   inline buttons (Chat hint, Delete X) so the user can't accidentally tap them. The
-   "Add to contacts" (+) button stays visible on touch since it's a non-destructive
-   secondary action. To remove a contact on touch, long-press the row. */
+/* The row itself is the primary click target. The only inline action button that
+   survives is "+" (add to contacts), shown for global search results. To remove a
+   contact, long-press the row to enter Telegram-style selection mode and use the
+   trash button in the header. */
 @media (hover: none) {
-  .contacts-modal__action-btn--chat-hint,
-  .contacts-modal__action-btn--desktop-only {
-    display: none !important;
-  }
   .contacts-modal__action-btn--add {
     opacity: 1;
     transform: translateX(0);

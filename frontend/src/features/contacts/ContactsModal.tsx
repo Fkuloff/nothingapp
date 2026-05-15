@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { addContact, getContacts, searchUsers } from '../../shared/api/contactsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
-import { ChatBubbleIcon, CloseIcon, PersonAddIcon } from '../../shared/components/Icons'
+import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
+import { CheckIcon, CloseIcon, PersonAddIcon, TrashIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useLongPress } from '../../shared/hooks/useLongPress'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -20,15 +21,13 @@ type RowProps = {
   index: number
   isContact: boolean
   isLoading: boolean
-  isConfirming: boolean
-  isRemoving: boolean
   isAdding: boolean
-  canRemove: boolean
+  isSelected: boolean
+  selectionMode: boolean
+  canSelect: boolean
   onStartChat: (user: UserListItem) => void
   onAddContact: (user: UserListItem) => void
-  onRequestRemove: (userId: number) => void
-  onConfirmRemove: (userId: number) => void
-  onCancelRemove: () => void
+  onToggleSelect: (userId: number) => void
 }
 
 function ContactRow({
@@ -36,28 +35,30 @@ function ContactRow({
   index,
   isContact,
   isLoading,
-  isConfirming,
-  isRemoving,
   isAdding,
-  canRemove,
+  isSelected,
+  selectionMode,
+  canSelect,
   onStartChat,
   onAddContact,
-  onRequestRemove,
-  onConfirmRemove,
-  onCancelRemove,
+  onToggleSelect,
 }: RowProps) {
   const longPress = useLongPress(() => {
-    if (canRemove && !isConfirming) onRequestRemove(user.id)
+    if (canSelect) onToggleSelect(user.id)
   })
 
   const handleRowClick = () => {
-    if (isConfirming || isLoading) return
+    if (selectionMode) {
+      if (canSelect) onToggleSelect(user.id)
+      return
+    }
+    if (isLoading) return
     onStartChat(user)
   }
 
   return (
     <div
-      className={`contacts-modal__item${isConfirming ? ' contacts-modal__item--confirming' : ''}`}
+      className={`contacts-modal__item${isSelected ? ' contacts-modal__item--selected' : ''}`}
       style={{ animationDelay: `${index * 30}ms` }}
       role="listitem"
       onClick={handleRowClick}
@@ -70,75 +71,44 @@ function ContactRow({
           className="contacts-modal__avatar"
           loading="lazy"
         />
-      </div>
-      <div className="contacts-modal__info">
-        {isConfirming ? (
-          <span className="contact-card__confirm-text">Удалить {user.name}?</span>
-        ) : (
-          <>
-            <span className="contacts-modal__name">{user.name}</span>
-            <span className="contacts-modal__username">@{user.username}</span>
-          </>
+        {isSelected && (
+          <span className="contacts-modal__select-badge" aria-hidden="true">
+            <CheckIcon size={12} />
+          </span>
         )}
       </div>
+      <div className="contacts-modal__info">
+        <span className="contacts-modal__name">{user.name}</span>
+        <span className="contacts-modal__username">@{user.username}</span>
+      </div>
 
-      {isConfirming ? (
-        <div className="contact-card__confirm-actions" onClick={(e) => e.stopPropagation()}>
+      <div className="contacts-modal__actions-group" onClick={(e) => e.stopPropagation()}>
+        {isLoading && <span className="contacts-modal__spinner" />}
+        {/* Add-to-contacts is the only inline action that survives — it's non-destructive and
+            its bright green styling makes it obviously a separate target from the row body. */}
+        {!isContact && !selectionMode && (
           <button
-            className="contact-card__confirm-btn contact-card__confirm-btn--delete"
-            onClick={() => onConfirmRemove(user.id)}
-            disabled={isRemoving}
-          >
-            {isRemoving ? <span className="contacts-modal__spinner" /> : 'Удалить'}
-          </button>
-          <button
-            className="contact-card__confirm-btn contact-card__confirm-btn--cancel"
-            onClick={onCancelRemove}
-          >
-            Отмена
-          </button>
-        </div>
-      ) : (
-        <div className="contacts-modal__actions-group" onClick={(e) => e.stopPropagation()}>
-          {isLoading && <span className="contacts-modal__spinner" />}
-          <button
-            className="contacts-modal__action-btn contacts-modal__action-btn--chat-hint"
-            onClick={() => onStartChat(user)}
-            disabled={isLoading}
+            className="contacts-modal__action-btn contacts-modal__action-btn--add"
+            onClick={() => onAddContact(user)}
+            disabled={isAdding}
             tabIndex={0}
-            aria-label="Открыть чат"
+            title="Добавить в контакты"
+            aria-label="Добавить в контакты"
           >
-            <ChatBubbleIcon />
-            <span>Чат</span>
+            {isAdding ? <span className="contacts-modal__spinner" /> : <PersonAddIcon size={22} />}
           </button>
-          {!isContact && (
-            <button
-              className="contacts-modal__action-btn contacts-modal__action-btn--add"
-              onClick={() => onAddContact(user)}
-              disabled={isAdding}
-              tabIndex={0}
-              title="Добавить в контакты"
-              aria-label="Добавить в контакты"
-            >
-              {isAdding ? <span className="contacts-modal__spinner" /> : <PersonAddIcon size={22} />}
-            </button>
-          )}
-          {canRemove && (
-            <button
-              className="contacts-modal__action-btn contacts-modal__action-btn--danger contacts-modal__action-btn--desktop-only"
-              onClick={() => onRequestRemove(user.id)}
-              tabIndex={0}
-              aria-label="Удалить контакт"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
+}
+
+function pluralContacts(n: number) {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'контакт'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'контакта'
+  return 'контактов'
 }
 
 export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContact }: Props) {
@@ -148,17 +118,23 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
   const [searchResults, setSearchResults] = useState<UserListItem[]>([])
   const [searching, setSearching] = useState(false)
   const [startingId, setStartingId] = useState<number | null>(null)
-  const [confirmingId, setConfirmingId] = useState<number | null>(null)
-  const [removingId, setRemovingId] = useState<number | null>(null)
   const [addingId, setAddingId] = useState<number | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
+  const [bulkRemoving, setBulkRemoving] = useState(false)
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
-  useAndroidBack(() => { onClose(); return true }, isOpen)
 
-  useEffect(() => {
-    if (confirmingId === null) return
-    const timer = setTimeout(() => setConfirmingId(null), 5000)
-    return () => clearTimeout(timer)
-  }, [confirmingId])
+  const selectionMode = selectedIds.size > 0
+
+  // Android back: in selection mode → exit selection first; otherwise close the modal.
+  useAndroidBack(() => {
+    if (selectionMode) {
+      setSelectedIds(new Set())
+      return true
+    }
+    onClose()
+    return true
+  }, isOpen)
 
   useEffect(() => {
     if (!isOpen) return
@@ -184,16 +160,12 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
       setSearch('')
       setSearchResults([])
       setSearching(false)
-      setConfirmingId(null)
-      setRemovingId(null)
+      setSelectedIds(new Set())
+      setBulkConfirmOpen(false)
     }
   }, [isOpen])
 
   useEffect(() => {
-    // Strip the leading "@" before talking to the backend — users naturally copy
-    // "@username" out of the UI, but the username column doesn't contain the @ sigil.
-    // Doing this on the client means the search works even on backends that haven't
-    // been redeployed with the server-side strip.
     const query = search.replace(/^@/, '').trim()
     if (query.length < 2) {
       setSearchResults([])
@@ -215,25 +187,13 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
     return () => clearTimeout(timeout)
   }, [search])
 
-  const handleContactClick = async (contact: UserListItem) => {
+  const handleStartChat = async (contact: UserListItem) => {
     setStartingId(contact.id)
     try {
       await onSelectContact(contact)
       onClose()
     } finally {
       setStartingId(null)
-    }
-  }
-
-  const handleConfirmRemove = async (userId: number) => {
-    if (!onRemoveContact) return
-    setRemovingId(userId)
-    try {
-      await onRemoveContact(userId)
-      setContacts((prev) => prev.filter((c) => c.id !== userId))
-      setConfirmingId(null)
-    } finally {
-      setRemovingId(null)
     }
   }
 
@@ -249,9 +209,35 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
     }
   }
 
-  // Normalize the query the same way the backend does: strip leading @ and split into
-  // whitespace-separated tokens. Each token must appear (substring match) in either
-  // username or name. Token order doesn't matter, so "Ivanov Ivan" matches "Ivan Ivanov".
+  const handleToggleSelect = (userId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(userId)) next.delete(userId)
+      else next.add(userId)
+      return next
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    if (!onRemoveContact || selectedIds.size === 0) return
+    setBulkRemoving(true)
+    const idsToRemove = Array.from(selectedIds)
+    try {
+      // Remove in parallel; partial failure is acceptable (server is the source of truth —
+      // we drop locally only the ones that succeeded).
+      const results = await Promise.allSettled(idsToRemove.map((id) => onRemoveContact(id)))
+      const succeeded = new Set<number>()
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') succeeded.add(idsToRemove[i])
+      })
+      setContacts((prev) => prev.filter((c) => !succeeded.has(c.id)))
+      setSelectedIds(new Set())
+      setBulkConfirmOpen(false)
+    } finally {
+      setBulkRemoving(false)
+    }
+  }
+
   const normalizedTokens = search
     .replace(/^@/, '')
     .toLowerCase()
@@ -269,12 +255,11 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
   const contactIds = new Set(contacts.map((c) => c.id))
   const globalResults = searchResults.filter((u) => !contactIds.has(u.id))
 
-  // The "real" query length (after stripping the leading @) is what determines whether
-  // the global lookup ran — keep the empty-state hint and the global-results gate consistent
-  // with it.
   const queryLengthForSearch = search.replace(/^@/, '').trim().length
   const hasGlobalSearch = queryLengthForSearch >= 2
-  const showGlobalResults = hasGlobalSearch && globalResults.length > 0
+  // Global ("Найдено") section is hidden while selecting — selection mode is exclusively
+  // about managing existing contacts, and external users can't be bulk-removed anyway.
+  const showGlobalResults = !selectionMode && hasGlobalSearch && globalResults.length > 0
 
   if (!isOpen) return null
 
@@ -285,27 +270,45 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
       index={index}
       isContact={isContact}
       isLoading={startingId === user.id}
-      isConfirming={confirmingId === user.id}
-      isRemoving={removingId === user.id}
       isAdding={addingId === user.id}
-      canRemove={isContact && Boolean(onRemoveContact)}
-      onStartChat={handleContactClick}
+      isSelected={selectedIds.has(user.id)}
+      selectionMode={selectionMode}
+      canSelect={isContact && Boolean(onRemoveContact)}
+      onStartChat={handleStartChat}
       onAddContact={handleAddContact}
-      onRequestRemove={(id) => setConfirmingId(id)}
-      onConfirmRemove={handleConfirmRemove}
-      onCancelRemove={() => setConfirmingId(null)}
+      onToggleSelect={handleToggleSelect}
     />
   )
 
   return (
     <div className="contacts-modal-backdrop" onClick={handleBackdropClick}>
       <div className="contacts-modal" role="dialog" aria-modal="true">
-        <div className="contacts-modal__header">
-          <h2 className="contacts-modal__title">Контакты</h2>
-          <button className="contacts-modal__close" onClick={onClose} aria-label="Закрыть">
-            <CloseIcon />
-          </button>
-        </div>
+        {selectionMode ? (
+          <div className="contacts-modal__header contacts-modal__header--selection">
+            <button
+              className="contacts-modal__icon-btn"
+              onClick={() => setSelectedIds(new Set())}
+              aria-label="Отменить выбор"
+            >
+              <CloseIcon />
+            </button>
+            <span className="contacts-modal__selection-count">{selectedIds.size}</span>
+            <button
+              className="contacts-modal__icon-btn contacts-modal__icon-btn--danger"
+              onClick={() => setBulkConfirmOpen(true)}
+              aria-label="Удалить выбранных"
+            >
+              <TrashIcon size={22} />
+            </button>
+          </div>
+        ) : (
+          <div className="contacts-modal__header">
+            <h2 className="contacts-modal__title">Контакты</h2>
+            <button className="contacts-modal__close" onClick={onClose} aria-label="Закрыть">
+              <CloseIcon />
+            </button>
+          </div>
+        )}
 
         <div className="contacts-modal__search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -363,6 +366,17 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={bulkConfirmOpen}
+        title={`Удалить ${selectedIds.size} ${pluralContacts(selectedIds.size)}?`}
+        message="Контакты будут удалены из вашего списка. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        variant="danger"
+        busy={bulkRemoving}
+        onConfirm={handleBulkDelete}
+        onCancel={() => { if (!bulkRemoving) setBulkConfirmOpen(false) }}
+      />
     </div>
   )
 }
