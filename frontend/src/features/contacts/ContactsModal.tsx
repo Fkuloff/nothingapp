@@ -190,7 +190,12 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
   }, [isOpen])
 
   useEffect(() => {
-    if (search.length < 2) {
+    // Strip the leading "@" before talking to the backend — users naturally copy
+    // "@username" out of the UI, but the username column doesn't contain the @ sigil.
+    // Doing this on the client means the search works even on backends that haven't
+    // been redeployed with the server-side strip.
+    const query = search.replace(/^@/, '').trim()
+    if (query.length < 2) {
       setSearchResults([])
       return
     }
@@ -198,7 +203,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
     const timeout = setTimeout(async () => {
       setSearching(true)
       try {
-        const users = await searchUsers(search)
+        const users = await searchUsers(query)
         setSearchResults(users)
       } catch (err) {
         console.error('Search failed:', err)
@@ -264,7 +269,11 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
   const contactIds = new Set(contacts.map((c) => c.id))
   const globalResults = searchResults.filter((u) => !contactIds.has(u.id))
 
-  const hasGlobalSearch = search.length >= 2
+  // The "real" query length (after stripping the leading @) is what determines whether
+  // the global lookup ran — keep the empty-state hint and the global-results gate consistent
+  // with it.
+  const queryLengthForSearch = search.replace(/^@/, '').trim().length
+  const hasGlobalSearch = queryLengthForSearch >= 2
   const showGlobalResults = hasGlobalSearch && globalResults.length > 0
 
   if (!isOpen) return null
@@ -343,7 +352,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
 
               {filteredContacts.length === 0 && !showGlobalResults && !searching && (
                 <div className="contacts-modal__empty">
-                  {search.length >= 2
+                  {queryLengthForSearch >= 2
                     ? 'Никого не найдено'
                     : search
                       ? 'Введите минимум 2 символа для поиска'
