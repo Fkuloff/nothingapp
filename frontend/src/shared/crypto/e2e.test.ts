@@ -8,10 +8,12 @@ import { describe, expect, it } from 'vitest'
 import {
   decryptFile,
   decryptMessage,
+  decryptMetadata,
   deriveChatKey,
   encryptFile,
   encryptForGroup,
   encryptMessage,
+  encryptMetadata,
   generateFileKey,
   isE2EAvailable,
   openVault,
@@ -278,6 +280,46 @@ describe('e2e: group pairwise (encryptForGroup)', () => {
     await expect(
       decryptMessage(envelopes[0].ciphertext, envelopes[0].iv, malloryKey),
     ).rejects.toBeDefined()
+  })
+})
+
+describe('e2e: encrypted attachment metadata (filename + mime)', () => {
+  it('encryptMetadata + decryptMetadata roundtrip preserves filename and mime', async () => {
+    // Same threat profile as the body: filename + mime used to leak via the
+    // FileName / MimeType DB columns. Encrypted under file_key, server can't
+    // read them and operator pg_dump shows opaque base64. Roundtrip is the
+    // contract the receiver's render path depends on.
+    const fileKey = await generateFileKey()
+    const meta = { fileName: 'tax_return_2026.pdf', mimeType: 'application/pdf' }
+
+    const { ciphertext, iv } = await encryptMetadata(meta, fileKey)
+    expect(ciphertext).toBeTruthy()
+    expect(iv).toBeTruthy()
+    expect(ciphertext).not.toContain('tax_return') // never leak plaintext into b64
+
+    const recovered = await decryptMetadata(ciphertext, iv, fileKey)
+    expect(recovered).toEqual(meta)
+  })
+
+  it('decryptMetadata rejects wrong file_key (auth tag mismatch)', async () => {
+    // Standard AES-GCM property — wrong key throws on decrypt rather than
+    // returning garbage. Tested explicitly because the AttachmentView's
+    // error-state placeholder depends on this exception bubbling up.
+    const fileKey = await generateFileKey()
+    const wrongKey = await generateFileKey()
+    const { ciphertext, iv } = await encryptMetadata({ fileName: 'a.txt', mimeType: 'text/plain' }, fileKey)
+    await expect(decryptMetadata(ciphertext, iv, wrongKey)).rejects.toBeDefined()
+  })
+
+  it('uses a fresh IV on every call (no nonce reuse)', async () => {
+    // Reusing an AES-GCM nonce with the same key leaks the XOR of plaintexts.
+    // The helper must pull a fresh 12-byte nonce per call.
+    const fileKey = await generateFileKey()
+    const meta = { fileName: 'photo.jpg', mimeType: 'image/jpeg' }
+    const a = await encryptMetadata(meta, fileKey)
+    const b = await encryptMetadata(meta, fileKey)
+    expect(a.iv).not.toBe(b.iv)
+    expect(a.ciphertext).not.toBe(b.ciphertext)
   })
 })
 

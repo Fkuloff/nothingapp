@@ -121,15 +121,16 @@ export type GroupInfoResponse = {
   created_at: string
 }
 
-// Attachments
+// Attachments. All metadata fields the operator could read have been moved
+// into encrypted_metadata; the only plaintext bits left are file_size (S3
+// necessarily knows it) and the storage key. file_name + mime_type live
+// encrypted under file_key alongside the body and are recovered client-side
+// after decryption.
 export type Attachment = {
   id: number
   message_id?: number
-  file_type: 'image' | 'video' | 'document' | 'audio'
   storage_key?: string
-  file_name: string
   file_size: number
-  mime_type: string
   url?: string
   thumbnail_key?: string
   width?: number
@@ -140,10 +141,13 @@ export type Attachment = {
   // ciphertext encrypted with a random file_key; that file_key is wrapped
   // per-recipient under chat_key. Server pre-resolves the caller's envelope
   // (encrypted_file_key + envelope_iv). file_iv is the body's own nonce,
-  // same for all recipients.
+  // same for all recipients. encrypted_metadata wraps {fileName, mimeType}
+  // under the same file_key as the body — server never sees plaintext.
   encrypted_file_key?: string
   envelope_iv?: string
   file_iv?: string
+  encrypted_metadata?: string
+  metadata_iv?: string
 }
 
 // User list item (used in contacts list, search results)

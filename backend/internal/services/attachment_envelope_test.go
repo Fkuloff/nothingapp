@@ -23,29 +23,32 @@ func recipientSet(ids ...uint) map[uint]struct{} {
 	return m
 }
 
-func TestValidateAttachmentMeta_Happy(t *testing.T) {
-	// 1-on-1 chat between users 1 and 2. Both envelopes present, no extras.
-	meta := AttachmentMetaInput{
-		FileIV: "base64-file-iv",
+// validMeta is the canonical valid payload for the happy path. All other
+// tests start from this and mutate one field — keeps the negative cases
+// focused on the specific invariant they're checking.
+func validMeta() AttachmentMetaInput {
+	return AttachmentMetaInput{
+		FileIV:            "base64-file-iv",
+		EncryptedMetadata: "encrypted-name-and-mime",
+		MetadataIV:        "metadata-iv",
 		Envelopes: []AttachmentEnvelopeInput{
 			{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
 			{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
 		},
 	}
-	if err := validateAttachmentMeta(meta, recipientSet(1, 2)); err != nil {
+}
+
+func TestValidateAttachmentMeta_Happy(t *testing.T) {
+	if err := validateAttachmentMeta(validMeta(), recipientSet(1, 2)); err != nil {
 		t.Fatalf("happy path rejected: %v", err)
 	}
 }
 
 func TestValidateAttachmentMeta_MissingFileIV(t *testing.T) {
 	// AES-GCM body without the body's own IV is undecryptable. Reject up front.
-	meta := AttachmentMetaInput{
-		FileIV: "",
-		Envelopes: []AttachmentEnvelopeInput{
-			{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
-		},
-	}
-	err := validateAttachmentMeta(meta, recipientSet(1))
+	meta := validMeta()
+	meta.FileIV = ""
+	err := validateAttachmentMeta(meta, recipientSet(1, 2))
 	if !errors.Is(err, ErrAttachmentMetaFields) {
 		t.Fatalf("expected ErrAttachmentMetaFields, got %v", err)
 	}
@@ -54,7 +57,8 @@ func TestValidateAttachmentMeta_MissingFileIV(t *testing.T) {
 func TestValidateAttachmentMeta_NoEnvelopes(t *testing.T) {
 	// Envelope set must be non-empty — otherwise the file_key is unrecoverable
 	// for everyone and the attachment is dead on arrival.
-	meta := AttachmentMetaInput{FileIV: "iv", Envelopes: nil}
+	meta := validMeta()
+	meta.Envelopes = nil
 	err := validateAttachmentMeta(meta, recipientSet(1))
 	if !errors.Is(err, ErrAttachmentMetaFields) {
 		t.Fatalf("expected ErrAttachmentMetaFields, got %v", err)
@@ -65,13 +69,12 @@ func TestValidateAttachmentMeta_EmptyEnvelopeFields(t *testing.T) {
 	// Each envelope must have ciphertext + iv. Empty either side means the
 	// recipient can't unwrap their file_key — fail fast rather than persist
 	// a poison row.
-	meta := AttachmentMetaInput{
-		FileIV: "iv",
-		Envelopes: []AttachmentEnvelopeInput{
-			{RecipientID: 1, EncryptedFileKey: "", IV: "iv1"},
-		},
+	meta := validMeta()
+	meta.Envelopes = []AttachmentEnvelopeInput{
+		{RecipientID: 1, EncryptedFileKey: "", IV: "iv1"},
+		{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
 	}
-	err := validateAttachmentMeta(meta, recipientSet(1))
+	err := validateAttachmentMeta(meta, recipientSet(1, 2))
 	if err == nil || !strings.Contains(err.Error(), "must be non-empty") {
 		t.Fatalf("expected non-empty error, got %v", err)
 	}
@@ -80,13 +83,11 @@ func TestValidateAttachmentMeta_EmptyEnvelopeFields(t *testing.T) {
 func TestValidateAttachmentMeta_DuplicateRecipient(t *testing.T) {
 	// Two envelopes for the same recipient is ambiguous (which one do we
 	// serve them?). Reject so the client doesn't accidentally write garbage.
-	meta := AttachmentMetaInput{
-		FileIV: "iv",
-		Envelopes: []AttachmentEnvelopeInput{
-			{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
-			{RecipientID: 1, EncryptedFileKey: "ct1b", IV: "iv1b"},
-			{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
-		},
+	meta := validMeta()
+	meta.Envelopes = []AttachmentEnvelopeInput{
+		{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
+		{RecipientID: 1, EncryptedFileKey: "ct1b", IV: "iv1b"},
+		{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
 	}
 	err := validateAttachmentMeta(meta, recipientSet(1, 2))
 	if err == nil || !strings.Contains(err.Error(), "duplicate") {
@@ -98,13 +99,11 @@ func TestValidateAttachmentMeta_StrangerRecipient(t *testing.T) {
 	// Envelope for someone who isn't in the chat. Server enforces that
 	// envelopes only address current participants — otherwise a sender could
 	// leak file_key to arbitrary user_ids by stuffing extras.
-	meta := AttachmentMetaInput{
-		FileIV: "iv",
-		Envelopes: []AttachmentEnvelopeInput{
-			{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
-			{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
-			{RecipientID: 999, EncryptedFileKey: "ctx", IV: "ivx"},
-		},
+	meta := validMeta()
+	meta.Envelopes = []AttachmentEnvelopeInput{
+		{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
+		{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
+		{RecipientID: 999, EncryptedFileKey: "ctx", IV: "ivx"},
 	}
 	err := validateAttachmentMeta(meta, recipientSet(1, 2))
 	if err == nil || !strings.Contains(err.Error(), "non-participant") {
@@ -117,14 +116,37 @@ func TestValidateAttachmentMeta_MissingParticipant(t *testing.T) {
 	// policy (which the lazy-vault modal makes safe in practice) the client
 	// must address every participant; partial drops break delivery for them
 	// in a way that's not obvious to the sender. Reject.
-	meta := AttachmentMetaInput{
-		FileIV: "iv",
-		Envelopes: []AttachmentEnvelopeInput{
-			{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
-		},
+	meta := validMeta()
+	meta.Envelopes = []AttachmentEnvelopeInput{
+		{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
 	}
 	err := validateAttachmentMeta(meta, recipientSet(1, 2, 3))
 	if err == nil || !strings.Contains(err.Error(), "cover") {
 		t.Fatalf("expected coverage error, got %v", err)
+	}
+}
+
+func TestValidateAttachmentMeta_RequiresEncryptedMetadata(t *testing.T) {
+	// After the legacy plaintext-filename removal, every new upload MUST
+	// ship encrypted_metadata + metadata_iv. Without them the row is
+	// unrenderable on the receiver (no way to recover filename / mime)
+	// and the server can't synthesize fallback values either, since the
+	// columns are gone. Reject at upload time, not at render time.
+	for _, tc := range []struct {
+		name    string
+		mutator func(*AttachmentMetaInput)
+	}{
+		{"missing both", func(m *AttachmentMetaInput) { m.EncryptedMetadata = ""; m.MetadataIV = "" }},
+		{"missing ciphertext", func(m *AttachmentMetaInput) { m.EncryptedMetadata = "" }},
+		{"missing iv", func(m *AttachmentMetaInput) { m.MetadataIV = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			meta := validMeta()
+			tc.mutator(&meta)
+			err := validateAttachmentMeta(meta, recipientSet(1, 2))
+			if err == nil || !strings.Contains(err.Error(), "encrypted_metadata") {
+				t.Fatalf("expected encrypted_metadata error, got %v", err)
+			}
+		})
 	}
 }

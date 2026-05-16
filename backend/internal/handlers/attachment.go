@@ -49,10 +49,17 @@ type wireAttachmentEnvelope struct {
 
 // wireAttachmentMeta is the per-file metadata block in the `metadata` form
 // field. The N-th entry corresponds to the N-th file in `attachments`.
+//
+// EncryptedMetadata + MetadataIV: AES-GCM-wrapped {file_name, mime_type} blob
+// under the per-file file_key. Server stores them verbatim and never sees the
+// plaintext — filename + claimed mime stay private from the operator. The
+// receiving client unwraps file_key, decrypts this blob, then derives the
+// render bucket (image / video / document) from the resulting mime type.
 type wireAttachmentMeta struct {
-	FileIV    string                   `json:"file_iv"`
-	MimeType  string                   `json:"mime_type"`
-	Envelopes []wireAttachmentEnvelope `json:"envelopes"`
+	FileIV            string                   `json:"file_iv"`
+	EncryptedMetadata string                   `json:"encrypted_metadata"`
+	MetadataIV        string                   `json:"metadata_iv"`
+	Envelopes         []wireAttachmentEnvelope `json:"envelopes"`
 }
 
 // UploadAttachments handles multipart file uploads for scheme=2 (E2E)
@@ -133,9 +140,10 @@ func (h *attachmentHandler) UploadAttachments(c *gin.Context) {
 			}
 		}
 		metas[i] = services.AttachmentMetaInput{
-			FileIV:    m.FileIV,
-			MimeType:  m.MimeType,
-			Envelopes: envs,
+			FileIV:            m.FileIV,
+			EncryptedMetadata: m.EncryptedMetadata,
+			MetadataIV:        m.MetadataIV,
+			Envelopes:         envs,
 		}
 	}
 
@@ -273,13 +281,12 @@ func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage
 // filters to its own).
 func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]any {
 	return map[string]any{
-		"id":        att.ID,
-		"file_type": att.FileType,
-		"file_name": att.FileName,
-		"file_size": att.FileSize,
-		"mime_type": att.MimeType,
-		"url":       s.GetURL(att.StorageKey),
-		"file_iv":   att.FileIV,
+		"id":                 att.ID,
+		"file_size":          att.FileSize,
+		"url":                s.GetURL(att.StorageKey),
+		"file_iv":            att.FileIV,
+		"encrypted_metadata": att.EncryptedMetadata,
+		"metadata_iv":        att.MetadataIV,
 	}
 }
 

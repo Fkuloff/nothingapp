@@ -6,8 +6,7 @@ type SearchResult = {
   messageId: number
   text: string
   createdAt: string
-  matchType: 'text' | 'filename'
-  fileName?: string
+  matchType: 'text'
 }
 
 type Props = {
@@ -45,7 +44,12 @@ export function ChatSearch({ chatId, onResultClick, onClose }: Props) {
         for (const msg of messages) {
           if (msg.is_deleted) continue
 
-          // Search in message text
+          // Search in message text. Filename search was removed when
+          // attachment metadata became client-side encrypted — the filename
+          // lives inside encrypted_metadata under file_key, and decrypting
+          // every attachment in the chat on every keystroke would be
+          // expensive (and we'd need to cache decrypted names somewhere).
+          // Re-introduce when there's a real demand.
           if (msg.text.toLowerCase().includes(q)) {
             found.push({
               messageId: msg.id,
@@ -53,20 +57,6 @@ export function ChatSearch({ chatId, onResultClick, onClose }: Props) {
               createdAt: msg.created_at,
               matchType: 'text',
             })
-          }
-
-          // Search in attachment filenames
-          for (const att of msg.attachments || []) {
-            const name = att.file_name
-            if (name.toLowerCase().includes(q)) {
-              found.push({
-                messageId: msg.id,
-                text: msg.text,
-                createdAt: msg.created_at,
-                matchType: 'filename',
-                fileName: name,
-              })
-            }
           }
         }
 
@@ -152,13 +142,7 @@ export function ChatSearch({ chatId, onResultClick, onClose }: Props) {
               onClick={() => onResultClick(result.messageId)}
             >
               <div className="chat-search__result-text">
-                {result.matchType === 'filename' ? (
-                  <span className="chat-search__filename">
-                    {highlightMatch(result.fileName || '', query)}
-                  </span>
-                ) : (
-                  highlightMatch(truncateText(result.text), query)
-                )}
+                {highlightMatch(truncateText(result.text), query)}
               </div>
               <div className="chat-search__result-date">
                 {new Date(result.createdAt).toLocaleString()}

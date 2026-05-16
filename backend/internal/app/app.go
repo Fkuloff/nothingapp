@@ -192,7 +192,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		log.Warn("failed to create idx_messages_chat_created", zap.Error(err))
 	}
 
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&models.User{},
 		&models.Chat{},
 		&models.Message{},
@@ -205,7 +205,29 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.ChatParticipant{},
 		&models.PinnedMessage{},
 		&models.FCMToken{},
-	)
+	); err != nil {
+		return err
+	}
+
+	// Drop legacy plaintext metadata columns on `attachments`. The render-bucket,
+	// filename and claimed mime are now AES-GCM-wrapped under file_key in
+	// encrypted_metadata/metadata_iv; keeping these columns around would leave
+	// the operator with a `pg_dump`-visible window into "tax_returns_2026.pdf"
+	// from old rows and silently let new uploads ride the legacy path. Idempotent:
+	// HasColumn → false on subsequent runs.
+	migrator := db.Migrator()
+	for _, col := range []string{"file_type", "file_name", "mime_type"} {
+		if !migrator.HasColumn(&models.Attachment{}, col) {
+			continue
+		}
+		if err := migrator.DropColumn(&models.Attachment{}, col); err != nil {
+			log.Warn("failed to drop legacy attachment column", zap.String("column", col), zap.Error(err))
+		} else {
+			log.Info("dropped legacy attachment column", zap.String("column", col))
+		}
+	}
+
+	return nil
 }
 
 func setupRouter(log *zap.Logger) *gin.Engine {

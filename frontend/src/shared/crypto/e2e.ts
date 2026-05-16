@@ -432,6 +432,57 @@ export async function decryptFile(
 }
 
 /**
+ * Encrypt the small per-file metadata blob ({fileName, mimeType}) under the
+ * same file_key that encrypts the body. Server never sees the plaintext —
+ * filename + claimed mime stay private from the operator (they used to live
+ * in the FileName / MimeType DB columns in cleartext). Different IV from the
+ * body so the same key can be reused safely.
+ */
+export type AttachmentMetadata = {
+  fileName: string
+  mimeType: string
+}
+
+export async function encryptMetadata(
+  meta: AttachmentMetadata,
+  fileKey: CryptoKey,
+): Promise<{ ciphertext: string; iv: string }> {
+  const iv = randomUint8Array(IV_BYTES)
+  const plaintext = new TextEncoder().encode(JSON.stringify(meta))
+  const ctBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    fileKey,
+    asBuffer(plaintext),
+  )
+  return { ciphertext: b64encode(new Uint8Array(ctBuffer)), iv: b64encode(iv) }
+}
+
+/**
+ * Decrypt the metadata blob produced by encryptMetadata. Returns the same
+ * shape the sender put in. Throws on auth-tag mismatch (wrong file_key) so
+ * the caller can surface a "🔒 Не удалось расшифровать" placeholder.
+ */
+export async function decryptMetadata(
+  ciphertextB64: string,
+  ivB64: string,
+  fileKey: CryptoKey,
+): Promise<AttachmentMetadata> {
+  const ciphertext = b64decode(ciphertextB64)
+  const iv = b64decode(ivB64)
+  const ptBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    fileKey,
+    asBuffer(ciphertext),
+  )
+  const json = new TextDecoder().decode(ptBuffer)
+  const parsed = JSON.parse(json) as Partial<AttachmentMetadata>
+  return {
+    fileName: typeof parsed.fileName === 'string' ? parsed.fileName : '',
+    mimeType: typeof parsed.mimeType === 'string' ? parsed.mimeType : '',
+  }
+}
+
+/**
  * Wrap a file_key under a recipient's chat_key (per-recipient envelope). Same
  * AES-GCM construction as messages — fresh IV, the body here is the 32 raw
  * bytes of file_key.
