@@ -1,97 +1,105 @@
 # Messenger
 
-Real-time мессенджер с React frontend и Go backend.
+Real-time messenger with a React frontend and a Go backend.
 
-## Возможности
+## Features
 
-- 💬 Личные и групповые чаты в реальном времени (WebSocket)
-- 🔐 JWT аутентификация
-- 🔒 Сквозное шифрование (E2E): X25519 ECDH + AES-256-GCM. Сервер не видит plaintext
-- 📞 Аудиозвонки 1-на-1 (WebRTC, STUN)
-- 📎 Файловые вложения через S3/MinIO
-- 📌 Закреплённые сообщения
-- 🔔 Web Push (VAPID) и FCM уведомления
-- 🟢 Система присутствия (онлайн/оффлайн)
-- 📨 Офлайн-доставка сообщений
-- ✏️ Редактирование и удаление сообщений
-- 💬 Ответы на сообщения (threading)
-- 👥 Группы с ролями (owner / admin / member), управление контактами
-- 🌗 Темная/светлая тема
+- 💬 Real-time 1-on-1 and group chats (WebSocket)
+- 🔐 JWT authentication
+- 🔒 End-to-end encryption (E2E): X25519 ECDH + AES-256-GCM. The server never sees plaintext — neither message bodies, nor attachment bodies, nor filenames / mime types
+- 📞 1-on-1 audio calls (WebRTC, STUN)
+- 📎 File attachments via S3/MinIO (client-side encrypted, opaque blobs server-side)
+- 📌 Pinned messages
+- 🔔 Web Push (VAPID) and FCM notifications
+- 🟢 Presence tracking (online / offline)
+- 📨 Offline message delivery
+- ✏️ Message editing and deletion
+- 💬 Message replies (threading)
+- 👥 Group chats with roles (owner / admin / member), contact management
+- 🌗 Light / dark theme
 
-## Технологии
+## Stack
 
 **Backend:** Go 1.24 · Gin · GORM · PostgreSQL 16 · WebSocket · JWT · zap
 
-**Frontend:** React 19 · TypeScript · Vite · Bootstrap 5 · React Router 7
+**Frontend:** React 19 · TypeScript · Vite · Bootstrap 5 · React Router 7 · `@noble/curves`
+
+**Mobile:** Capacitor Android (WebView) · FCM push
 
 **Infrastructure:** Docker · MinIO · Nginx · Certbot · GitHub Actions · GHCR · Distroless
 
-## Быстрый старт
+## Quick start
 
 ```bash
-# Клонировать
+# Clone
 git clone https://github.com/fkuloff/messenger.git
 cd messenger
 
-# Настроить .env
+# Configure .env
 cp .env.example .env
 nano .env
 
-# Запустить (postgres + minio + backend + frontend)
+# Run (postgres + minio + backend + frontend)
 docker-compose up --build
 ```
 
-Приложение доступно на `http://localhost`
+Visit `http://localhost`.
 
-### Минимальные переменные
+### Minimal env
 
 ```bash
 POSTGRES_PASSWORD=your_password
 JWT_SECRET=your_very_secure_jwt_secret_at_least_32_chars
 ```
 
-Остальные имеют значения по умолчанию. Полный список — в `.env.example`.
+Everything else has sensible defaults. Full reference in `.env.example`.
 
-## Структура проекта
+## Layout
 
 ```
 messenger/
 ├── backend/                  # Go backend (Gin + GORM + PostgreSQL)
-│   ├── cmd/server/           # Точка входа
+│   ├── cmd/server/           # Entry point
 │   └── internal/             # Handlers, services, repos, models, secrets
 ├── frontend/                 # React 19 (TypeScript + Vite + Bootstrap)
-│   └── src/                  # Pages, features (auth/chats/calls/...), shared/crypto
-├── nginx-proxy/              # Production nginx конфиг
+│   ├── src/                  # Pages, features (auth/chats/calls/...), shared/crypto
+│   └── android/              # Capacitor Android wrapper (debug + release APK)
+├── nginx-proxy/              # Production nginx config
 ├── ops/                      # SECRETS.md + E2E.md runbooks
 ├── .github/workflows/        # CI/CD pipeline
 ├── docker-compose.yml        # Dev: postgres, minio, backend, frontend
 └── docker-compose.prod.yml   # Prod: + nginx-proxy, SSL (Certbot), Docker secrets
 ```
 
-## Архитектура
+## Architecture
 
-**Backend — Clean Architecture:**
+**Backend — layered:**
 ```
 Handlers → Services → Repositories → Models
 ```
+Handlers MUST NOT touch repositories directly; services encapsulate all business logic and data access.
 
 **WebSocket:**
-- Глобальное подключение `/ws`, мультиплексирование по `chat_id`
-- Worker pool (50 воркеров) для broadcast
-- Heartbeat (ping/pong 54s), rate limit 10 msg/s
-- Офлайн-очередь → доставка при переподключении
+- Single global `/ws` connection, multiplexed by `chat_id`
+- Worker pool (50 workers) for broadcast fan-out
+- Heartbeat (ping/pong 54 s), per-user rate limit 10 msg/s
+- Offline queue → delivered on reconnect
 
-**Шифрование (E2E):**
-- На устройстве: PBKDF2(password, 600k iter) → `vault_key` → разворачивает `account_key`
-- Между пользователями: `chat_key = HKDF(X25519(my.private, peer.public))` → AES-256-GCM
-- 1-на-1: один envelope (text + iv в `messages`)
-- Группы (pairwise, Variant A): по envelope на каждого получателя в `message_envelopes`
-- Мульти-девайс: одинаковый пароль → одинаковый `account_key` → одинаковые ключи на всех устройствах
-- Сервер хранит только ciphertext + публичные ключи участников, plaintext недоступен
+**Encryption (E2E, scheme=2 only — server-side scheme=1 has been removed):**
+- On-device: `vault_key = PBKDF2(password, salt, 600k iter)` → unwraps `account_key`
+- Inter-user: `chat_key = HKDF(X25519(my.private, peer.public))` → AES-256-GCM
+- 1-on-1 message: single ciphertext + IV on the `messages` row
+- Group message (pairwise, Variant A): one envelope per recipient in `message_envelopes`
+- Attachments: body encrypted under a per-file `file_key` (AES-256-GCM), `file_key` wrapped per recipient in `attachment_envelopes`; filename + mime stored as a second AES-GCM blob under the same `file_key` in `encrypted_metadata`
+- Multi-device: same password → same `account_key` → same X25519 keypair → same `chat_key` on every device
+- Server stores only ciphertexts + public keys + per-recipient wrapped keys. Plaintext lives nowhere on the server
 
-**Хранилище файлов:**
-- S3-совместимое (MinIO) с presigned URLs
-- Dual endpoint: internal (Docker) + public (browser)
+See `ops/E2E.md` for the full key-derivation diagram and threat model.
+
+**File storage:**
+- S3-compatible (MinIO) with presigned URLs (Signature-query-param self-authenticated)
+- Dual endpoint: internal (Docker network) + public (browser-facing)
+- Stored objects are opaque ciphertext (`application/octet-stream`); storage keys carry no filename or extension
 
 ## API
 
@@ -101,10 +109,10 @@ POST   /api/auth/register
 POST   /api/auth/login
 GET    /health
 GET    /api/avatars/:user_id
-GET    /api/attachments/:id
+GET    /api/group-avatars/:chat_id
 ```
 
-**Protected** (JWT):
+**Protected** (JWT required):
 ```
 # Auth + E2E vault
 POST   /api/auth/logout           GET  /api/auth/me
@@ -128,13 +136,17 @@ POST   /api/chats/:id/messages/:message_id/pin
 DELETE /api/chats/:id/messages/:message_id/pin
 GET    /api/chats/:id/pins
 
-# Attachments + profile + contacts + presence
+# Attachments (multipart, encrypted client-side)
 POST   /api/chats/:id/messages/:message_id/attachments
 GET    /api/attachments/:id       DELETE /api/attachments/:id
+
+# Profile + contacts + presence + files
 GET    /api/profile               PUT  /api/profile
+GET    /api/profile/:user_id
 GET    /api/contacts              POST /api/contacts/:user_id
 DELETE /api/contacts/:user_id     GET  /api/users/search
 POST   /api/user/avatar           DELETE /api/user/avatar
+GET    /api/files/:filename
 GET    /api/presence/:user_id
 GET    /api/unread                GET  /api/unread/counts
 
@@ -146,11 +158,11 @@ POST   /api/push/fcm/register     POST /api/push/fcm/unregister
 WS     /ws
 ```
 
-## Разработка
+## Development
 
 ```bash
-# Docker (рекомендуется)
-docker-compose up --build              # Все сервисы
+# Docker (recommended)
+docker-compose up --build              # All services
 docker-compose --profile dev up        # + pgAdmin
 
 # Backend
@@ -162,53 +174,65 @@ go test -v -race ./...
 cd frontend
 npm install
 npm run dev                            # Vite dev server
-npm run build                          # Production build
+npm run build                          # Web production build
+npm run build:android                  # Android-mode build (uses .env.android)
+npm run sync:android                   # build:android + cap sync android
 npm run lint                           # ESLint
+npm run knip                           # Find unused exports / dead code
+npm test                               # Vitest (includes E2E crypto roundtrip suite)
 ```
+
+**Android APK:** always run `npm run sync:android` before `gradlew assembleDebug` / `assembleRelease`. The plain `npm run build` script bakes in an empty `VITE_API_BASE_URL`, which silently routes API calls back at the WebView itself.
+
+**Backend linting (CI parity):** run `golangci-lint` v1.64.8 inside Docker — the native Windows binary peaks past 7 GB RAM and trashes the host. See `CLAUDE.md` for the exact command.
 
 ## CI/CD
 
-GitHub Actions pipeline (`main`):
+GitHub Actions pipeline (push / PR to `main`):
 
 1. **Lint** — golangci-lint (backend) + ESLint (frontend)
-2. **Test** — `go test -race -coverprofile` с PostgreSQL
-3. **Build** — бинарник Go + `npm run build`
-4. **Docker** — сборка и push в GHCR (linux/amd64)
-5. **Deploy** — SSH deploy на сервер, `docker compose pull && up -d`
+2. **Test** — `go test -race -coverprofile` with PostgreSQL; Vitest on frontend
+3. **Build** — Go binary + `npm run build`
+4. **Docker** — build and push to GHCR (linux/amd64)
+5. **Deploy** — SSH deploy to the server, `docker compose pull && up -d`, then `nginx -s reload`
 
-Триггер: push/PR в `main`. Docker push + deploy только при push.
+Docker push + deploy only fire on `push` to `main`.
 
-## Развертывание (Production)
+## Deployment (Production)
 
 ```bash
-# На сервере
+# On the server
 mkdir ~/messenger && cd ~/messenger
-# Скопировать docker-compose.prod.yml, nginx-proxy/, .env
+# Copy docker-compose.prod.yml, nginx-proxy/, .env onto the host
 cp .env.example .env
 nano .env
 
-# Первый запуск (SSL сертификат)
+# Populate /etc/messenger/secrets/ per ops/SECRETS.md
+
+# First-time SSL bootstrap
 chmod +x init-letsencrypt.sh && ./init-letsencrypt.sh
 
-# Запуск
+# Run
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Production стек: Nginx (reverse proxy + SSL) → Frontend (Nginx) → Backend (Distroless) → PostgreSQL + MinIO.
+Production stack: Nginx (reverse proxy + Let's Encrypt SSL) → Frontend (Nginx) → Backend (Distroless) → PostgreSQL + MinIO. Secrets ride on Docker Compose `secrets:` mounts under `/run/secrets/`, never in `.env`.
 
-## Ограничения
+## Limits
 
-| Параметр | Лимит |
+| Parameter | Limit |
 |----------|-------|
-| WebSocket сообщение | 10 KB |
-| Соединений на пользователя | 5 |
+| WebSocket message size | 64 KB (room for WebRTC SDP payloads) |
+| Connections per user | 5 |
 | Rate limit (WS) | 10 msg/s |
 | Rate limit (HTTP) | 30 req/s/IP |
-| Изображения | 100 MB |
-| Видео | 500 MB |
-| Документы | 50 MB |
-| Файлов в сообщении | 10 |
+| Message text | 10 000 chars |
+| Group members | 50 |
+| Images | 100 MB |
+| Videos | 500 MB |
+| Documents | 50 MB |
+| Files per message | 10 |
 
-## Лицензия
+## License
 
 MIT
