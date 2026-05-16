@@ -6,8 +6,6 @@ import (
 	"mime/multipart"
 	"path/filepath"
 	"strings"
-
-	"messenger/internal/models"
 )
 
 // File size limits.
@@ -112,17 +110,6 @@ func (v *fileValidator) validateAvatar(fileHeader *multipart.FileHeader) error {
 // isAllowedMimeType checks if a MIME type is allowed for any attachment type
 func (v *fileValidator) isAllowedMimeType(mimeType string) bool {
 	return allowedImageTypes[mimeType] || allowedVideoTypes[mimeType] || allowedDocumentTypes[mimeType]
-}
-
-// determineFileType returns the attachment type based on MIME type
-func (v *fileValidator) determineFileType(mimeType string) models.AttachmentType {
-	if allowedImageTypes[mimeType] {
-		return models.AttachmentTypeImage
-	}
-	if allowedVideoTypes[mimeType] {
-		return models.AttachmentTypeVideo
-	}
-	return models.AttachmentTypeDocument
 }
 
 // validateFilename checks for path traversal and other security issues

@@ -34,13 +34,16 @@ type AttachmentEnvelopeInput struct {
 // the file body's own AES-GCM IV (so recipients can decrypt the blob once they
 // have file_key) plus the per-recipient wrapped file_key envelopes.
 //
-// MimeType is what the client claims the original file is. The server records
-// it but cannot verify (the body is ciphertext). FileName + FileSize come
-// from the multipart part itself.
+// EncryptedMetadata + MetadataIV carry the AES-GCM-wrapped {file_name,
+// mime_type} blob (under the same file_key that encrypts the body). The
+// server records them verbatim and never sees the plaintext, so filename
+// and claimed mime type stay private from the operator. FileSize comes
+// from the multipart part itself and is necessarily server-visible.
 type AttachmentMetaInput struct {
-	FileIV    string
-	MimeType  string
-	Envelopes []AttachmentEnvelopeInput
+	FileIV            string
+	EncryptedMetadata string
+	MetadataIV        string
+	Envelopes         []AttachmentEnvelopeInput
 }
 
 // AttachmentService handles business logic for attachments
@@ -217,11 +220,16 @@ func (s *AttachmentService) chatRecipientSet(ctx context.Context, chatID, sender
 }
 
 // validateAttachmentMeta checks the envelope set covers every chat recipient
-// exactly once and the body's own IV is populated. Same strict policy as
-// message envelopes: no duplicates, no missing, no extras.
+// exactly once, the body's own IV is populated, and the encrypted-metadata
+// blob is present. After the legacy plaintext-name removal, an attachment
+// without encrypted_metadata is uncategorizable on the receiver — reject at
+// upload time rather than silently writing a row nobody can render.
 func validateAttachmentMeta(meta AttachmentMetaInput, expected map[uint]struct{}) error {
 	if meta.FileIV == "" || len(meta.Envelopes) == 0 {
 		return ErrAttachmentMetaFields
+	}
+	if meta.EncryptedMetadata == "" || meta.MetadataIV == "" {
+		return errors.New("encrypted_metadata and metadata_iv are required")
 	}
 	seen := make(map[uint]struct{}, len(meta.Envelopes))
 	for _, e := range meta.Envelopes {
@@ -244,10 +252,11 @@ func validateAttachmentMeta(meta AttachmentMetaInput, expected map[uint]struct{}
 
 // processEncryptedFileUpload writes one encrypted blob to S3 and returns the
 // Attachment row (not yet persisted) plus the storage_key for potential
-// rollback. The file's actual mime is what the client claims — we record it
-// verbatim because the body is opaque ciphertext. File type bucket (image /
-// video / document) is inferred from the claimed mime so the UI can pick
-// the right renderer; this is a hint, not a security boundary.
+// rollback. For new (encrypted-metadata) uploads the server never sees the
+// real filename or mime — both live inside meta.EncryptedMetadata, wrapped
+// under the same file_key as the body. Legacy uploads (no encrypted_metadata)
+// fall back to the multipart filename + claimed mime so existing chats keep
+// rendering.
 func (s *AttachmentService) processEncryptedFileUpload(
 	fileHeader *multipart.FileHeader,
 	messageID uint,
@@ -263,10 +272,15 @@ func (s *AttachmentService) processEncryptedFileUpload(
 	}
 
 	// The body is ciphertext, so we tell storage it's application/octet-stream.
-	// The client-supplied original mime lives on the Attachment row only.
+	// We also pass a fixed opaque filename ("blob") instead of the multipart
+	// Filename — the S3 key generator extracts the file extension for the
+	// object key, and the multipart filename leaks both the real basename and
+	// the user's chosen extension into the operator-visible storage_key
+	// (otherwise pattern is `files/YYYY/MM/DD/{uuid}.pdf`, telling the
+	// operator the file type even though mime/filename are encrypted).
 	const cipherContentType = "application/octet-stream"
-	fileType := s.validator.determineFileType(meta.MimeType)
-	metadata, err := s.storage.Save(file, fileHeader.Filename, cipherContentType, fileHeader.Size)
+	const opaqueFilename = "blob"
+	metadata, err := s.storage.Save(file, opaqueFilename, cipherContentType, fileHeader.Size)
 	if closeErr := file.Close(); closeErr != nil {
 		s.logger.Warn("failed to close file after upload", zap.Error(closeErr), zap.String("filename", fileHeader.Filename))
 	}
@@ -275,19 +289,12 @@ func (s *AttachmentService) processEncryptedFileUpload(
 	}
 
 	attachment := &models.Attachment{
-		MessageID:  messageID,
-		FileType:   fileType,
-		StorageKey: metadata.Key,
-		FileName:   metadata.FileName,
-		FileSize:   metadata.Size,
-		MimeType:   meta.MimeType,
-		// The body's AES-GCM nonce — same for every recipient, different per
-		// attachment. Without persisting this the read path can't decrypt:
-		// the client needs (encrypted_file_key, envelope_iv, file_iv) all
-		// three, and an empty file_iv silently falls back to the
-		// "non-E2E" branch in the UI which then tries to render ciphertext
-		// bytes as a real image / video / pdf.
-		FileIV: meta.FileIV,
+		MessageID:         messageID,
+		StorageKey:        metadata.Key,
+		FileSize:          metadata.Size,
+		FileIV:            meta.FileIV,
+		EncryptedMetadata: meta.EncryptedMetadata,
+		MetadataIV:        meta.MetadataIV,
 	}
 
 	return attachment, metadata.Key, nil

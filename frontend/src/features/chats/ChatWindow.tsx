@@ -361,21 +361,24 @@ export function ChatWindow({
         const formData = new FormData()
         type WireMeta = {
           file_iv: string
-          mime_type: string
+          encrypted_metadata: string
+          metadata_iv: string
           envelopes: Array<{ recipient_id: number; encrypted_file_key: string; iv: string }>
         }
         const metas: WireMeta[] = []
         for (const file of files) {
           const prepared = await prepareAttachmentForUpload(file, recipients, accountKey)
-          // Append the encrypted blob, preserve the original filename so the
-          // receiving UI can show "kitten.jpg" not a random UUID. Filename is
-          // metadata; not security-sensitive (server already knows who sent
-          // what, plus filename is short and easy to override client-side
-          // before sharing).
-          formData.append('attachments', prepared.ciphertext, file.name)
+          // Append the encrypted blob with an opaque filename so the multipart
+          // Content-Disposition header doesn't leak the original name. The
+          // real filename lives encrypted inside `encrypted_metadata` and is
+          // recovered by the receiver post-decrypt. Server stores S3 objects
+          // as `files/YYYY/MM/DD/{uuid}` (no extension either — backend
+          // overrides multipart filename with "blob" for the storage key).
+          formData.append('attachments', prepared.ciphertext, 'blob')
           metas.push({
             file_iv: prepared.fileIv,
-            mime_type: file.type || 'application/octet-stream',
+            encrypted_metadata: prepared.encryptedMetadata,
+            metadata_iv: prepared.metadataIv,
             envelopes: prepared.envelopes,
           })
         }
