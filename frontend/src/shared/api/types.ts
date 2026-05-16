@@ -125,11 +125,14 @@ export type GroupInfoResponse = {
 export type Attachment = {
   id: number
   message_id?: number
-  file_type: 'image' | 'video' | 'document' | 'audio'
+  // Legacy plaintext metadata. New (encrypted-metadata) uploads send these
+  // empty; the receiver decrypts encrypted_metadata to recover real values.
+  // Kept on the wire so old rows in the DB keep rendering.
+  file_type?: 'image' | 'video' | 'document' | 'audio'
+  file_name?: string
+  mime_type?: string
   storage_key?: string
-  file_name: string
   file_size: number
-  mime_type: string
   url?: string
   thumbnail_key?: string
   width?: number
@@ -144,6 +147,11 @@ export type Attachment = {
   encrypted_file_key?: string
   envelope_iv?: string
   file_iv?: string
+  // {fileName, mimeType} JSON, AES-GCM-wrapped under the same file_key as
+  // the body. Server never sees plaintext — replaces the previously
+  // operator-readable file_name / mime_type columns. Empty for legacy rows.
+  encrypted_metadata?: string
+  metadata_iv?: string
 }
 
 // User list item (used in contacts list, search results)

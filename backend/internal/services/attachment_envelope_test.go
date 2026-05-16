@@ -128,3 +128,46 @@ func TestValidateAttachmentMeta_MissingParticipant(t *testing.T) {
 		t.Fatalf("expected coverage error, got %v", err)
 	}
 }
+
+func TestValidateAttachmentMeta_EncryptedMetadataPair(t *testing.T) {
+	// The encrypted-metadata blob travels as (ciphertext, iv). One without
+	// the other is malformed — the receiver can't recover the filename / mime,
+	// and silently falling through to legacy plaintext columns would defeat
+	// the privacy guarantee. Reject the half-state at upload time.
+	base := AttachmentMetaInput{
+		FileIV: "iv",
+		Envelopes: []AttachmentEnvelopeInput{
+			{RecipientID: 1, EncryptedFileKey: "ct1", IV: "iv1"},
+			{RecipientID: 2, EncryptedFileKey: "ct2", IV: "iv2"},
+		},
+	}
+
+	// ciphertext without iv → error
+	bad := base
+	bad.EncryptedMetadata = "meta-ct"
+	bad.MetadataIV = ""
+	if err := validateAttachmentMeta(bad, recipientSet(1, 2)); err == nil || !strings.Contains(err.Error(), "metadata") {
+		t.Fatalf("expected metadata pair error, got %v", err)
+	}
+
+	// iv without ciphertext → error
+	bad = base
+	bad.EncryptedMetadata = ""
+	bad.MetadataIV = "meta-iv"
+	if err := validateAttachmentMeta(bad, recipientSet(1, 2)); err == nil || !strings.Contains(err.Error(), "metadata") {
+		t.Fatalf("expected metadata pair error, got %v", err)
+	}
+
+	// Both set → OK
+	good := base
+	good.EncryptedMetadata = "meta-ct"
+	good.MetadataIV = "meta-iv"
+	if err := validateAttachmentMeta(good, recipientSet(1, 2)); err != nil {
+		t.Fatalf("both-set should pass, got %v", err)
+	}
+
+	// Both empty (legacy upload) → OK
+	if err := validateAttachmentMeta(base, recipientSet(1, 2)); err != nil {
+		t.Fatalf("both-empty should pass, got %v", err)
+	}
+}

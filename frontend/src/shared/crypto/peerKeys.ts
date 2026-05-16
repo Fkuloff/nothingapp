@@ -5,6 +5,7 @@ import {
   deriveChatKey,
   encryptFile,
   encryptForGroup,
+  encryptMetadata,
   generateFileKey,
   publicKeyBase64,
   wrapFileKey,
@@ -150,6 +151,8 @@ type AttachmentEnvelopeWire = {
 type PreparedAttachment = {
   ciphertext: Blob
   fileIv: string
+  encryptedMetadata: string
+  metadataIv: string
   envelopes: AttachmentEnvelopeWire[]
 }
 
@@ -196,6 +199,17 @@ export async function prepareAttachmentForUpload(
   const fileKey = await generateFileKey()
   const { ciphertext, iv: fileIv } = await encryptFile(file, fileKey)
 
+  // Encrypt the user-visible metadata (filename + mime) under the same
+  // file_key. Server-side this lands in the `encrypted_metadata` column
+  // instead of the legacy plaintext `file_name` / `mime_type` columns —
+  // operator can no longer read either via pg_dump. The receiving client
+  // unwraps file_key, decrypts both metadata and body, then derives the
+  // render bucket (image / video / document) from the decrypted mime.
+  const { ciphertext: encryptedMetadata, iv: metadataIv } = await encryptMetadata(
+    { fileName: file.name, mimeType: file.type || 'application/octet-stream' },
+    fileKey,
+  )
+
   const envelopes: AttachmentEnvelopeWire[] = []
   for (const r of recipients) {
     if (!r.publicKey) throw new Error(`prepareAttachmentForUpload: recipient ${r.userID} has no public_key`)
@@ -215,6 +229,8 @@ export async function prepareAttachmentForUpload(
   return {
     ciphertext: new Blob([ciphertext as unknown as BlobPart], { type: 'application/octet-stream' }),
     fileIv,
+    encryptedMetadata,
+    metadataIv,
     envelopes,
   }
 }

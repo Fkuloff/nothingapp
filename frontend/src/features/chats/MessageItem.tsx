@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 
 import type { Attachment, Message } from '../../shared/api/types'
-import { decryptFile, unwrapFileKey } from '../../shared/crypto/e2e'
+import { decryptFile, decryptMetadata, unwrapFileKey } from '../../shared/crypto/e2e'
 import { getChatKey } from '../../shared/crypto/peerKeys'
 import { formatFileSize, formatMessageTime } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
@@ -40,19 +40,34 @@ type AttachmentViewProps = {
   onImageClick: (src: string, alt: string) => void
 }
 
+// Derive the UI render bucket (image / video / document) from a mime type.
+// Mirrors the server-side `determineFileType` we used to run on the plaintext
+// claimed mime — moved client-side because the server no longer sees it (the
+// real mime is encrypted under file_key alongside the body).
+function bucketFromMime(mime: string): 'image' | 'video' | 'document' {
+  if (mime.startsWith('image/')) return 'image'
+  if (mime.startsWith('video/')) return 'video'
+  return 'document'
+}
+
 /**
  * Renders one attachment. Branches on whether the attachment is E2E
  * (encrypted_file_key + envelope_iv + file_iv all present): if so, fetch the
- * ciphertext blob, unwrap the file_key, decrypt the body, render via blob URL.
- * Otherwise (legacy plaintext attachment, shouldn't exist post-cleanup) render
- * the presigned URL directly.
+ * ciphertext blob, unwrap the file_key, decrypt both metadata and body,
+ * render via blob URL. Otherwise (legacy plaintext attachment) render the
+ * presigned URL with the server-supplied file_name / mime / file_type.
  */
 function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps) {
   const accountKeyCtx = useAccountKey()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Decrypted filename + mime — empty until decrypt completes. Falls back to
+  // legacy plaintext att.file_name / att.mime_type when no encrypted_metadata
+  // is on the row (pre-encryption upload).
+  const [decryptedMeta, setDecryptedMeta] = useState<{ fileName: string; mimeType: string } | null>(null)
 
   const isEncrypted = Boolean(att.encrypted_file_key && att.envelope_iv && att.file_iv)
+  const hasEncryptedMetadata = Boolean(att.encrypted_metadata && att.metadata_iv)
 
   useEffect(() => {
     if (!isEncrypted) return
@@ -69,10 +84,24 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
         const chatKey = await getChatKey(accountKey, senderUserId)
         if (!chatKey) throw new Error('cannot derive chat_key for sender')
         const fileKey = await unwrapFileKey(att.encrypted_file_key as string, att.envelope_iv as string, chatKey)
+
+        // Decrypt the metadata blob FIRST when present so we know the real
+        // mime to pass to the Blob constructor (browser sniffs the bytes
+        // anyway for <img>, but a correct type matters for <video>/download).
+        let mime = att.mime_type ?? ''
+        let name = att.file_name ?? ''
+        if (hasEncryptedMetadata) {
+          const meta = await decryptMetadata(att.encrypted_metadata as string, att.metadata_iv as string, fileKey)
+          if (cancelled) return
+          mime = meta.mimeType || 'application/octet-stream'
+          name = meta.fileName
+          setDecryptedMeta({ fileName: name, mimeType: mime })
+        }
+
         const ctRes = await fetch(att.url as string)
         if (!ctRes.ok) throw new Error(`fetch ${ctRes.status}`)
         const ctBuf = new Uint8Array(await ctRes.arrayBuffer())
-        const decrypted = await decryptFile(ctBuf, att.file_iv as string, fileKey, att.mime_type)
+        const decrypted = await decryptFile(ctBuf, att.file_iv as string, fileKey, mime)
         if (cancelled) return
         currentUrl = URL.createObjectURL(decrypted)
         setBlobUrl(currentUrl)
@@ -91,13 +120,17 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
     }
   }, [
     isEncrypted,
+    hasEncryptedMetadata,
     accountKeyCtx.state,
     senderUserId,
     att.url,
     att.encrypted_file_key,
     att.envelope_iv,
     att.file_iv,
+    att.encrypted_metadata,
+    att.metadata_iv,
     att.mime_type,
+    att.file_name,
   ])
 
   if (!att.id || !att.url) return null
@@ -112,31 +145,37 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
     return <div className="attachment-document attachment-loading">🔒 Расшифровка…</div>
   }
 
-  if (att.file_type === 'image') {
+  // Effective filename + mime: decrypted-metadata wins, falls back to legacy
+  // plaintext columns for old rows that pre-date the encrypted-metadata layer.
+  const effFileName = decryptedMeta?.fileName || att.file_name || 'Файл'
+  const effMimeType = decryptedMeta?.mimeType || att.mime_type || 'application/octet-stream'
+  const effBucket = att.file_type || bucketFromMime(effMimeType)
+
+  if (effBucket === 'image') {
     return (
       <button
         type="button"
         className="attachment-image-btn"
-        onClick={() => onImageClick(url, att.file_name)}
+        onClick={() => onImageClick(url, effFileName)}
       >
-        <img src={url} alt={att.file_name} loading="lazy" />
+        <img src={url} alt={effFileName} loading="lazy" />
       </button>
     )
   }
 
-  if (att.file_type === 'video') {
+  if (effBucket === 'video') {
     return (
       <video controls>
-        <source src={url} type={att.mime_type} />
+        <source src={url} type={effMimeType} />
       </video>
     )
   }
 
   return (
-    <a href={url} download={att.file_name} className="attachment-document">
+    <a href={url} download={effFileName} className="attachment-document">
       <span className="attachment-icon">📄</span>
       <div className="attachment-info">
-        <span className="attachment-name">{att.file_name}</span>
+        <span className="attachment-name">{effFileName}</span>
         <span className="attachment-size">{formatFileSize(att.file_size)}</span>
       </div>
     </a>

@@ -53,20 +53,25 @@ func newChatHandler(
 }
 
 type attachmentResponse struct {
-	ID       uint                  `json:"id"`
-	FileType models.AttachmentType `json:"file_type"`
-	FileName string                `json:"file_name"`
-	FileSize int64                 `json:"file_size"`
-	MimeType string                `json:"mime_type"`
-	URL      string                `json:"url"`
+	ID       uint   `json:"id"`
+	FileSize int64  `json:"file_size"`
+	URL      string `json:"url"`
+	// Legacy plaintext metadata fields. Empty for new uploads that use
+	// EncryptedMetadata; clients see them only for pre-encrypted-metadata
+	// attachments still in the DB. `omitempty` so the new shape is clean.
+	FileType models.AttachmentType `json:"file_type,omitempty"`
+	FileName string                `json:"file_name,omitempty"`
+	MimeType string                `json:"mime_type,omitempty"`
 	// E2E fields. EncryptedFileKey + EnvelopeIV are pre-resolved server-side
 	// for the requesting user via attachment_envelopes (per-recipient wrapped
 	// file_key). FileIV is the body's own AES-GCM nonce, identical across
-	// recipients. All three are empty for legacy scheme=1 attachments, in
-	// which case there shouldn't be any rows after the post-E2E cleanup.
-	EncryptedFileKey string `json:"encrypted_file_key,omitempty"`
-	EnvelopeIV       string `json:"envelope_iv,omitempty"`
-	FileIV           string `json:"file_iv,omitempty"`
+	// recipients. EncryptedMetadata + MetadataIV wrap {file_name, mime_type}
+	// under the same file_key — server never sees the plaintext.
+	EncryptedFileKey  string `json:"encrypted_file_key,omitempty"`
+	EnvelopeIV        string `json:"envelope_iv,omitempty"`
+	FileIV            string `json:"file_iv,omitempty"`
+	EncryptedMetadata string `json:"encrypted_metadata,omitempty"`
+	MetadataIV        string `json:"metadata_iv,omitempty"`
 }
 
 type messageResponse struct {
@@ -119,13 +124,18 @@ func (h *chatHandler) toMessageResponses(ctx context.Context, messages []models.
 		atts := make([]attachmentResponse, 0, len(msg.Attachments))
 		for _, att := range msg.Attachments {
 			ar := attachmentResponse{
-				ID:       att.ID,
-				FileType: att.FileType,
-				FileName: att.FileName,
-				FileSize: att.FileSize,
-				MimeType: att.MimeType,
-				URL:      h.storage.GetURL(att.StorageKey),
-				FileIV:   att.FileIV,
+				ID:                att.ID,
+				FileSize:          att.FileSize,
+				URL:               h.storage.GetURL(att.StorageKey),
+				FileIV:            att.FileIV,
+				EncryptedMetadata: att.EncryptedMetadata,
+				MetadataIV:        att.MetadataIV,
+			}
+			// Legacy plaintext fallback. New uploads have these empty.
+			if att.EncryptedMetadata == "" {
+				ar.FileType = att.FileType
+				ar.FileName = att.FileName
+				ar.MimeType = att.MimeType
 			}
 			if env, ok := envelopes[att.ID]; ok {
 				ar.EncryptedFileKey = env.EncryptedFileKey

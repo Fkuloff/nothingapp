@@ -55,9 +55,15 @@ export function ChatSearch({ chatId, onResultClick, onClose }: Props) {
             })
           }
 
-          // Search in attachment filenames
+          // Search in attachment filenames. Only legacy plaintext attachments
+          // expose `file_name` here — new encrypted-metadata uploads keep
+          // the filename encrypted under file_key, which we'd have to
+          // decrypt per attachment to search (expensive + cache-busts on
+          // every keystroke). Skip those silently for now; filename search
+          // for encrypted attachments is intentionally not supported.
           for (const att of msg.attachments || []) {
             const name = att.file_name
+            if (!name) continue
             if (name.toLowerCase().includes(q)) {
               found.push({
                 messageId: msg.id,

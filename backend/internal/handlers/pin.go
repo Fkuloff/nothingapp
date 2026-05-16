@@ -148,14 +148,20 @@ func (h *pinHandler) GetPinnedMessagesAPI(c *gin.Context) {
 
 		atts := make([]attachmentResponse, 0, len(msg.Attachments))
 		for _, att := range msg.Attachments {
-			atts = append(atts, attachmentResponse{
-				ID:       att.ID,
-				FileType: att.FileType,
-				FileName: att.FileName,
-				FileSize: att.FileSize,
-				MimeType: att.MimeType,
-				URL:      h.storage.GetURL(att.StorageKey),
-			})
+			ar := attachmentResponse{
+				ID:                att.ID,
+				FileSize:          att.FileSize,
+				URL:               h.storage.GetURL(att.StorageKey),
+				FileIV:            att.FileIV,
+				EncryptedMetadata: att.EncryptedMetadata,
+				MetadataIV:        att.MetadataIV,
+			}
+			if att.EncryptedMetadata == "" {
+				ar.FileType = att.FileType
+				ar.FileName = att.FileName
+				ar.MimeType = att.MimeType
+			}
+			atts = append(atts, ar)
 		}
 
 		result = append(result, pinnedMessageResponse{
