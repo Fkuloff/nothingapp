@@ -2,8 +2,21 @@ package config
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+// writeSecretFile creates a temp file with the given content and returns its path.
+// Used to exercise the `*_FILE` Docker secrets convention.
+func writeSecretFile(t *testing.T, name, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+	return path
+}
 
 // validEncKey is a base64-encoded 32-byte key for testing (openssl rand -base64 32).
 const validEncKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -141,5 +154,77 @@ func TestLoadConfig_ShortEncryptionKey(t *testing.T) {
 	}
 	if !errors.Is(err, errMsgEncKeyInvalid) {
 		t.Errorf("expected errMsgEncKeyInvalid, got: %v", err)
+	}
+}
+
+// TestLoadConfig_FileVariant verifies the Docker-secrets-style *_FILE fallback —
+// when the plain env var is empty but `*_FILE` points to a readable file, the file's
+// contents are used instead. This is what makes the backend compatible with the
+// `secrets:` block in docker-compose without rewriting deploy logic.
+func TestLoadConfig_FileVariant(t *testing.T) {
+	// Clear the direct env vars so the *_FILE fallback kicks in.
+	t.Setenv("DB_URL", "")
+	t.Setenv("JWT_SECRET", "")
+	t.Setenv("MESSAGE_ENCRYPTION_KEY", "")
+	t.Setenv("VAPID_PRIVATE_KEY", "")
+
+	dbURLPath := writeSecretFile(t, "db_url", "postgres://user:pass@localhost:5432/testdb\n") // trailing newline on purpose
+	jwtPath := writeSecretFile(t, "jwt_secret", "this-is-a-very-secure-secret-key-32+")
+	msgKeyPath := writeSecretFile(t, "message_encryption_key", validEncKey+"\n")
+	vapidPath := writeSecretFile(t, "vapid_private_key", "vapid-private-key-content")
+
+	t.Setenv("DB_URL_FILE", dbURLPath)
+	t.Setenv("JWT_SECRET_FILE", jwtPath)
+	t.Setenv("MESSAGE_ENCRYPTION_KEY_FILE", msgKeyPath)
+	t.Setenv("VAPID_PRIVATE_KEY_FILE", vapidPath)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.DBURL != "postgres://user:pass@localhost:5432/testdb" {
+		t.Errorf("DBURL = %q (trailing newline not stripped?)", cfg.DBURL)
+	}
+	if cfg.JWTSecret != "this-is-a-very-secure-secret-key-32+" {
+		t.Errorf("JWTSecret = %q", cfg.JWTSecret)
+	}
+	if cfg.MessageEncryptionKey != validEncKey {
+		t.Errorf("MessageEncryptionKey trailing newline not stripped: %q", cfg.MessageEncryptionKey)
+	}
+	if cfg.VAPIDPrivateKey != "vapid-private-key-content" {
+		t.Errorf("VAPIDPrivateKey = %q", cfg.VAPIDPrivateKey)
+	}
+}
+
+// TestLoadConfig_FileVariantMissing — if `*_FILE` points at a missing path, the error
+// is surfaced rather than silently treating the secret as empty.
+func TestLoadConfig_FileVariantMissing(t *testing.T) {
+	t.Setenv("DB_URL", "")
+	t.Setenv("DB_URL_FILE", "/nonexistent/path/db_url")
+	t.Setenv("JWT_SECRET", "this-is-a-very-secure-secret-key-32+")
+	t.Setenv("MESSAGE_ENCRYPTION_KEY", validEncKey)
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected error when *_FILE path is unreadable")
+	}
+}
+
+// TestLoadConfig_DirectEnvWins — if both `${name}` and `${name}_FILE` are set, the
+// direct env value wins. Documents intentional precedence (env > file) so an operator
+// can override a deployed secret quickly without touching the secret file.
+func TestLoadConfig_DirectEnvWins(t *testing.T) {
+	jwtPath := writeSecretFile(t, "jwt_secret", "from-file-this-should-be-overridden-32+")
+	t.Setenv("DB_URL", "postgres://user:pass@localhost:5432/testdb")
+	t.Setenv("JWT_SECRET", "from-env-this-wins-and-is-32-chars+")
+	t.Setenv("JWT_SECRET_FILE", jwtPath)
+	t.Setenv("MESSAGE_ENCRYPTION_KEY", validEncKey)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.JWTSecret != "from-env-this-wins-and-is-32-chars+" {
+		t.Errorf("expected env value to take precedence, got: %q", cfg.JWTSecret)
 	}
 }
