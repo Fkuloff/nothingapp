@@ -516,15 +516,45 @@ textarea::placeholder,
    so we have to use a descendant selector (the previous `.attachment-item
    .attachment-document` compound selector matched zero elements, which is
    why PDFs rendered as a bare inline blob inside the bubble). */
-.attachment-document {
-  display: flex;
+/* Document plate must fill its wrapper row so the grid 1fr column has
+   real width to allocate to the filename. Without these, the parent
+   .attachment-item (a flex item in .message-attachments) sizes itself to
+   intrinsic content width — and the 1fr cell collapses to whatever the
+   icon + "size" sub-line happens to be, leaving no horizontal room for
+   the filename. Target via :has() so only document wrappers grow; image
+   and video wrappers keep their natural content-driven sizing. */
+.attachment-item:has(> .attachment-document) {
+  width: 100%;
+}
+
+/* Specificity note: a few lines up there's `.attachment-item a { line-height: 0 }`
+   set so the inline-block <img> inside an image attachment doesn't render with
+   a baseline gap. That rule has specificity (0,1,1) and beats our plain
+   `.attachment-document` (0,1,0), collapsing the filename and size into a 0-tall
+   line — only the icon (which has its own font-size and ignores line-height
+   for sizing) remains visible. Use the (0,2,0) descendant selector here to
+   outrank it. */
+.attachment-item .attachment-document {
+  /* Grid layout (auto for icon column, 1fr for the text column) is more
+     predictable than flex here — the icon column takes its content width,
+     the text column expands to fill the rest, and min-width: 0 on the
+     text column lets long filenames truncate via ellipsis without
+     pushing the icon off the plate. */
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: var(--space-sm);
+  width: 100%;
   padding: 10px 14px;
-  margin-top: 5px;
   background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-hover) 100%);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
+  /* No own border-radius — bleed to the bubble's edge with square corners,
+     same convention as `.attachment-item img/video` (which explicitly set
+     border-radius: 0 a few rules down). The bubble's own rounded corners
+     clip the plate visually on the curves. Keeping our own rounding here
+     produced a "nested rounded rectangle" look that visibly disagreed
+     with the image/video plates next to it. */
+  border-radius: 0;
   color: var(--text-primary);
   font-size: 0.9rem;
   /* Override the line-height: 0 inherited from .attachment-item (that rule
@@ -536,7 +566,25 @@ textarea::placeholder,
   transition: var(--transition);
 }
 
-.attachment-document:hover {
+/* The text column of the grid. min-width: 0 is what lets the column
+   actually shrink below its intrinsic content width (default for grid
+   items is "auto" which respects content size). Without it, a long
+   filename pushes the column wider than the bubble and either the icon
+   gets clipped or the whole plate overflows. */
+.attachment-document .attachment-info {
+  min-width: 0;
+}
+
+/* Long filenames: truncate with ellipsis instead of wrapping into the
+   icon's row or overflowing the plate. The size sub-line is short enough
+   not to need this treatment. */
+.attachment-document .attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-item .attachment-document:hover {
   background: var(--bg-hover);
   border-color: var(--accent-primary);
   color: var(--accent-primary);

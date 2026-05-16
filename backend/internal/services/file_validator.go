@@ -70,16 +70,24 @@ func (v *fileValidator) validateAttachment(fileHeader *multipart.FileHeader) err
 }
 
 // validateAttachmentSizeOnly validates only what's still meaningful for an
-// E2E (scheme=2) attachment: file size + filename safety. We can't inspect
-// the content type because the body is opaque ciphertext — magic-byte mime
-// detection on it would produce garbage. The client supplies the original
-// mime and the server records it verbatim (best-effort metadata for the
-// receiving UI; not a security boundary).
+// E2E (scheme=2) attachment: file size + path-traversal safety. We can't
+// inspect the content type (opaque ciphertext) and we deliberately don't
+// require a filename extension here — the frontend sends a fixed "blob"
+// for every encrypted upload so the multipart Content-Disposition (and the
+// resulting S3 storage_key) carries no extension that could leak the real
+// file type. The real filename + mime live inside the encrypted_metadata
+// blob the receiver decrypts client-side.
 func (v *fileValidator) validateAttachmentSizeOnly(fileHeader *multipart.FileHeader) error {
 	if fileHeader.Size > maxEncryptedFileSize {
 		return fmt.Errorf("encrypted file too large (max %d MB)", maxEncryptedFileSize/(1024*1024))
 	}
-	return v.validateFilename(fileHeader.Filename)
+	// Path-traversal guard — same as validateFilename minus the extension
+	// requirement. Defensive even though the storage layer uses UUIDs.
+	name := fileHeader.Filename
+	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return errors.New("invalid filename")
+	}
+	return nil
 }
 
 // validateAvatar validates a file for avatar upload
