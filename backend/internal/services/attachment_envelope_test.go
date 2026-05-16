@@ -150,4 +150,3 @@ func TestValidateAttachmentMeta_RequiresEncryptedMetadata(t *testing.T) {
 		})
 	}
 }
-
