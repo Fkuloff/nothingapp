@@ -57,11 +57,19 @@ export function CreateGroupModal({ isOpen, onClose, onGroupCreated }: Props) {
     })
   }
 
-  const filteredContacts = contacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.username.toLowerCase().includes(search.toLowerCase())
-  )
+  const normalizedTokens = search
+    .replace(/^@/, '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  const filteredContacts = normalizedTokens.length === 0
+    ? contacts
+    : contacts.filter((c) => {
+        const name = c.name.toLowerCase()
+        const username = c.username.toLowerCase()
+        return normalizedTokens.every((t) => name.includes(t) || username.includes(t))
+      })
 
   const handleNext = () => {
     if (selectedIds.size === 0) return

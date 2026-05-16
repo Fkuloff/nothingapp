@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"strings"
 
 	"messenger/internal/models"
 
@@ -58,20 +59,40 @@ func (r *UserRepo) UpdatePassword(ctx context.Context, userID uint, hashedPasswo
 	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("password", hashedPassword).Error
 }
 
-// SearchByUsernameOrName searches users by username or name (case-insensitive, prefix match).
+// SearchByUsernameOrName searches users by username or name (case-insensitive, infix match).
 // The caller's own user_id is excluded from the results.
 //
-// Uses a prefix pattern (`query%`) instead of an infix (`%query%`) so Postgres can use
-// the index on username / name (B-tree indexes don't help when the LIKE starts with %).
-// For users who search infix matches later, switch to pg_trgm + GIN index.
+// The query is normalized:
+//   - leading "@" is stripped (users naturally type "@username" copied from the UI)
+//   - whitespace splits the query into tokens that must all match (AND)
+//
+// Each token uses an infix pattern (`%token%`) and is matched against username OR name.
+// Multi-token AND means "Иванов Иван" matches a user named "Иван Иванов" — token order
+// doesn't matter.
+//
+// Performance: infix LIKE can't use a B-tree index. For ≤10k users this is fine. Switch
+// to pg_trgm + GIN index when the user base grows.
 func (r *UserRepo) SearchByUsernameOrName(ctx context.Context, query string, excludeUserID uint) ([]*models.User, error) {
+	query = strings.TrimSpace(query)
+	query = strings.TrimPrefix(query, "@")
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	tokens := strings.Fields(query)
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+
+	db := r.db.WithContext(ctx).Where("id <> ?", excludeUserID)
+	for _, token := range tokens {
+		pattern := "%" + token + "%"
+		db = db.Where("(username ILIKE ? OR name ILIKE ?)", pattern, pattern)
+	}
+
 	var users []*models.User
-	searchPattern := query + "%"
-	err := r.db.WithContext(ctx).
-		Where("(username ILIKE ? OR name ILIKE ?) AND id <> ?", searchPattern, searchPattern, excludeUserID).
-		Limit(20).
-		Find(&users).Error
-	if err != nil {
+	if err := db.Limit(20).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	return users, nil

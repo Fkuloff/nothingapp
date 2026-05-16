@@ -235,9 +235,13 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 	log.Info("CORS allowed origins", zap.Strings("origins", allowedOrigins))
 
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     allowedOrigins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowOrigins: allowedOrigins,
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+		// Exposed so the frontend can read the rotated JWT minted by the auth middleware's
+		// sliding-window refresh. Without ExposeHeaders, fetch() in the browser hides
+		// every response header except a CORS-safelisted shortlist.
+		ExposeHeaders:    []string{"X-Refresh-Token"},
 		AllowCredentials: true,
 	}))
 

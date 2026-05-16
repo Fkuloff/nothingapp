@@ -20,11 +20,17 @@ type authHandler struct {
 	authService *services.AuthService
 	userService *services.UserService
 	secret      []byte
+	tokenTTL    time.Duration
 }
 
 // newAuthHandler creates a new authHandler.
-func newAuthHandler(authService *services.AuthService, userService *services.UserService, secret []byte) *authHandler {
-	return &authHandler{authService: authService, userService: userService, secret: secret}
+func newAuthHandler(authService *services.AuthService, userService *services.UserService, secret []byte, tokenTTL time.Duration) *authHandler {
+	return &authHandler{
+		authService: authService,
+		userService: userService,
+		secret:      secret,
+		tokenTTL:    tokenTTL,
+	}
 }
 
 // validatePasswordStrength checks if password meets security requirements
@@ -49,6 +55,12 @@ func generateJTI() (string, error) {
 
 // generateJWT creates a JWT token with proper security claims
 func (h *authHandler) generateJWT(userID uint) (string, error) {
+	return issueJWT(h.secret, userID, h.tokenTTL)
+}
+
+// issueJWT mints a new JWT for the given user id. Shared between the auth handler
+// (login/register) and the middleware's sliding-window refresh.
+func issueJWT(secret []byte, userID uint, ttl time.Duration) (string, error) {
 	now := time.Now()
 	jti, err := generateJTI()
 	if err != nil {
@@ -57,14 +69,14 @@ func (h *authHandler) generateJWT(userID uint) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": userID,
-		"iss":     "messenger-app",                // Issuer
-		"aud":     "messenger-users",              // Audience
-		"exp":     now.Add(time.Hour * 24).Unix(), // Expiration
-		"iat":     now.Unix(),                     // Issued at
-		"jti":     jti,                            // JWT ID for revocation
+		"iss":     "messenger-app",
+		"aud":     "messenger-users",
+		"exp":     now.Add(ttl).Unix(),
+		"iat":     now.Unix(),
+		"jti":     jti,
 	})
 
-	return token.SignedString(h.secret)
+	return token.SignedString(secret)
 }
 
 // RegisterAPI handles JSON registration

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
+import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { useCallContext } from '../calls/CallContext'
@@ -83,6 +84,12 @@ export function ChatWindow({
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [showEmojiPanel, setShowEmojiPanel] = useState(false)
   const [showPinnedBar, setShowPinnedBar] = useState(true)
+  const [confirmAction, setConfirmAction] = useState<
+    | { kind: 'clear' }
+    | { kind: 'delete-chat' }
+    | { kind: 'delete-message'; messageId: number }
+    | null
+  >(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
@@ -99,6 +106,7 @@ export function ChatWindow({
     setIsSearchOpen(false)
     setIsMenuOpen(false)
     setIsGroupInfoOpen(false)
+    setConfirmAction(null)
     pendingUploadRef.current = null
   }, [chatId])
 
@@ -116,17 +124,28 @@ export function ChatWindow({
 
   const handleClearChat = useCallback(() => {
     if (!chatId) return
-    if (!confirm('Очистить историю сообщений?')) return
     setIsMenuOpen(false)
-    onClearChat?.(chatId)
-  }, [chatId, onClearChat])
+    setConfirmAction({ kind: 'clear' })
+  }, [chatId])
 
   const handleDeleteChat = useCallback(() => {
     if (!chatId) return
-    if (!confirm('Удалить чат? Это действие нельзя отменить.')) return
     setIsMenuOpen(false)
-    onDeleteChat?.(chatId)
-  }, [chatId, onDeleteChat])
+    setConfirmAction({ kind: 'delete-chat' })
+  }, [chatId])
+
+  const handleConfirmAction = useCallback(() => {
+    if (!chatId || !confirmAction) return
+    const action = confirmAction
+    setConfirmAction(null)
+    if (action.kind === 'clear') {
+      onClearChat?.(chatId)
+    } else if (action.kind === 'delete-chat') {
+      onDeleteChat?.(chatId)
+    } else if (action.kind === 'delete-message') {
+      send({ action: 'delete', chat_id: chatId, message_id: action.messageId })
+    }
+  }, [chatId, confirmAction, onClearChat, onDeleteChat, send])
 
   const { showToast } = useToast()
   const { callState, initiateCall } = useCallContext()
@@ -260,10 +279,9 @@ export function ChatWindow({
   }, [])
 
   const handleDelete = useCallback((msgId: number) => {
-    if (!confirm('Удалить сообщение?')) return
     if (!chatId) return
-    send({ action: 'delete', chat_id: chatId, message_id: msgId })
-  }, [chatId, send])
+    setConfirmAction({ kind: 'delete-message', messageId: msgId })
+  }, [chatId])
 
   const handleCancelDraft = () => {
     setReplyToId(null)
@@ -516,6 +534,28 @@ export function ChatWindow({
           onGroupLeft={() => { setIsGroupInfoOpen(false); onGroupLeft?.() }}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmAction !== null}
+        title={
+          confirmAction?.kind === 'clear' ? 'Очистить чат?' :
+          confirmAction?.kind === 'delete-chat' ? 'Удалить чат?' :
+          'Удалить сообщение?'
+        }
+        message={
+          confirmAction?.kind === 'clear' ? 'Все сообщения в этом чате будут удалены.' :
+          confirmAction?.kind === 'delete-chat' ? 'Это действие нельзя отменить.' :
+          undefined
+        }
+        confirmLabel={
+          confirmAction?.kind === 'clear' ? 'Очистить' :
+          confirmAction?.kind === 'delete-chat' ? 'Удалить' :
+          'Удалить'
+        }
+        variant="danger"
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   )
 }
