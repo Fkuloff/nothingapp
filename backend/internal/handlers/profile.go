@@ -207,6 +207,10 @@ func (h *profileHandler) GetProfileAPI(c *gin.Context) {
 	// Refresh avatar URL for S3 presigned URLs
 	h.userService.RefreshUserAvatarURL(user)
 
+	// public_key is the user's X25519 public key used for ECDH-based scheme=2
+	// encryption. Other users fetch it via this endpoint to send E2E messages.
+	// Null when the user hasn't opted into E2E yet — caller should fall back to
+	// scheme=1 in that case.
 	sendSuccess(c, gin.H{
 		"id":         user.ID,
 		"username":   user.Username,
@@ -214,5 +218,6 @@ func (h *profileHandler) GetProfileAPI(c *gin.Context) {
 		"avatar_url": user.AvatarURL,
 		"is_own":     isOwn,
 		"is_contact": isContact,
+		"public_key": user.PublicKey,
 	})
 }

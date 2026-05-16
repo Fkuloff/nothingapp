@@ -19,19 +19,60 @@ import (
 // without the substitution recipients would see an empty notification body.
 const pushBodyAttachmentPlaceholder = "📎 Вложение"
 
+// addE2EFieldsToBroadcast tacks `scheme` + `iv` onto a WS broadcast payload, but only
+// when the message is scheme=2 (client-side encrypted). For legacy scheme=1 we leave
+// the broadcast minimal — the text is already plaintext and old clients ignore unknown
+// fields anyway, but emitting them adds noise.
+//
+// For group scheme=2 messages (envelopes != nil) the broadcast also carries the
+// full envelope set and an empty top-level text/iv — each receiving client picks
+// the envelope addressed to its own user_id and decrypts that.
+func addE2EFieldsToBroadcast(data map[string]any, scheme uint8, iv string, envelopes []messageEnvelopeAction) {
+	if scheme != models.SchemeClientSide {
+		return
+	}
+	data["scheme"] = models.SchemeClientSide
+	if len(envelopes) > 0 {
+		// Group pairwise: per-recipient ciphertexts. Override text/iv to make it
+		// obvious to clients that the top-level body is intentionally empty.
+		data["text"] = ""
+		data["iv"] = ""
+		data["envelopes"] = envelopes
+		return
+	}
+	data["iv"] = iv
+}
+
 // handleSendMessage processes a new message
 func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, msgData messageAction) error {
-	if msgData.Text == "" {
-		return &wsError{message: "Message cannot be empty"}
+	// Server-side encryption (scheme=1) was removed. Clients must encrypt
+	// client-side and send scheme=2 with either text+iv (1-on-1) or envelopes
+	// (group). Anything else is a stale or buggy client — surface a clear
+	// error so the user knows to update their app.
+	if msgData.Scheme != models.SchemeClientSide {
+		return &wsError{message: "Обновите приложение: серверное шифрование больше не поддерживается"}
 	}
-	if len(msgData.Text) > maxMessageSize {
-		return &wsError{message: "Message too large (max 10KB)"}
+	// For group pairwise E2E (envelopes set), the top-level text is empty by design.
+	// In every other path we still require non-empty text + size limit.
+	if len(msgData.Envelopes) == 0 {
+		if msgData.Text == "" {
+			return &wsError{message: "Message cannot be empty"}
+		}
+		if len(msgData.Text) > maxMessageSize {
+			return &wsError{message: "Message too large (max 10KB)"}
+		}
+		if msgData.IV == "" {
+			return &wsError{message: "iv is required for client-encrypted messages"}
+		}
 	}
 
 	// Check access to chat
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
 	if err != nil {
 		return &wsError{message: "Access denied to this chat"}
+	}
+	if len(msgData.Envelopes) > 0 && !chat.IsGroup {
+		return &wsError{message: "envelopes only valid for group chats"}
 	}
 
 	var message *models.Message
@@ -60,6 +101,7 @@ func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		"created_at":  message.CreatedAt,
 		"is_deleted":  false,
 	}
+	addE2EFieldsToBroadcast(broadcastData, message.Scheme, message.IV, msgData.Envelopes)
 	msgJSON, err := json.Marshal(broadcastData)
 	if err != nil {
 		h.logger.Error("json marshal error",
@@ -93,7 +135,12 @@ func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID u
 
 	isRecipientOffline := !h.presenceService.IsUserOnline(otherUserID)
 
-	msg, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, msgData.Text, msgData.ReplyToID, isRecipientOffline)
+	msg, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, services.SendMessageInput{
+		Text:      msgData.Text,
+		IV:        msgData.IV,
+		Scheme:    msgData.Scheme,
+		ReplyToID: msgData.ReplyToID,
+	}, isRecipientOffline)
 	if err != nil {
 		h.logger.Error("error sending message",
 			zap.Error(err),
@@ -105,11 +152,7 @@ func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID u
 
 	// Push notification for direct message
 	if h.pushService != nil && h.pushService.IsEnabled() {
-		pushText := msgData.Text
-		if runes := []rune(pushText); len(runes) > 200 {
-			pushText = string(runes[:200]) + "..."
-		}
-		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, pushText)
+		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, pushBodyFromMessage(msgData))
 	}
 
 	return msg, nil
@@ -140,7 +183,13 @@ func (h *webSocketHandler) handleSendGroupMessage(ctx context.Context, userID ui
 		}
 	}
 
-	msg, err := h.chatService.SendMessageAtomicGroup(ctx, msgData.ChatID, userID, offlineUserIDs, msgData.Text, msgData.ReplyToID)
+	msg, err := h.chatService.SendMessageAtomicGroup(ctx, msgData.ChatID, userID, offlineUserIDs, services.SendMessageInput{
+		Text:      msgData.Text,
+		IV:        msgData.IV,
+		Scheme:    msgData.Scheme,
+		ReplyToID: msgData.ReplyToID,
+		Envelopes: toServiceEnvelopes(msgData.Envelopes),
+	})
 	if err != nil {
 		h.logger.Error("error sending group message",
 			zap.Error(err),
@@ -152,16 +201,47 @@ func (h *webSocketHandler) handleSendGroupMessage(ctx context.Context, userID ui
 
 	// Push notification for each offline group member
 	if h.pushService != nil && h.pushService.IsEnabled() {
-		pushText := msgData.Text
-		if runes := []rune(pushText); len(runes) > 200 {
-			pushText = string(runes[:200]) + "..."
-		}
+		pushBody := pushBodyFromMessage(msgData)
 		for _, memberID := range offlineUserIDs {
-			go h.sendPushNotification(userID, memberID, msgData.ChatID, pushText)
+			go h.sendPushNotification(userID, memberID, msgData.ChatID, pushBody)
 		}
 	}
 
 	return msg, nil
+}
+
+// toServiceEnvelopes converts the WS-layer envelope slice into the service-layer
+// shape. Returns nil for the empty case so the service can keep its
+// "no envelopes == 1-on-1 or scheme=1" branching simple.
+func toServiceEnvelopes(in []messageEnvelopeAction) []services.MessageEnvelopeInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]services.MessageEnvelopeInput, len(in))
+	for i, e := range in {
+		out[i] = services.MessageEnvelopeInput{
+			RecipientID: e.RecipientID,
+			Ciphertext:  e.Ciphertext,
+			IV:          e.IV,
+		}
+	}
+	return out
+}
+
+// pushBodyFromMessage decides what goes into the push notification body.
+// For server-side encrypted messages we use the plaintext (truncated to 200 chars).
+// For client-side encrypted (E2E) messages the server has no plaintext, so we fall
+// back to a generic "Новое сообщение" placeholder — peeking inside the ciphertext
+// would defeat the whole point of E2E.
+func pushBodyFromMessage(msgData messageAction) string {
+	if msgData.Scheme == models.SchemeClientSide {
+		return "Новое сообщение"
+	}
+	text := msgData.Text
+	if runes := []rune(text); len(runes) > 200 {
+		text = string(runes[:200]) + "..."
+	}
+	return text
 }
 
 // sendPushNotification sends a push notification to a recipient in a background goroutine.
@@ -219,11 +299,19 @@ func (h *webSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 	if msgData.MessageID == 0 {
 		return &wsError{message: "Message ID required for edit"}
 	}
-	if msgData.Text == "" {
-		return &wsError{message: "New message text cannot be empty"}
+	if msgData.Scheme != models.SchemeClientSide {
+		return &wsError{message: "Обновите приложение: серверное шифрование больше не поддерживается"}
 	}
-	if len(msgData.Text) > maxMessageSize {
-		return &wsError{message: "Message too large (max 10KB)"}
+	if len(msgData.Envelopes) == 0 {
+		if msgData.Text == "" {
+			return &wsError{message: "New message text cannot be empty"}
+		}
+		if len(msgData.Text) > maxMessageSize {
+			return &wsError{message: "Message too large (max 10KB)"}
+		}
+		if msgData.IV == "" {
+			return &wsError{message: "iv is required for client-encrypted edits"}
+		}
 	}
 
 	// Check access to chat
@@ -231,7 +319,12 @@ func (h *webSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		return err
 	}
 
-	if err := h.chatService.EditMessage(ctx, msgData.MessageID, userID, msgData.Text); err != nil {
+	if err := h.chatService.EditMessage(ctx, msgData.MessageID, userID, services.SendMessageInput{
+		Text:      msgData.Text,
+		IV:        msgData.IV,
+		Scheme:    msgData.Scheme,
+		Envelopes: toServiceEnvelopes(msgData.Envelopes),
+	}); err != nil {
 		h.logger.Error("error editing message",
 			zap.Error(err),
 			zap.Uint("message_id", msgData.MessageID),
@@ -247,6 +340,7 @@ func (h *webSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		"text":    msgData.Text,
 		"user_id": userID,
 	}
+	addE2EFieldsToBroadcast(broadcastData, msgData.Scheme, msgData.IV, msgData.Envelopes)
 	msgJSON, err := json.Marshal(broadcastData)
 	if err != nil {
 		h.logger.Error("json marshal error",

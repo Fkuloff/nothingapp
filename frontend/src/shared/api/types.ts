@@ -6,6 +6,10 @@ export type AuthResponse = {
   username: string
   name: string
   token: string
+  // E2E vault material — null/absent when the user hasn't onboarded into E2E yet.
+  // See shared/crypto/e2e.ts for how these get used to derive the account_key.
+  vault_salt?: string | null
+  encrypted_account_key?: string | null
 }
 
 // Aliases for backwards compatibility
@@ -22,6 +26,10 @@ export type UserProfile = {
   is_contact?: boolean
   created_at?: string
   updated_at?: string
+  // Same E2E vault material echoed back on /api/auth/me so the app shell can decide
+  // whether to set up E2E for this user or just keep using legacy scheme=1 messages.
+  vault_salt?: string | null
+  encrypted_account_key?: string | null
 }
 
 // Chats
@@ -36,6 +44,17 @@ export type ChatItem = {
   last_message?: string
   unread_count: number
   updated_at: string
+
+  // For scheme=2 last messages, the server attaches the raw ciphertext/iv +
+  // sender_id so the client can decrypt the preview locally. If empty, fall
+  // back to last_message (which will be the "🔒 placeholder" the server
+  // computed). For 1-on-1 the sender is either the peer or ourselves; for
+  // groups the per-user envelope is pre-resolved server-side so this is
+  // the ciphertext addressed to us specifically.
+  last_message_scheme?: number
+  last_message_ciphertext?: string
+  last_message_iv?: string
+  last_message_sender_id?: number
 
   // 1-on-1 fields (omitted for groups)
   other_user_id?: number
@@ -69,6 +88,10 @@ export type Message = {
   is_deleted: boolean
   created_at: string
   attachments: Attachment[]
+  // E2E scheme (2 = client-encrypted, ciphertext stored in `text` + nonce in `iv`).
+  // Absent or 1 means the server decrypted the text before sending it to us — display as-is.
+  scheme?: number
+  iv?: string
 }
 
 // Group types
@@ -144,6 +167,16 @@ export type ApiError = {
   error: string
 }
 
+// One per-recipient envelope in a group scheme=2 send/edit. The sender encrypts
+// the same plaintext once per recipient (Variant A pairwise) and ships the
+// resulting array here. Top-level text/iv on the send/edit action are empty by
+// convention when envelopes are present.
+export type WSEnvelope = {
+  recipient_id: number
+  ciphertext: string
+  iv: string
+}
+
 // WebSocket message types (client -> server)
 // All messages must include chat_id since we use a global WebSocket connection
 export type WSMessageSend = {
@@ -151,6 +184,12 @@ export type WSMessageSend = {
   chat_id: number
   text: string
   reply_to_id?: number
+  // For E2E (scheme=2) sends in 1-on-1: text is ciphertext, iv is the GCM nonce, scheme is 2.
+  // For group scheme=2: text & iv are empty, envelopes carries one per recipient.
+  // For legacy sends: omit all four; server defaults to scheme=1 server-side encryption.
+  scheme?: number
+  iv?: string
+  envelopes?: WSEnvelope[]
 }
 
 export type WSMessageEdit = {
@@ -158,6 +197,9 @@ export type WSMessageEdit = {
   chat_id: number
   message_id: number
   text: string
+  scheme?: number
+  iv?: string
+  envelopes?: WSEnvelope[]
 }
 
 export type WSMessageDelete = {
@@ -224,6 +266,13 @@ export type WSEventNew = {
   created_at: string
   updated_at?: string
   attachments?: Attachment[]
+  // scheme=2 means text+iv are E2E ciphertext; decrypt with account_key before display.
+  scheme?: number
+  iv?: string
+  // For group scheme=2 sends/edits the broadcast carries per-recipient envelopes
+  // instead of (or in addition to) top-level text/iv. Each client picks the
+  // envelope addressed to its own user_id and decrypts that.
+  envelopes?: WSEnvelope[]
 }
 
 export type WSEventAttachmentsAdded = {
@@ -239,6 +288,9 @@ export type WSEventEdit = {
   chat_id: number
   text: string
   edited_at?: string
+  scheme?: number
+  iv?: string
+  envelopes?: WSEnvelope[]
 }
 
 export type WSEventDelete = {

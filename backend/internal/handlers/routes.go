@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"messenger/internal/config"
-	"messenger/internal/crypto"
 	"messenger/internal/repositories"
 	"messenger/internal/services"
 	"messenger/internal/storage"
@@ -26,12 +25,12 @@ func SetupRoutes(
 	fileStorage storage.Storage,
 	logger *zap.Logger,
 	cfg *config.Config,
-	msgEncryptor *crypto.MessageEncryptor,
 ) (func(context.Context) error, error) {
 	// Initialize repositories
 	userRepo := repositories.NewUserRepo(db)
 	chatRepo := repositories.NewChatRepo(db)
 	messageRepo := repositories.NewMessageRepo(db)
+	envelopeRepo := repositories.NewMessageEnvelopeRepo(db)
 	contactRepo := repositories.NewContactRepo(db)
 	attachmentRepo := repositories.NewAttachmentRepo(db)
 	unreadMessageRepo := repositories.NewUnreadMessageRepo(db)
@@ -41,7 +40,7 @@ func SetupRoutes(
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
-	chatService := services.NewChatService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, fileStorage, msgEncryptor)
+	chatService := services.NewChatService(db, logger, chatRepo, participantRepo, messageRepo, envelopeRepo, unreadMessageRepo, fileStorage)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(logger, attachmentRepo, messageRepo, fileStorage)
 	userService := services.NewUserService(logger, userRepo, fileStorage)
@@ -51,7 +50,7 @@ func SetupRoutes(
 	pushService.SetFCMService(fcmService)
 	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
 	pinnedMessageRepo := repositories.NewPinnedMessageRepo(db)
-	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, chatRepo, participantRepo, userRepo, msgEncryptor)
+	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, envelopeRepo, chatRepo, participantRepo, userRepo)
 
 	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
 
@@ -61,7 +60,7 @@ func SetupRoutes(
 	chatH.SetGroupService(groupService)
 	profileH := newProfileHandler(userService, contactService, logger)
 	userH := newUserHandler(userService)
-	wsH := newWebSocketHandler(chatService, presenceService, pushService, userService, logger, msgEncryptor, fileStorage)
+	wsH := newWebSocketHandler(chatService, presenceService, pushService, userService, logger, fileStorage)
 	wsH.SetGroupService(groupService, participantRepo)
 	attachH := newAttachmentHandler(attachmentService, chatService, wsH, participantRepo, fileStorage)
 	fileH := newFileHandler(fileStorage, logger)
@@ -118,6 +117,7 @@ func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {
 	auth.POST("/logout", h.LogoutAPI)
 	auth.PUT("/password", h.ChangePasswordAPI)
 	auth.GET("/me", h.GetCurrentUser)
+	auth.PUT("/vault", h.UpdateVaultAPI)
 }
 
 //nolint:dupl // Chat and group routes share structure but different handlers; merging hurts readability.
@@ -179,6 +179,7 @@ func registerGroupRoutes(api *gin.RouterGroup, h *groupHandler) {
 	groups := api.Group("/groups")
 	groups.POST("", h.CreateGroupAPI)
 	groups.GET("/:id", h.GetGroupInfoAPI)
+	groups.GET("/:id/keys", h.GetGroupKeysAPI)
 	groups.PUT("/:id", h.UpdateGroupInfoAPI)
 	groups.DELETE("/:id", h.DeleteGroupAPI)
 	groups.POST("/:id/avatar", h.UploadGroupAvatarAPI)

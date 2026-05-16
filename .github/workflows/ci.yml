@@ -82,7 +82,6 @@ jobs:
         env:
           DB_URL: postgres://test:test@localhost:5432/messenger_test?sslmode=disable
           JWT_SECRET: test-secret-key-with-at-least-32-characters-long
-          MESSAGE_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           PORT: 8080
           ALLOWED_ORIGINS: http://localhost:8080
         run: go test -v -race ./...
@@ -91,7 +90,6 @@ jobs:
         env:
           DB_URL: postgres://test:test@localhost:5432/messenger_test?sslmode=disable
           JWT_SECRET: test-secret-key-with-at-least-32-characters-long
-          MESSAGE_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           PORT: 8080
           ALLOWED_ORIGINS: http://localhost:8080
         run: go test -coverprofile=coverage.out -covermode=atomic ./...

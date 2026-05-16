@@ -3,12 +3,32 @@ package handlers
 import "time"
 
 // messageAction represents a WebSocket message action from the client.
+//
+// Scheme + IV are populated only for client-side encrypted (E2E, scheme=2) messages.
+// For legacy server-side encryption (scheme=1 or unset) Text is plaintext, IV is
+// empty, and the server encrypts before persisting.
+//
+// Envelopes is populated for group scheme=2 messages — one entry per current
+// participant (including the sender). When Envelopes is non-empty, Text/IV on
+// this struct are empty by convention; the real ciphertexts live inside each
+// envelope, addressed to a specific RecipientID.
 type messageAction struct {
-	Action    string `json:"action"`
-	Text      string `json:"text"`
-	ChatID    uint   `json:"chat_id"`
-	ReplyToID uint   `json:"reply_to_id"`
-	MessageID uint   `json:"message_id"`
+	Action    string                  `json:"action"`
+	Text      string                  `json:"text"`
+	ChatID    uint                    `json:"chat_id"`
+	ReplyToID uint                    `json:"reply_to_id"`
+	MessageID uint                    `json:"message_id"`
+	Scheme    uint8                   `json:"scheme,omitempty"`
+	IV        string                  `json:"iv,omitempty"`
+	Envelopes []messageEnvelopeAction `json:"envelopes,omitempty"`
+}
+
+// messageEnvelopeAction is the WS-layer mirror of services.MessageEnvelopeInput.
+// One per recipient for group scheme=2 sends/edits.
+type messageEnvelopeAction struct {
+	RecipientID uint   `json:"recipient_id"`
+	Ciphertext  string `json:"ciphertext"`
+	IV          string `json:"iv"`
 }
 
 // callAction represents a WebSocket call signaling message (offer, answer, ICE, hangup, reject).
@@ -37,6 +57,16 @@ type chatListItem struct {
 	UnreadCount int       `json:"unread_count"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	AvatarURL   *string   `json:"avatar_url"`
+
+	// Last-message E2E metadata. LastMessage is the server's best-effort
+	// preview (plaintext for system messages, "🔒 placeholder" for scheme=2)
+	// — fine as a fallback. For scheme=2 the client overrides it by
+	// decrypting LastMessageCiphertext + LastMessageIV under the chat_key
+	// derived from LastMessageSenderID's public_key.
+	LastMessageScheme     uint8  `json:"last_message_scheme,omitempty"`
+	LastMessageCiphertext string `json:"last_message_ciphertext,omitempty"`
+	LastMessageIV         string `json:"last_message_iv,omitempty"`
+	LastMessageSenderID   uint   `json:"last_message_sender_id,omitempty"`
 
 	// 1-on-1 fields (omitted for groups)
 	OtherUserID   uint   `json:"other_user_id,omitempty"`
