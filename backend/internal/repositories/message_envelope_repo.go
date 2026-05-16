@@ -41,7 +41,11 @@ func (r *MessageEnvelopeRepo) CreateBatch(ctx context.Context, envelopes []model
 // envelope (because the recipient wasn't a member when the message was sent,
 // or the message wasn't a group scheme=2 message) are simply absent from the
 // map — callers should treat that as "no per-user ciphertext, fall back to
-// Message.Text/IV".
+// Message.Text/IV". Shape mirrors AttachmentEnvelopeRepo.FindForRecipient;
+// can't generic over the two envelope tables without reflection, so we
+// accept the small duplication for clarity.
+//
+//nolint:dupl // intentional, see comment above
 func (r *MessageEnvelopeRepo) FindForRecipient(ctx context.Context, recipientID uint, messageIDs []uint) (map[uint]models.MessageEnvelope, error) {
 	out := make(map[uint]models.MessageEnvelope, len(messageIDs))
 	if len(messageIDs) == 0 {

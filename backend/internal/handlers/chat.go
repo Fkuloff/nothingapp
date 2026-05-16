@@ -13,11 +13,19 @@ import (
 
 // chatHandler handles HTTP API endpoints for chats.
 type chatHandler struct {
-	chatService  *services.ChatService
-	userService  *services.UserService
-	groupService *services.GroupService
-	storage      storage.Storage
-	onChatEvent  func(chatID, initiatorUserID uint, action string)
+	chatService       *services.ChatService
+	userService       *services.UserService
+	groupService      *services.GroupService
+	attachmentService *services.AttachmentService
+	storage           storage.Storage
+	onChatEvent       func(chatID, initiatorUserID uint, action string)
+}
+
+// SetAttachmentService injects the attachment service so message-list responses
+// can pre-resolve the caller's per-user envelope (file_key wrapped under their
+// chat_key) without an extra round-trip.
+func (h *chatHandler) SetAttachmentService(as *services.AttachmentService) {
+	h.attachmentService = as
 }
 
 // SetOnChatEventCallback registers a callback for chat-level events (clear/delete).
@@ -51,6 +59,14 @@ type attachmentResponse struct {
 	FileSize int64                 `json:"file_size"`
 	MimeType string                `json:"mime_type"`
 	URL      string                `json:"url"`
+	// E2E fields. EncryptedFileKey + EnvelopeIV are pre-resolved server-side
+	// for the requesting user via attachment_envelopes (per-recipient wrapped
+	// file_key). FileIV is the body's own AES-GCM nonce, identical across
+	// recipients. All three are empty for legacy scheme=1 attachments, in
+	// which case there shouldn't be any rows after the post-E2E cleanup.
+	EncryptedFileKey string `json:"encrypted_file_key,omitempty"`
+	EnvelopeIV       string `json:"envelope_iv,omitempty"`
+	FileIV           string `json:"file_iv,omitempty"`
 }
 
 type messageResponse struct {
@@ -71,7 +87,28 @@ type messageResponse struct {
 	IV     string `json:"iv,omitempty"`
 }
 
-func (h *chatHandler) toMessageResponses(messages []models.Message) []messageResponse {
+// toMessageResponses builds the JSON shape returned by the chat-data / messages
+// endpoints. `userID` is the *requesting* user — used to pre-resolve their
+// per-recipient attachment envelopes (wrapped file_key + iv) so the client
+// gets exactly what it needs to decrypt without an extra round-trip.
+func (h *chatHandler) toMessageResponses(ctx context.Context, messages []models.Message, userID uint) []messageResponse {
+	// Collect every attachment_id across the slice so we can resolve their
+	// envelopes for `userID` in a single bulk lookup.
+	var allAttachmentIDs []uint
+	for i := range messages {
+		for j := range messages[i].Attachments {
+			allAttachmentIDs = append(allAttachmentIDs, messages[i].Attachments[j].ID)
+		}
+	}
+	envelopes := map[uint]models.AttachmentEnvelope{}
+	if h.attachmentService != nil && len(allAttachmentIDs) > 0 {
+		resolved, envErr := h.attachmentService.ResolveAttachmentEnvelopes(ctx, userID, allAttachmentIDs)
+		if envErr == nil {
+			envelopes = resolved
+		}
+		// On error: envelopes stays empty → client renders "🔒 placeholder".
+	}
+
 	result := make([]messageResponse, 0, len(messages))
 	for _, msg := range messages {
 		msgType := string(msg.Type)
@@ -81,14 +118,20 @@ func (h *chatHandler) toMessageResponses(messages []models.Message) []messageRes
 
 		atts := make([]attachmentResponse, 0, len(msg.Attachments))
 		for _, att := range msg.Attachments {
-			atts = append(atts, attachmentResponse{
+			ar := attachmentResponse{
 				ID:       att.ID,
 				FileType: att.FileType,
 				FileName: att.FileName,
 				FileSize: att.FileSize,
 				MimeType: att.MimeType,
 				URL:      h.storage.GetURL(att.StorageKey),
-			})
+				FileIV:   att.FileIV,
+			}
+			if env, ok := envelopes[att.ID]; ok {
+				ar.EncryptedFileKey = env.EncryptedFileKey
+				ar.EnvelopeIV = env.IV
+			}
+			atts = append(atts, ar)
 		}
 
 		out := messageResponse{
@@ -259,7 +302,7 @@ func (h *chatHandler) GetChatData(c *gin.Context) {
 			"is_group":     true,
 			"group_name":   chat.GetGroupName(),
 			"member_count": h.getGroupMemberCount(c.Request.Context(), chatID),
-			"messages":     h.toMessageResponses(messages),
+			"messages":     h.toMessageResponses(c.Request.Context(), messages, userID),
 		})
 		return
 	}
@@ -269,7 +312,7 @@ func (h *chatHandler) GetChatData(c *gin.Context) {
 		"chatID":        chatID,
 		"otherUserID":   otherUserID,
 		"otherUsername": otherUser.GetDisplayName(),
-		"messages":      h.toMessageResponses(messages),
+		"messages":      h.toMessageResponses(c.Request.Context(), messages, userID),
 	})
 }
 
@@ -482,6 +525,6 @@ func (h *chatHandler) GetChatMessagesAPI(c *gin.Context) {
 	}
 
 	sendSuccess(c, gin.H{
-		"messages": h.toMessageResponses(messages),
+		"messages": h.toMessageResponses(c.Request.Context(), messages, userID),
 	})
 }

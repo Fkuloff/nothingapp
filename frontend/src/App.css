@@ -1247,6 +1247,26 @@ textarea::placeholder,
   transition: var(--transition);
   min-height: 42px;
   box-shadow: none !important;
+  /* Grid items default to min-width: auto, which lets the 1fr column grow to fit
+     intrinsic content. With a long unbroken string (e.g. "пппп..." with no spaces)
+     the textarea would otherwise push the whole row sideways instead of wrapping.
+     min-width: 0 lets it shrink back to its 1fr share, width: 100% pins it to that
+     share, and overflow-wrap: anywhere forces visual wrap mid-"word" so the user
+     sees a tall textarea instead of a horizontal scroll bar across the input. */
+  min-width: 0;
+  width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* Hide the vertical scrollbar inside the textarea — at maxHeight=200px
+     (~6 lines) the user is already going to write a multi-paragraph essay,
+     and a tall narrow scrollbar in the composer looks broken next to the
+     rounded send button. Scrolling still works via wheel / touch / arrows. */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge / IE */
+}
+.composer-input::-webkit-scrollbar {
+  /* Chrome / Safari / WebKit-based Android WebView */
+  display: none;
 }
 
 .composer-input::placeholder {

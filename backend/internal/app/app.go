@@ -199,6 +199,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.MessageEnvelope{},
 		&models.Contact{},
 		&models.Attachment{},
+		&models.AttachmentEnvelope{},
 		&models.UnreadMessage{},
 		&models.PushSubscription{},
 		&models.ChatParticipant{},

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -38,7 +40,32 @@ func newAttachmentHandler(
 	}
 }
 
-// UploadAttachments handles multipart file uploads
+// wireAttachmentEnvelope is one envelope as it arrives over the multipart wire.
+type wireAttachmentEnvelope struct {
+	RecipientID      uint   `json:"recipient_id"`
+	EncryptedFileKey string `json:"encrypted_file_key"`
+	IV               string `json:"iv"`
+}
+
+// wireAttachmentMeta is the per-file metadata block in the `metadata` form
+// field. The N-th entry corresponds to the N-th file in `attachments`.
+type wireAttachmentMeta struct {
+	FileIV    string                   `json:"file_iv"`
+	MimeType  string                   `json:"mime_type"`
+	Envelopes []wireAttachmentEnvelope `json:"envelopes"`
+}
+
+// UploadAttachments handles multipart file uploads for scheme=2 (E2E)
+// attachments. The client encrypts each file with a random file_key before
+// upload and ships:
+//
+//   - `attachments`: one multipart file part per encrypted blob
+//   - `metadata`:    a single JSON form field whose value is an array of
+//     {file_iv, mime_type, envelopes:[{recipient_id, encrypted_file_key, iv}]},
+//     one entry per file, in the same order
+//
+// The server never sees the file_key — it only stores the ciphertext and the
+// per-recipient wrapped keys.
 func (h *attachmentHandler) UploadAttachments(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -81,22 +108,56 @@ func (h *attachmentHandler) UploadAttachments(c *gin.Context) {
 		return
 	}
 
+	metaRaw := c.PostForm("metadata")
+	if metaRaw == "" {
+		sendBadRequest(c, "metadata is required for E2E attachments")
+		return
+	}
+	var wireMetas []wireAttachmentMeta
+	if jsonErr := json.Unmarshal([]byte(metaRaw), &wireMetas); jsonErr != nil {
+		sendBadRequest(c, "invalid metadata JSON")
+		return
+	}
+	if len(wireMetas) != len(files) {
+		sendBadRequest(c, "metadata count must match attachments count")
+		return
+	}
+	metas := make([]services.AttachmentMetaInput, len(wireMetas))
+	for i, m := range wireMetas {
+		envs := make([]services.AttachmentEnvelopeInput, len(m.Envelopes))
+		for j, e := range m.Envelopes {
+			envs[j] = services.AttachmentEnvelopeInput{
+				RecipientID:      e.RecipientID,
+				EncryptedFileKey: e.EncryptedFileKey,
+				IV:               e.IV,
+			}
+		}
+		metas[i] = services.AttachmentMetaInput{
+			FileIV:    m.FileIV,
+			MimeType:  m.MimeType,
+			Envelopes: envs,
+		}
+	}
+
 	// Upload attachments
-	attachments, err := h.attachmentService.UploadAttachments(c.Request.Context(), messageID, userID, files)
+	attachments, err := h.attachmentService.UploadAttachments(c.Request.Context(), chatID, messageID, userID, files, metas)
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrMessageNotFound):
 			sendNotFound(c, "Message not found")
 		case errors.Is(err, services.ErrNotMessageOwner):
 			sendForbidden(c, "Access denied")
+		case errors.Is(err, services.ErrAttachmentMetaShape),
+			errors.Is(err, services.ErrAttachmentMetaFields):
+			sendBadRequest(c, err.Error())
 		default:
-			sendInternalError(c, "Failed to upload attachments")
+			sendBadRequest(c, err.Error())
 		}
 		return
 	}
 
 	// Broadcast attachments_added event to all chat participants via WebSocket
-	serialized := serializeAttachmentsWithURL(attachments, h.storage)
+	serialized := serializeAttachmentsForBroadcast(c, h.attachmentService, attachments, metas, h.storage)
 	if h.wsHandler != nil {
 		h.wsHandler.BroadcastAttachmentsAdded(chatID, messageID, serialized)
 	}
@@ -194,15 +255,6 @@ func (h *attachmentHandler) verifyChatMembership(c *gin.Context, chatID, userID 
 	return nil
 }
 
-// serializeAttachmentsWithURL converts attachment pointer slice to maps with presigned URLs.
-func serializeAttachmentsWithURL(attachments []*models.Attachment, s storage.Storage) []map[string]any {
-	result := make([]map[string]any, 0, len(attachments))
-	for _, att := range attachments {
-		result = append(result, serializeAttachment(att, s))
-	}
-	return result
-}
-
 // serializeAttachmentSlice converts a value-type attachment slice to maps with presigned URLs.
 func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage) []map[string]any {
 	result := make([]map[string]any, 0, len(attachments))
@@ -213,6 +265,9 @@ func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage
 }
 
 // serializeAttachment converts a single attachment model to a map with a presigned URL.
+// Does not include E2E envelope material — callers that need it should use
+// serializeAttachmentSliceForUser (read path) or serializeAttachmentsForBroadcast
+// (immediately after upload).
 func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]any {
 	return map[string]any{
 		"id":        att.ID,
@@ -222,4 +277,90 @@ func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]a
 		"mime_type": att.MimeType,
 		"url":       s.GetURL(att.StorageKey),
 	}
+}
+
+// serializeAttachmentsForBroadcast serializes attachments right after the
+// upload, packing every envelope in the response. Receiving clients filter to
+// their own envelope by recipient_id. Used in the attachments_added WS event
+// and in the upload-call's HTTP response (sender sees their own envelope plus
+// the full set is just there too).
+func serializeAttachmentsForBroadcast(
+	c *gin.Context,
+	svc *services.AttachmentService,
+	attachments []*models.Attachment,
+	metas []services.AttachmentMetaInput,
+	s storage.Storage,
+) []map[string]any {
+	result := make([]map[string]any, 0, len(attachments))
+	for i, att := range attachments {
+		out := serializeAttachment(att, s)
+		out["file_iv"] = ""
+		if i < len(metas) {
+			out["file_iv"] = metas[i].FileIV
+			// We already have the envelopes in memory — no need to re-fetch
+			// them from the repo.
+			envs := make([]map[string]any, 0, len(metas[i].Envelopes))
+			for _, e := range metas[i].Envelopes {
+				envs = append(envs, map[string]any{
+					"recipient_id":       e.RecipientID,
+					"encrypted_file_key": e.EncryptedFileKey,
+					"iv":                 e.IV,
+				})
+			}
+			out["envelopes"] = envs
+		} else if svc != nil {
+			// Defensive fallback: hit the repo if metas wasn't provided.
+			ctx := c.Request.Context()
+			if envs, err := svc.AllEnvelopesForAttachment(ctx, att.ID); err == nil {
+				envOut := make([]map[string]any, 0, len(envs))
+				for _, e := range envs {
+					envOut = append(envOut, map[string]any{
+						"recipient_id":       e.RecipientID,
+						"encrypted_file_key": e.EncryptedFileKey,
+						"iv":                 e.IV,
+					})
+				}
+				out["envelopes"] = envOut
+			}
+		}
+		result = append(result, out)
+	}
+	return result
+}
+
+// serializeAttachmentSliceForUser pre-resolves the caller's envelope so the
+// response includes only the wrapped file_key + iv addressed to them, not the
+// whole set. Used by the read path (chat-data, message-list) where each
+// request belongs to exactly one user.
+func serializeAttachmentSliceForUser(
+	ctx context.Context,
+	svc *services.AttachmentService,
+	attachments []models.Attachment,
+	userID uint,
+	s storage.Storage,
+) []map[string]any {
+	result := make([]map[string]any, 0, len(attachments))
+	if len(attachments) == 0 {
+		return result
+	}
+	ids := make([]uint, 0, len(attachments))
+	for i := range attachments {
+		ids = append(ids, attachments[i].ID)
+	}
+	envs, envErr := svc.ResolveAttachmentEnvelopes(ctx, userID, ids)
+	if envErr != nil {
+		// Non-fatal — render attachments without envelope data; the client
+		// will show "🔒 placeholder" for them.
+		envs = nil
+	}
+	for i := range attachments {
+		att := &attachments[i]
+		out := serializeAttachment(att, s)
+		if env, ok := envs[att.ID]; ok {
+			out["encrypted_file_key"] = env.EncryptedFileKey
+			out["envelope_iv"] = env.IV
+		}
+		result = append(result, out)
+	}
+	return result
 }
