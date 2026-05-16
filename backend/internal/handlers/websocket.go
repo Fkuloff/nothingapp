@@ -37,19 +37,20 @@ type activeCallInfo struct {
 
 // webSocketHandler manages global WebSocket connections
 type webSocketHandler struct {
-	chatService     *services.ChatService
-	presenceService *services.PresenceService
-	pushService     *services.PushNotificationService
-	userService     *services.UserService
-	groupService    *services.GroupService
-	participantRepo *repositories.ChatParticipantRepo
-	logger          *zap.Logger
-	fileStorage     storage.Storage
-	clients         map[uint][]*wsClient // userID -> []clients
-	mu              sync.RWMutex
-	activeCalls     map[uint]activeCallInfo // userID -> active call peer
-	callsMu         sync.Mutex
-	broadcastPool   *workerPool // Limits concurrent broadcast goroutines
+	chatService       *services.ChatService
+	presenceService   *services.PresenceService
+	pushService       *services.PushNotificationService
+	userService       *services.UserService
+	groupService      *services.GroupService
+	attachmentService *services.AttachmentService
+	participantRepo   *repositories.ChatParticipantRepo
+	logger            *zap.Logger
+	fileStorage       storage.Storage
+	clients           map[uint][]*wsClient // userID -> []clients
+	mu                sync.RWMutex
+	activeCalls       map[uint]activeCallInfo // userID -> active call peer
+	callsMu           sync.Mutex
+	broadcastPool     *workerPool // Limits concurrent broadcast goroutines
 }
 
 // newWebSocketHandler creates a new global WebSocket handler.
@@ -78,6 +79,13 @@ func newWebSocketHandler(
 func (h *webSocketHandler) SetGroupService(gs *services.GroupService, pr *repositories.ChatParticipantRepo) {
 	h.groupService = gs
 	h.participantRepo = pr
+}
+
+// SetAttachmentService injects the attachment service so the unread-replay
+// path can pre-resolve the recipient's per-user envelope (encrypted_file_key
+// + envelope_iv) for any scheme=2 attachments queued offline.
+func (h *webSocketHandler) SetAttachmentService(as *services.AttachmentService) {
+	h.attachmentService = as
 }
 
 // Close drains all active WebSocket connections and stops the broadcast worker pool.
@@ -806,7 +814,13 @@ func (h *webSocketHandler) broadcastPinEvent(chatID, messageID uint, action stri
 	}
 }
 
-// sendPendingMessages sends all unread messages to a newly connected user
+// sendPendingMessages sends all unread messages to a newly connected user.
+// Slightly over the funlen threshold (~125 lines) because the per-message
+// loop bundles five orthogonal steps (envelope resolution, scheme=2 skip,
+// attachment serialization, JSON marshal, WS write with mutex) — splitting
+// makes the cleanup of error paths much fiddlier.
+//
+//nolint:funlen // see comment above
 func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 	unreadMessages, err := h.chatService.GetUnreadMessagesForUser(client.ctx, userID)
 	if err != nil {
@@ -869,9 +883,12 @@ func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 		}
 		text := msgCopy.Text
 
-		// Serialize attachments for the broadcast (with presigned URLs)
+		// Serialize attachments for the broadcast (with presigned URLs + the
+		// recipient's per-user envelope so client can decrypt).
 		var attachmentsList []map[string]any
-		if h.fileStorage != nil {
+		if h.fileStorage != nil && h.attachmentService != nil {
+			attachmentsList = serializeAttachmentSliceForUser(client.ctx, h.attachmentService, msgCopy.Attachments, userID, h.fileStorage)
+		} else if h.fileStorage != nil {
 			attachmentsList = serializeAttachmentSlice(msgCopy.Attachments, h.fileStorage)
 		}
 

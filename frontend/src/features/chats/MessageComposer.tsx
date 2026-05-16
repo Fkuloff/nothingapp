@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import type { Message } from '../../shared/api/types'
 import { formatFileSize,getFileIcon } from '../../shared/utils'
@@ -42,7 +42,19 @@ export function MessageComposer({
   onToggleEmoji,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const messageInputRef = useRef<HTMLInputElement>(null)
+  const messageInputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow vertically with content, capped at ~6 lines (200px). On every
+  // value change we measure scrollHeight, which forces a layout — fine for a
+  // single textarea, not a hot path. Reset to 'auto' first so the textarea
+  // can also *shrink* when text is deleted (otherwise it would stay tall).
+  const MAX_HEIGHT = 200
+  useEffect(() => {
+    const el = messageInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`
+  }, [messageText])
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
@@ -104,21 +116,26 @@ export function MessageComposer({
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
           </svg>
         </button>
-        <input
-          type="text"
+        <textarea
           id="message"
           ref={messageInputRef}
           className="form-control composer-input"
           placeholder="Напишите сообщение..."
+          rows={1}
           value={messageText}
           onChange={(e) => onMessageTextChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && (messageText.trim() || selectedFiles.length > 0)) {
+            // Enter sends; Shift+Enter inserts a newline (default textarea behavior).
+            // Skip the send shortcut on mobile Android Capacitor WebView where
+            // physical keyboards aren't the norm and IME composition uses Enter.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing &&
+                (messageText.trim() || selectedFiles.length > 0)) {
               e.preventDefault()
               onSubmit(e as unknown as React.FormEvent)
             }
           }}
           disabled={uploading || disabled}
+          style={{ resize: 'none', overflowY: 'auto', maxHeight: MAX_HEIGHT, minHeight: 38, lineHeight: '1.4' }}
         />
         <div className="composer-right">
           <button

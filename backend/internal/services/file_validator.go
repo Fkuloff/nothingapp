@@ -12,8 +12,9 @@ import (
 
 // File size limits.
 const (
-	maxFileSize   = 20 * 1024 * 1024 // 20MB — unified limit for all file types
-	maxAvatarSize = 10 * 1024 * 1024 // 10MB
+	maxFileSize          = 20 * 1024 * 1024  // 20MB — legacy server-side validation limit (mime-checked)
+	maxEncryptedFileSize = 100 * 1024 * 1024 // 100MB — E2E ciphertext, server only checks size
+	maxAvatarSize        = 10 * 1024 * 1024  // 10MB
 )
 
 // Allowed MIME types by category.
@@ -68,6 +69,19 @@ func (v *fileValidator) validateAttachment(fileHeader *multipart.FileHeader) err
 	}
 
 	return nil
+}
+
+// validateAttachmentSizeOnly validates only what's still meaningful for an
+// E2E (scheme=2) attachment: file size + filename safety. We can't inspect
+// the content type because the body is opaque ciphertext — magic-byte mime
+// detection on it would produce garbage. The client supplies the original
+// mime and the server records it verbatim (best-effort metadata for the
+// receiving UI; not a security boundary).
+func (v *fileValidator) validateAttachmentSizeOnly(fileHeader *multipart.FileHeader) error {
+	if fileHeader.Size > maxEncryptedFileSize {
+		return fmt.Errorf("encrypted file too large (max %d MB)", maxEncryptedFileSize/(1024*1024))
+	}
+	return v.validateFilename(fileHeader.Filename)
 }
 
 // validateAvatar validates a file for avatar upload

@@ -276,9 +276,28 @@ export default function ChatsPage() {
       }
 
       if (event.action === 'attachments_added' && chatId === activeChatId) {
+        // The broadcast carries the *full* envelope set per attachment (one
+        // entry per chat recipient), so every connected client filters to the
+        // entry addressed to its own user_id and lifts the wrapped key + iv
+        // onto the top-level Attachment shape — that's what AttachmentView's
+        // isEncrypted check looks at. Without this transform a freshly-sent
+        // file silently falls back to the legacy plaintext branch and the
+        // <img> / <video> tries to render ciphertext bytes (broken-image
+        // icon, black video player).
+        const myId = user?.id
+        const projected = (event.attachments ?? []).map((att) => {
+          const wire = att as unknown as { envelopes?: Array<{ recipient_id: number; encrypted_file_key: string; iv: string }> }
+          const env = wire.envelopes?.find((e) => e.recipient_id === myId)
+          if (!env) return att
+          return {
+            ...att,
+            encrypted_file_key: env.encrypted_file_key,
+            envelope_iv: env.iv,
+          }
+        })
         setMessages((prev) => {
           const next = prev.map((msg) =>
-            msg.id === event.message_id ? { ...msg, attachments: event.attachments } : msg
+            msg.id === event.message_id ? { ...msg, attachments: projected } : msg
           )
           messageCacheRef.current.set(chatId, next)
           return next

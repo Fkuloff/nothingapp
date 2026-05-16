@@ -31,6 +31,12 @@ type Attachment struct {
 	FileName   string         `gorm:"type:varchar(255);not null" json:"file_name"`
 	MimeType   string         `gorm:"type:varchar(100);not null" json:"mime_type"`
 	FileSize   int64          `gorm:"not null" json:"file_size"`
+	// FileIV is the base64 AES-GCM nonce used to encrypt the file body
+	// client-side. Same nonce for every recipient — they all decrypt the
+	// same ciphertext with the same per-file file_key (which itself is
+	// wrapped per-recipient in attachment_envelopes). Empty for legacy
+	// (pre-E2E) attachments which shouldn't exist after the cleanup.
+	FileIV string `gorm:"type:varchar(32)" json:"file_iv,omitempty"`
 
 	Width    *int     `gorm:"default:null" json:"width,omitempty"`
 	Height   *int     `gorm:"default:null" json:"height,omitempty"`

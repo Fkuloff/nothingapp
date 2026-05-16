@@ -1,7 +1,10 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 
 import type { Attachment, Message } from '../../shared/api/types'
+import { decryptFile, unwrapFileKey } from '../../shared/crypto/e2e'
+import { getChatKey } from '../../shared/crypto/peerKeys'
 import { formatFileSize, formatMessageTime } from '../../shared/utils'
+import { useAccountKey } from '../auth/AccountKey'
 import { ImageLightbox } from './ImageLightbox'
 
 // Detect messages containing only 1–3 emojis (sticker-style)
@@ -33,13 +36,81 @@ type ContextMenuState = {
 
 type AttachmentViewProps = {
   att: Attachment
+  senderUserId: number
   onImageClick: (src: string, alt: string) => void
 }
 
-function AttachmentView({ att, onImageClick }: AttachmentViewProps) {
-  const url = att.url || ''
+/**
+ * Renders one attachment. Branches on whether the attachment is E2E
+ * (encrypted_file_key + envelope_iv + file_iv all present): if so, fetch the
+ * ciphertext blob, unwrap the file_key, decrypt the body, render via blob URL.
+ * Otherwise (legacy plaintext attachment, shouldn't exist post-cleanup) render
+ * the presigned URL directly.
+ */
+function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps) {
+  const accountKeyCtx = useAccountKey()
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!att.id || !url) return null
+  const isEncrypted = Boolean(att.encrypted_file_key && att.envelope_iv && att.file_iv)
+
+  useEffect(() => {
+    if (!isEncrypted) return
+    if (accountKeyCtx.state.status !== 'ready') return
+    if (!att.url) return
+
+    let cancelled = false
+    let currentUrl: string | null = null
+
+    const run = async () => {
+      try {
+        const accountKey = accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
+        if (!accountKey) throw new Error('account_key missing')
+        const chatKey = await getChatKey(accountKey, senderUserId)
+        if (!chatKey) throw new Error('cannot derive chat_key for sender')
+        const fileKey = await unwrapFileKey(att.encrypted_file_key as string, att.envelope_iv as string, chatKey)
+        const ctRes = await fetch(att.url as string)
+        if (!ctRes.ok) throw new Error(`fetch ${ctRes.status}`)
+        const ctBuf = new Uint8Array(await ctRes.arrayBuffer())
+        const decrypted = await decryptFile(ctBuf, att.file_iv as string, fileKey, att.mime_type)
+        if (cancelled) return
+        currentUrl = URL.createObjectURL(decrypted)
+        setBlobUrl(currentUrl)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('attachment decrypt failed:', err)
+          setError(err instanceof Error ? err.message : String(err))
+        }
+      }
+    }
+    run()
+
+    return () => {
+      cancelled = true
+      if (currentUrl) URL.revokeObjectURL(currentUrl)
+    }
+  }, [
+    isEncrypted,
+    accountKeyCtx.state,
+    senderUserId,
+    att.url,
+    att.encrypted_file_key,
+    att.envelope_iv,
+    att.file_iv,
+    att.mime_type,
+  ])
+
+  if (!att.id || !att.url) return null
+
+  // For E2E: wait until blobUrl is ready (or error).
+  const url = isEncrypted ? blobUrl : att.url
+
+  if (isEncrypted && error) {
+    return <div className="attachment-document attachment-error">🔒 Не удалось расшифровать вложение</div>
+  }
+  if (!url) {
+    return <div className="attachment-document attachment-loading">🔒 Расшифровка…</div>
+  }
 
   if (att.file_type === 'image') {
     return (
@@ -223,6 +294,7 @@ function MessageItemInner({
                       <div key={att.id} className="attachment-item">
                         <AttachmentView
                           att={att}
+                          senderUserId={message.user_id}
                           onImageClick={handleImageClick}
                         />
                       </div>

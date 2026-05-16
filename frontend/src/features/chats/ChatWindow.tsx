@@ -8,7 +8,14 @@ import { PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { encryptMessage } from '../../shared/crypto/e2e'
 import type { GroupKeyStatus } from '../../shared/crypto/peerKeys'
-import { encryptGroupMessage, getChatKey, getGroupKeyStatus, getPeerPublicKey } from '../../shared/crypto/peerKeys'
+import {
+  encryptGroupMessage,
+  getChatKey,
+  getGroupKeyStatus,
+  getPeerPublicKey,
+  prepareAttachmentForUpload,
+  resolveAttachmentRecipients,
+} from '../../shared/crypto/peerKeys'
 import { useAccountKey } from '../auth/AccountKey'
 import { useCallContext } from '../calls/CallContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
@@ -117,10 +124,35 @@ export function ChatWindow({
   const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
+  // Mirror of messageText for the cleanup-time save (closures otherwise see
+  // the value at effect-run time, not the latest user input).
+  const messageTextRef = useRef(messageText)
+  useEffect(() => { messageTextRef.current = messageText }, [messageText])
 
-  // Reset input state when switching chats
+  // Per-chat draft persistence (localStorage). On chat-enter: restore the
+  // saved draft (or empty string). On send: cleared explicitly elsewhere.
+  // The actual persistence (write side) is driven by a *separate* effect
+  // below — see persistDraft. Reason: on mobile (Capacitor WebView) the user
+  // typically backgrounds or kills the app without switching chats, so a
+  // cleanup-time save wouldn't fire and the draft would be lost. We save
+  // proactively on every keystroke (debounced) + on pagehide/visibilitychange
+  // so the latest text survives a hard kill.
+  const draftKey = useCallback((cid: number) => `chat_draft_${cid}`, [])
+  const persistDraft = useCallback((cid: number, text: string) => {
+    try {
+      if (text) localStorage.setItem(draftKey(cid), text)
+      else localStorage.removeItem(draftKey(cid))
+    } catch { /* quota / private mode */ }
+  }, [draftKey])
+
   useEffect(() => {
-    setMessageText('')
+    if (chatId) {
+      let draft = ''
+      try { draft = localStorage.getItem(draftKey(chatId)) ?? '' } catch { /* quota / private mode */ }
+      setMessageText(draft)
+    } else {
+      setMessageText('')
+    }
     setReplyToId(null)
     setEditingMessageId(null)
     setSelectedFiles([])
@@ -133,7 +165,41 @@ export function ChatWindow({
     setConfirmAction(null)
     setE2EStatus({ kind: 'loading' })
     pendingUploadRef.current = null
-  }, [chatId])
+
+    // Safety net for the "switch chats" path: save the OLD chat's draft on
+    // cleanup. The keystroke-debounced effect below handles the common cases.
+    const leavingChatId = chatId
+    return () => {
+      if (!leavingChatId) return
+      persistDraft(leavingChatId, messageTextRef.current)
+    }
+  }, [chatId, draftKey, persistDraft])
+
+  // Debounced proactive save on every keystroke. 400 ms is a good balance:
+  // small enough that "type → swipe to background" rarely loses anything,
+  // large enough that we're not hitting localStorage on every character of a
+  // long message. Skipped when chatId is undefined (no active chat).
+  useEffect(() => {
+    if (!chatId) return
+    const t = setTimeout(() => persistDraft(chatId, messageText), 400)
+    return () => clearTimeout(t)
+  }, [chatId, messageText, persistDraft])
+
+  // Mobile + tab-close belt: when the page is about to disappear, flush the
+  // current text synchronously. visibilitychange fires when Android moves the
+  // app to background; pagehide fires on web tab close / navigation away.
+  // Both run before any teardown that could nuke localStorage writes.
+  useEffect(() => {
+    if (!chatId) return
+    const flush = () => persistDraft(chatId, messageTextRef.current)
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [chatId, persistDraft])
 
   // Fetch E2E readiness for the active chat. Recomputes when participants
   // change (group member added/removed → groupMembers prop identity flips,
@@ -272,13 +338,49 @@ export function ChatWindow({
 
     const doUpload = async () => {
       setUploading(true)
-      const formData = new FormData()
-
-      for (const file of files) {
-        formData.append('attachments', file, file.name)
-      }
-
       try {
+        // E2E attachments: encrypt each file client-side, wrap the file_key
+        // for every chat participant. Backend stores the opaque ciphertext
+        // and the per-recipient envelopes; it can decrypt neither.
+        const accountKey =
+          accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
+        if (!accountKey || !currentUserId || e2eStatus.kind !== 'ready') {
+          throw new Error('E2E not ready — cannot upload attachments')
+        }
+        const recipients = await resolveAttachmentRecipients({
+          isGroup,
+          groupRecipients: e2eStatus.groupStatus?.recipients,
+          peerUserId: otherUserId,
+          senderUserId: currentUserId,
+          senderAccountKey: accountKey,
+        })
+        if (!recipients) {
+          throw new Error('failed to resolve recipient public_keys')
+        }
+
+        const formData = new FormData()
+        type WireMeta = {
+          file_iv: string
+          mime_type: string
+          envelopes: Array<{ recipient_id: number; encrypted_file_key: string; iv: string }>
+        }
+        const metas: WireMeta[] = []
+        for (const file of files) {
+          const prepared = await prepareAttachmentForUpload(file, recipients, accountKey)
+          // Append the encrypted blob, preserve the original filename so the
+          // receiving UI can show "kitten.jpg" not a random UUID. Filename is
+          // metadata; not security-sensitive (server already knows who sent
+          // what, plus filename is short and easy to override client-side
+          // before sharing).
+          formData.append('attachments', prepared.ciphertext, file.name)
+          metas.push({
+            file_iv: prepared.fileIv,
+            mime_type: file.type || 'application/octet-stream',
+            envelopes: prepared.envelopes,
+          })
+        }
+        formData.append('metadata', JSON.stringify(metas))
+
         await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
       } catch (err) {
         console.error('Ошибка загрузки вложений:', err)
@@ -289,7 +391,7 @@ export function ChatWindow({
     }
 
     doUpload().catch(console.error)
-  }, [messages, currentUserId, showToast])
+  }, [messages, currentUserId, showToast, accountKeyCtx.state, e2eStatus, isGroup, otherUserId])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -393,6 +495,9 @@ export function ChatWindow({
       if (success) {
         setMessageText('')
         setEditingMessageId(null)
+        if (chatId) {
+          try { localStorage.removeItem(draftKey(chatId)) } catch { /* ignore */ }
+        }
       } else {
         showToast('Не удалось отправить изменение, повторите.', 'error')
       }
@@ -448,6 +553,9 @@ export function ChatWindow({
       setMessageText('')
       setReplyToId(null)
       setSelectedFiles([])
+      if (chatId) {
+        try { localStorage.removeItem(draftKey(chatId)) } catch { /* ignore */ }
+      }
     } else {
       setSending(false)
       showToast('Не удалось отправить сообщение, повторите.', 'error')

@@ -510,31 +510,55 @@ textarea::placeholder,
   opacity: 0.9;
 }
 
-.attachment-item.attachment-document {
-  padding: 10px 14px;
-  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-hover) 100%);
-  border: 1px solid var(--border-light);
-  margin-top: 5px;
-  transition: var(--transition);
-}
-
-.attachment-item.attachment-document:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
-  transform: translateX(2px);
-}
-
-.attachment-item.attachment-document a {
-  text-decoration: none;
-  color: var(--text-primary);
+/* Document-style attachments (PDF, doc, generic file) — and the loading /
+   error placeholders that share the same look. The DOM is
+   <div class="attachment-item"><a class="attachment-document">...</a></div>,
+   so we have to use a descendant selector (the previous `.attachment-item
+   .attachment-document` compound selector matched zero elements, which is
+   why PDFs rendered as a bare inline blob inside the bubble). */
+.attachment-document {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  padding: 10px 14px;
+  margin-top: 5px;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-hover) 100%);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
   font-size: 0.9rem;
+  /* Override the line-height: 0 inherited from .attachment-item (that rule
+     exists to kill the baseline gap under inline-block <img>/<video>; for
+     a text-bearing document plate it crushes the icon and filename into a
+     thin strip). Restore a normal line-height for the text inside. */
+  line-height: 1.4;
+  text-decoration: none;
+  transition: var(--transition);
 }
 
-.attachment-item.attachment-document a:hover {
+.attachment-document:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
   color: var(--accent-primary);
+  transform: translateX(2px);
+}
+
+/* Loading + error placeholders use the same chrome as the real document so
+   the bubble doesn't visibly resize when decryption resolves. They're not
+   <a> tags so no hover transform — they're informational, not clickable. */
+.attachment-document.attachment-loading,
+.attachment-document.attachment-error {
+  color: var(--text-secondary);
+  cursor: default;
+}
+.attachment-document.attachment-loading:hover,
+.attachment-document.attachment-error:hover {
+  transform: none;
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+}
+.attachment-document.attachment-error {
+  color: var(--accent-danger);
 }
 
 .attachment-icon {
@@ -1247,6 +1271,26 @@ textarea::placeholder,
   transition: var(--transition);
   min-height: 42px;
   box-shadow: none !important;
+  /* Grid items default to min-width: auto, which lets the 1fr column grow to fit
+     intrinsic content. With a long unbroken string (e.g. "пппп..." with no spaces)
+     the textarea would otherwise push the whole row sideways instead of wrapping.
+     min-width: 0 lets it shrink back to its 1fr share, width: 100% pins it to that
+     share, and overflow-wrap: anywhere forces visual wrap mid-"word" so the user
+     sees a tall textarea instead of a horizontal scroll bar across the input. */
+  min-width: 0;
+  width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* Hide the vertical scrollbar inside the textarea — at maxHeight=200px
+     (~6 lines) the user is already going to write a multi-paragraph essay,
+     and a tall narrow scrollbar in the composer looks broken next to the
+     rounded send button. Scrolling still works via wheel / touch / arrows. */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge / IE */
+}
+.composer-input::-webkit-scrollbar {
+  /* Chrome / Safari / WebKit-based Android WebView */
+  display: none;
 }
 
 .composer-input::placeholder {

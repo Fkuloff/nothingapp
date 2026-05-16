@@ -580,6 +580,11 @@ func (s *ChatService) DeleteMessage(ctx context.Context, messageID, userID uint)
 	}
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Wipe attachment envelopes first (subquery on attachments) before
+		// the attachments themselves disappear and the subquery returns empty.
+		if err := tx.Where("attachment_id IN (SELECT id FROM attachments WHERE message_id = ?)", messageID).Delete(&models.AttachmentEnvelope{}).Error; err != nil {
+			return fmt.Errorf("delete attachment envelopes: %w", err)
+		}
 		// Wipe attachment rows for this message
 		if err := tx.Unscoped().Where("message_id = ?", messageID).Delete(&models.Attachment{}).Error; err != nil {
 			return fmt.Errorf("delete attachments: %w", err)
@@ -859,6 +864,11 @@ func (s *ChatService) purgeMessagesAndAttachments(ctx context.Context, chatID ui
 		// Delete unread messages
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.UnreadMessage{}).Error; err != nil {
 			return fmt.Errorf("delete unread messages: %w", err)
+		}
+		// Delete attachment envelopes (subquery on attachments) BEFORE the
+		// attachments themselves are gone — same reasoning as DeleteMessage.
+		if err := tx.Where("attachment_id IN (SELECT id FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE chat_id = ?))", chatID).Delete(&models.AttachmentEnvelope{}).Error; err != nil {
+			return fmt.Errorf("delete attachment envelopes: %w", err)
 		}
 		// Delete attachments
 		if err := tx.Unscoped().Where("message_id IN (SELECT id FROM messages WHERE chat_id = ?)", chatID).Delete(&models.Attachment{}).Error; err != nil {
