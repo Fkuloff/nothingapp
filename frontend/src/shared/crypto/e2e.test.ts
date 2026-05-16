@@ -6,16 +6,22 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  decryptFile,
   decryptMessage,
   deriveChatKey,
+  encryptFile,
   encryptForGroup,
   encryptMessage,
+  generateFileKey,
   isE2EAvailable,
   openVault,
   publicKeyBase64,
   rewrapAccountKey,
   setupNewVault,
+  unwrapFileKey,
+  wrapFileKey,
 } from './e2e'
+import { prepareAttachmentForUpload } from './peerKeys'
 
 describe('e2e: runtime availability', () => {
   it('reports WebCrypto as available in the test environment', () => {
@@ -272,6 +278,173 @@ describe('e2e: group pairwise (encryptForGroup)', () => {
     await expect(
       decryptMessage(envelopes[0].ciphertext, envelopes[0].iv, malloryKey),
     ).rejects.toBeDefined()
+  })
+})
+
+describe('e2e: attachment E2E (file body + wrapped file_key)', () => {
+  it('encryptFile + decryptFile roundtrip preserves bytes', async () => {
+    // The file_key is just a fresh AES-GCM key. We don't go through the
+    // wrap/unwrap dance here — that's the next test. This one verifies the
+    // raw body encrypt/decrypt is byte-identical.
+    const fileKey = await generateFileKey()
+    const plaintext = new TextEncoder().encode('this is a test attachment body 🧪')
+    const blob = new Blob([plaintext], { type: 'text/plain' })
+
+    const { ciphertext, iv } = await encryptFile(blob, fileKey)
+    expect(ciphertext.byteLength).toBeGreaterThan(plaintext.byteLength) // AES-GCM auth tag
+    expect(iv).toBeTruthy()
+
+    const recovered = await decryptFile(ciphertext, iv, fileKey, 'text/plain')
+    const recoveredBytes = new Uint8Array(await recovered.arrayBuffer())
+    expect(Array.from(recoveredBytes)).toEqual(Array.from(plaintext))
+    expect(recovered.type).toBe('text/plain')
+  })
+
+  it('wrapFileKey + unwrapFileKey via Alice→Bob ECDH chat_key', async () => {
+    // The full path: Alice creates an attachment with a fresh file_key,
+    // encrypts the body, wraps the file_key under chat_key = ECDH(alice, bob).
+    // Bob receives the wrapped key, unwraps via ECDH(bob, alice), and
+    // decrypts the body. The unwrapped key must produce the original bytes.
+    const alice = await setupNewVault('alice')
+    const bob = await setupNewVault('bob')
+    const alicePub = await publicKeyBase64(alice.accountKey)
+    const bobPub = await publicKeyBase64(bob.accountKey)
+
+    const fileKey = await generateFileKey()
+    const plaintext = new TextEncoder().encode('top secret attachment 🤫')
+    const blob = new Blob([plaintext], { type: 'application/pdf' })
+    const { ciphertext, iv } = await encryptFile(blob, fileKey)
+
+    // Alice wraps file_key for Bob.
+    const aliceToBobKey = await deriveChatKey(alice.accountKey, bobPub)
+    const { encryptedFileKey, iv: wrapIv } = await wrapFileKey(fileKey, aliceToBobKey)
+
+    // Bob unwraps with his side of the ECDH.
+    const bobFromAliceKey = await deriveChatKey(bob.accountKey, alicePub)
+    const unwrapped = await unwrapFileKey(encryptedFileKey, wrapIv, bobFromAliceKey)
+
+    // Bob decrypts the body with the unwrapped key.
+    const recovered = await decryptFile(ciphertext, iv, unwrapped, 'application/pdf')
+    const recoveredBytes = new Uint8Array(await recovered.arrayBuffer())
+    expect(Array.from(recoveredBytes)).toEqual(Array.from(plaintext))
+  })
+
+  it('Mallory cannot unwrap a file_key wrapped for Bob', async () => {
+    // Confidentiality: the wrapped file_key is only readable by the intended
+    // recipient. Mallory's ECDH with Alice produces a different key, AES-GCM
+    // auth tag check fails on unwrap.
+    const alice = await setupNewVault('alice')
+    const bob = await setupNewVault('bob')
+    const mallory = await setupNewVault('mallory')
+    const alicePub = await publicKeyBase64(alice.accountKey)
+    const bobPub = await publicKeyBase64(bob.accountKey)
+
+    const fileKey = await generateFileKey()
+    const aliceToBobKey = await deriveChatKey(alice.accountKey, bobPub)
+    const { encryptedFileKey, iv } = await wrapFileKey(fileKey, aliceToBobKey)
+
+    const malloryKey = await deriveChatKey(mallory.accountKey, alicePub)
+    await expect(unwrapFileKey(encryptedFileKey, iv, malloryKey)).rejects.toBeDefined()
+  })
+})
+
+describe('e2e: prepareAttachmentForUpload (high-level upload helper)', () => {
+  it('produces an envelope per recipient + ciphertext decryptable by each', async () => {
+    // The full upload-side ceremony: generate file_key, encrypt the body,
+    // wrap file_key for every recipient. Each recipient should be able to
+    // unwrap their envelope with deriveChatKey(self, sender.public) and
+    // decrypt the body to the original bytes.
+    const alice = await setupNewVault('alice')
+    const bob = await setupNewVault('bob')
+    const carol = await setupNewVault('carol')
+    const alicePub = await publicKeyBase64(alice.accountKey)
+    const bobPub = await publicKeyBase64(bob.accountKey)
+    const carolPub = await publicKeyBase64(carol.accountKey)
+
+    const original = new TextEncoder().encode('prep-attachment test payload')
+    const file = new File([original], 'doc.bin', { type: 'application/octet-stream' })
+    const prepared = await prepareAttachmentForUpload(
+      file,
+      [
+        { userID: 1, publicKey: alicePub },
+        { userID: 2, publicKey: bobPub },
+        { userID: 3, publicKey: carolPub },
+      ],
+      alice.accountKey,
+    )
+
+    expect(prepared.envelopes).toHaveLength(3)
+    expect(prepared.fileIv).toBeTruthy()
+    expect(prepared.ciphertext.size).toBeGreaterThan(original.byteLength)
+
+    const ctBytes = new Uint8Array(await prepared.ciphertext.arrayBuffer())
+
+    // Bob unwraps his envelope and decrypts.
+    const bobEnv = prepared.envelopes.find((e) => e.recipient_id === 2)
+    if (!bobEnv) throw new Error('bob envelope missing')
+    const bobChatKey = await deriveChatKey(bob.accountKey, alicePub)
+    const bobFileKey = await unwrapFileKey(bobEnv.encrypted_file_key, bobEnv.iv, bobChatKey)
+    const recoveredBlob = await decryptFile(ctBytes, prepared.fileIv, bobFileKey, 'application/octet-stream')
+    const recovered = new Uint8Array(await recoveredBlob.arrayBuffer())
+    expect(Array.from(recovered)).toEqual(Array.from(original))
+
+    // Carol independently unwraps with her own ECDH.
+    const carolEnv = prepared.envelopes.find((e) => e.recipient_id === 3)
+    if (!carolEnv) throw new Error('carol envelope missing')
+    const carolChatKey = await deriveChatKey(carol.accountKey, alicePub)
+    const carolFileKey = await unwrapFileKey(carolEnv.encrypted_file_key, carolEnv.iv, carolChatKey)
+    const carolBlob = await decryptFile(ctBytes, prepared.fileIv, carolFileKey, 'application/octet-stream')
+    const carolBytes = new Uint8Array(await carolBlob.arrayBuffer())
+    expect(Array.from(carolBytes)).toEqual(Array.from(original))
+  })
+
+  it('throws when recipients list is empty', async () => {
+    // Defensive — UI should never call us with empty recipients (composer
+    // disabled when e2eStatus !== 'ready'). But still surface it loudly so
+    // a programmer error becomes a visible test failure not a silent skip.
+    const alice = await setupNewVault('alice')
+    const file = new File([new Uint8Array([1, 2, 3])], 'x.bin')
+    await expect(prepareAttachmentForUpload(file, [], alice.accountKey)).rejects.toThrow(/no recipients/)
+  })
+
+  it('throws when any recipient is missing a public_key', async () => {
+    // Same strict invariant as encryptForGroup — caller must gate on
+    // e2eStatus = 'ready' (which itself requires every member to have an
+    // uploaded public_key). Reaching this with an empty key is a bug.
+    const alice = await setupNewVault('alice')
+    const bob = await setupNewVault('bob')
+    const file = new File([new Uint8Array([1, 2, 3])], 'x.bin')
+
+    await expect(
+      prepareAttachmentForUpload(
+        file,
+        [
+          { userID: 2, publicKey: await publicKeyBase64(bob.accountKey) },
+          { userID: 3, publicKey: '' }, // Carol hasn't onboarded
+        ],
+        alice.accountKey,
+      ),
+    ).rejects.toThrow(/public_key/)
+  })
+
+  it('produces a fresh IV per call (no reuse across uploads)', async () => {
+    // AES-GCM with the same key + same IV is catastrophic. encryptFile pulls
+    // a new IV from crypto.getRandomValues per call, and prepareAttachmentForUpload
+    // pulls a fresh file_key per call too. Two prepares of the same file →
+    // different IVs, different envelopes.
+    const alice = await setupNewVault('alice')
+    const bob = await setupNewVault('bob')
+    const bobPub = await publicKeyBase64(bob.accountKey)
+
+    const file = new File([new TextEncoder().encode('same content')], 'a.bin')
+    const a = await prepareAttachmentForUpload(file, [{ userID: 2, publicKey: bobPub }], alice.accountKey)
+    const b = await prepareAttachmentForUpload(file, [{ userID: 2, publicKey: bobPub }], alice.accountKey)
+
+    expect(a.fileIv).not.toBe(b.fileIv)
+    // Each envelope wraps a *different* file_key (and uses a different IV),
+    // so the encrypted_file_key strings differ too.
+    expect(a.envelopes[0].encrypted_file_key).not.toBe(b.envelopes[0].encrypted_file_key)
+    expect(a.envelopes[0].iv).not.toBe(b.envelopes[0].iv)
   })
 })
 

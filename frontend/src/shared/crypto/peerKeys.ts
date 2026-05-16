@@ -1,7 +1,14 @@
 import { endpoints } from '../api/endpoints'
 import { httpGet } from '../api/httpClient'
 import type { GroupEnvelope, GroupRecipientKey } from './e2e'
-import { deriveChatKey, encryptForGroup } from './e2e'
+import {
+  deriveChatKey,
+  encryptFile,
+  encryptForGroup,
+  generateFileKey,
+  publicKeyBase64,
+  wrapFileKey,
+} from './e2e'
 
 /**
  * In-memory cache of other users' X25519 public keys, keyed by user_id.
@@ -56,15 +63,6 @@ export async function getPeerPublicKey(userId: number): Promise<string | null> {
   return promise
 }
 
-/**
- * Forget the cached public_key for a single peer. Used when we receive a signal
- * that the peer just onboarded (e.g. they came online for the first time) so the
- * next message decrypt fetches fresh.
- */
-export function invalidatePeerPublicKey(userId: number): void {
-  cache.delete(userId)
-  inflight.delete(userId)
-}
 
 /**
  * Drop the entire cache. Called on logout so a different user signing in on the same
@@ -135,6 +133,89 @@ export async function getGroupKeyStatus(chatId: number): Promise<GroupKeyStatus 
   } catch (err) {
     console.warn('failed to fetch group keys:', err)
     return null
+  }
+}
+
+// ---------- attachment helpers ----------
+
+// Internal types used by prepareAttachmentForUpload below. Not exported —
+// callers receive PreparedAttachment via the function return type, no need to
+// import the type name directly.
+type AttachmentEnvelopeWire = {
+  recipient_id: number
+  encrypted_file_key: string
+  iv: string
+}
+
+type PreparedAttachment = {
+  ciphertext: Blob
+  fileIv: string
+  envelopes: AttachmentEnvelopeWire[]
+}
+
+/**
+ * Resolve the list of "recipients" for the current chat from the e2eStatus
+ * shape ChatWindow already maintains. For a group, recipients comes from
+ * `getGroupKeyStatus` (includes the sender). For a 1-on-1 we synthesize it:
+ * sender's own public_key plus the peer's. Sender's own public_key is needed
+ * so the sender can decrypt their own attachment on another device (matches
+ * the message envelope pattern).
+ */
+export async function resolveAttachmentRecipients(args: {
+  isGroup: boolean
+  groupRecipients?: GroupRecipientKey[]
+  peerUserId?: number
+  senderUserId: number
+  senderAccountKey: CryptoKey
+}): Promise<GroupRecipientKey[] | null> {
+  if (args.isGroup) {
+    if (!args.groupRecipients || args.groupRecipients.length === 0) return null
+    return args.groupRecipients
+  }
+  if (!args.peerUserId) return null
+  const peerKey = await getPeerPublicKey(args.peerUserId)
+  if (!peerKey) return null
+  const selfKey = await publicKeyBase64(args.senderAccountKey)
+  return [
+    { userID: args.senderUserId, publicKey: selfKey },
+    { userID: args.peerUserId, publicKey: peerKey },
+  ]
+}
+
+/**
+ * Encrypt one file and produce its per-recipient envelope set. Throws on the
+ * same conditions as encryptForGroup: empty recipients, recipient with empty
+ * public_key. Caller is expected to have gated send on e2eStatus = 'ready'.
+ */
+export async function prepareAttachmentForUpload(
+  file: File,
+  recipients: GroupRecipientKey[],
+  senderAccountKey: CryptoKey,
+): Promise<PreparedAttachment> {
+  if (recipients.length === 0) throw new Error('prepareAttachmentForUpload: no recipients')
+  const fileKey = await generateFileKey()
+  const { ciphertext, iv: fileIv } = await encryptFile(file, fileKey)
+
+  const envelopes: AttachmentEnvelopeWire[] = []
+  for (const r of recipients) {
+    if (!r.publicKey) throw new Error(`prepareAttachmentForUpload: recipient ${r.userID} has no public_key`)
+    const chatKey = await deriveChatKey(senderAccountKey, r.publicKey)
+    const wrapped = await wrapFileKey(fileKey, chatKey)
+    envelopes.push({
+      recipient_id: r.userID,
+      encrypted_file_key: wrapped.encryptedFileKey,
+      iv: wrapped.iv,
+    })
+  }
+
+  // Same TypeScript-narrowing dance as elsewhere: Uint8Array's buffer is
+  // typed as ArrayBufferLike which doesn't satisfy Blob's BlobPart. Cast
+  // through unknown — the underlying buffer is a real ArrayBuffer (we just
+  // allocated it via crypto.subtle.encrypt).
+  return {
+    ciphertext: new Blob([ciphertext as unknown as BlobPart], { type: 'application/octet-stream' }),
+    fileIv,
+    envelopes,
   }
 }
 

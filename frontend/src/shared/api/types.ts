@@ -136,6 +136,14 @@ export type Attachment = {
   height?: number
   duration?: number
   created_at?: string
+  // E2E fields. For scheme=2 attachments the body in MinIO is AES-GCM
+  // ciphertext encrypted with a random file_key; that file_key is wrapped
+  // per-recipient under chat_key. Server pre-resolves the caller's envelope
+  // (encrypted_file_key + envelope_iv). file_iv is the body's own nonce,
+  // same for all recipients.
+  encrypted_file_key?: string
+  envelope_iv?: string
+  file_iv?: string
 }
 
 // User list item (used in contacts list, search results)

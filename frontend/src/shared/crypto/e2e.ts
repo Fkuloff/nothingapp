@@ -379,6 +379,100 @@ export async function encryptForGroup(
   return envelopes
 }
 
+// ---------- attachment E2E (file body + per-recipient wrapped file_key) ----------
+//
+// Each attachment gets a fresh random `file_key` (AES-256). The file body is
+// encrypted once with that key + a random IV. The key is then wrapped once per
+// recipient with their pairwise chat_key (the same X25519-ECDH derived key
+// used for messages). Server stores opaque ciphertext + opaque wrapped keys
+// and can read neither.
+
+/** Generate a fresh random 32-byte AES key for one attachment. */
+export async function generateFileKey(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+}
+
+/**
+ * Encrypt one file (as Blob / File) and return ciphertext bytes + base64 IV.
+ * The entire file is loaded into RAM via arrayBuffer() — fine up to ~100MB on
+ * modern browsers, risky beyond that. Chunked encryption is a future task.
+ */
+export async function encryptFile(
+  file: Blob,
+  fileKey: CryptoKey,
+): Promise<{ ciphertext: Uint8Array; iv: string }> {
+  const iv = randomUint8Array(IV_BYTES)
+  const plaintext = new Uint8Array(await file.arrayBuffer())
+  const ctBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    fileKey,
+    asBuffer(plaintext),
+  )
+  return { ciphertext: new Uint8Array(ctBuffer), iv: b64encode(iv) }
+}
+
+/**
+ * Decrypt one file body. Returns a Blob (so callers can blob:-URL it for img/video
+ * rendering or hand to a download anchor). The mime_type is whatever the sender
+ * recorded on the Attachment row — the server can't verify it (ciphertext).
+ */
+export async function decryptFile(
+  ciphertext: Uint8Array,
+  ivB64: string,
+  fileKey: CryptoKey,
+  mimeType: string,
+): Promise<Blob> {
+  const iv = b64decode(ivB64)
+  const ptBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    fileKey,
+    asBuffer(ciphertext),
+  )
+  return new Blob([ptBuffer], { type: mimeType || 'application/octet-stream' })
+}
+
+/**
+ * Wrap a file_key under a recipient's chat_key (per-recipient envelope). Same
+ * AES-GCM construction as messages — fresh IV, the body here is the 32 raw
+ * bytes of file_key.
+ */
+export async function wrapFileKey(
+  fileKey: CryptoKey,
+  chatKey: CryptoKey,
+): Promise<{ encryptedFileKey: string; iv: string }> {
+  const rawBuffer = await crypto.subtle.exportKey('raw', fileKey)
+  const raw = new Uint8Array(rawBuffer)
+  const iv = randomUint8Array(IV_BYTES)
+  const ctBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    chatKey,
+    asBuffer(raw),
+  )
+  return { encryptedFileKey: b64encode(new Uint8Array(ctBuffer)), iv: b64encode(iv) }
+}
+
+/**
+ * Unwrap a recipient's wrapped file_key. Used by the read path: client fetches
+ * attachment metadata (which includes encrypted_file_key + envelope_iv pre-
+ * resolved for them server-side), derives chat_key with the sender via ECDH,
+ * unwraps. The result is the same AES-GCM CryptoKey the sender used to encrypt
+ * the file body.
+ */
+export async function unwrapFileKey(
+  encryptedFileKey: string,
+  envelopeIvB64: string,
+  chatKey: CryptoKey,
+): Promise<CryptoKey> {
+  const ct = b64decode(encryptedFileKey)
+  const iv = b64decode(envelopeIvB64)
+  const rawBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    chatKey,
+    asBuffer(ct),
+  )
+  return crypto.subtle.importKey('raw', rawBuffer, { name: 'AES-GCM' }, false, ['decrypt'])
+}
+
 // ---------- key persistence ----------
 
 const STORED_ACCOUNT_KEY = 'account_key_b64'
