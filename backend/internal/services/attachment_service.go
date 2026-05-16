@@ -220,18 +220,16 @@ func (s *AttachmentService) chatRecipientSet(ctx context.Context, chatID, sender
 }
 
 // validateAttachmentMeta checks the envelope set covers every chat recipient
-// exactly once and the body's own IV is populated. Same strict policy as
-// message envelopes: no duplicates, no missing, no extras.
+// exactly once, the body's own IV is populated, and the encrypted-metadata
+// blob is present. After the legacy plaintext-name removal, an attachment
+// without encrypted_metadata is uncategorizable on the receiver — reject at
+// upload time rather than silently writing a row nobody can render.
 func validateAttachmentMeta(meta AttachmentMetaInput, expected map[uint]struct{}) error {
 	if meta.FileIV == "" || len(meta.Envelopes) == 0 {
 		return ErrAttachmentMetaFields
 	}
-	// Encrypted-metadata blob must come as a pair: ciphertext + iv, or both
-	// empty (legacy upload path). One without the other is malformed and
-	// would silently render as "unknown file" on the receiver. Reject early
-	// so the upload never lands in a state we can't display.
-	if (meta.EncryptedMetadata == "") != (meta.MetadataIV == "") {
-		return errors.New("encrypted_metadata and metadata_iv must both be set or both empty")
+	if meta.EncryptedMetadata == "" || meta.MetadataIV == "" {
+		return errors.New("encrypted_metadata and metadata_iv are required")
 	}
 	seen := make(map[uint]struct{}, len(meta.Envelopes))
 	for _, e := range meta.Envelopes {
@@ -291,16 +289,9 @@ func (s *AttachmentService) processEncryptedFileUpload(
 	}
 
 	attachment := &models.Attachment{
-		MessageID:  messageID,
-		StorageKey: metadata.Key,
-		FileSize:   metadata.Size,
-		// FileType / FileName / MimeType: empty for new encrypted-metadata
-		// uploads (the real values live inside EncryptedMetadata and the
-		// receiving client derives the render bucket from the decrypted
-		// mime). The columns stay on the row for legacy compatibility.
-		FileType:          "",
-		FileName:          "",
-		MimeType:          "",
+		MessageID:         messageID,
+		StorageKey:        metadata.Key,
+		FileSize:          metadata.Size,
 		FileIV:            meta.FileIV,
 		EncryptedMetadata: meta.EncryptedMetadata,
 		MetadataIV:        meta.MetadataIV,

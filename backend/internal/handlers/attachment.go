@@ -280,28 +280,14 @@ func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage
 // serializeAttachmentsForBroadcast (write path: full envelope set, each client
 // filters to its own).
 func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]any {
-	out := map[string]any{
-		"id":        att.ID,
-		"file_size": att.FileSize,
-		"url":       s.GetURL(att.StorageKey),
-		"file_iv":   att.FileIV,
+	return map[string]any{
+		"id":                 att.ID,
+		"file_size":          att.FileSize,
+		"url":                s.GetURL(att.StorageKey),
+		"file_iv":            att.FileIV,
+		"encrypted_metadata": att.EncryptedMetadata,
+		"metadata_iv":        att.MetadataIV,
 	}
-	// Encrypted-metadata path: the real filename + mime live inside
-	// EncryptedMetadata. The legacy FileType / FileName / MimeType columns
-	// are empty for new uploads, so omit them when blank — keeps the wire
-	// shape clean. Clients seeing encrypted_metadata decrypt it to recover
-	// the displayable values.
-	if att.EncryptedMetadata != "" {
-		out["encrypted_metadata"] = att.EncryptedMetadata
-		out["metadata_iv"] = att.MetadataIV
-	} else {
-		// Legacy attachments: plaintext filename + mime + bucket lived on
-		// the row. Emit them so old chats keep rendering.
-		out["file_type"] = att.FileType
-		out["file_name"] = att.FileName
-		out["mime_type"] = att.MimeType
-	}
-	return out
 }
 
 // serializeAttachmentsForBroadcast serializes attachments right after the

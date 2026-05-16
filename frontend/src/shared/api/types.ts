@@ -121,16 +121,14 @@ export type GroupInfoResponse = {
   created_at: string
 }
 
-// Attachments
+// Attachments. All metadata fields the operator could read have been moved
+// into encrypted_metadata; the only plaintext bits left are file_size (S3
+// necessarily knows it) and the storage key. file_name + mime_type live
+// encrypted under file_key alongside the body and are recovered client-side
+// after decryption.
 export type Attachment = {
   id: number
   message_id?: number
-  // Legacy plaintext metadata. New (encrypted-metadata) uploads send these
-  // empty; the receiver decrypts encrypted_metadata to recover real values.
-  // Kept on the wire so old rows in the DB keep rendering.
-  file_type?: 'image' | 'video' | 'document' | 'audio'
-  file_name?: string
-  mime_type?: string
   storage_key?: string
   file_size: number
   url?: string
@@ -143,13 +141,11 @@ export type Attachment = {
   // ciphertext encrypted with a random file_key; that file_key is wrapped
   // per-recipient under chat_key. Server pre-resolves the caller's envelope
   // (encrypted_file_key + envelope_iv). file_iv is the body's own nonce,
-  // same for all recipients.
+  // same for all recipients. encrypted_metadata wraps {fileName, mimeType}
+  // under the same file_key as the body — server never sees plaintext.
   encrypted_file_key?: string
   envelope_iv?: string
   file_iv?: string
-  // {fileName, mimeType} JSON, AES-GCM-wrapped under the same file_key as
-  // the body. Server never sees plaintext — replaces the previously
-  // operator-readable file_name / mime_type columns. Empty for legacy rows.
   encrypted_metadata?: string
   metadata_iv?: string
 }

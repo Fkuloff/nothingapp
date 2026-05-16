@@ -56,22 +56,17 @@ type attachmentResponse struct {
 	ID       uint   `json:"id"`
 	FileSize int64  `json:"file_size"`
 	URL      string `json:"url"`
-	// Legacy plaintext metadata fields. Empty for new uploads that use
-	// EncryptedMetadata; clients see them only for pre-encrypted-metadata
-	// attachments still in the DB. `omitempty` so the new shape is clean.
-	FileType models.AttachmentType `json:"file_type,omitempty"`
-	FileName string                `json:"file_name,omitempty"`
-	MimeType string                `json:"mime_type,omitempty"`
 	// E2E fields. EncryptedFileKey + EnvelopeIV are pre-resolved server-side
 	// for the requesting user via attachment_envelopes (per-recipient wrapped
 	// file_key). FileIV is the body's own AES-GCM nonce, identical across
-	// recipients. EncryptedMetadata + MetadataIV wrap {file_name, mime_type}
-	// under the same file_key — server never sees the plaintext.
+	// recipients. EncryptedMetadata + MetadataIV wrap {fileName, mimeType}
+	// under the same file_key — server never sees the plaintext, and after
+	// the legacy-column removal those values exist nowhere else.
 	EncryptedFileKey  string `json:"encrypted_file_key,omitempty"`
 	EnvelopeIV        string `json:"envelope_iv,omitempty"`
-	FileIV            string `json:"file_iv,omitempty"`
-	EncryptedMetadata string `json:"encrypted_metadata,omitempty"`
-	MetadataIV        string `json:"metadata_iv,omitempty"`
+	FileIV            string `json:"file_iv"`
+	EncryptedMetadata string `json:"encrypted_metadata"`
+	MetadataIV        string `json:"metadata_iv"`
 }
 
 type messageResponse struct {
@@ -130,12 +125,6 @@ func (h *chatHandler) toMessageResponses(ctx context.Context, messages []models.
 				FileIV:            att.FileIV,
 				EncryptedMetadata: att.EncryptedMetadata,
 				MetadataIV:        att.MetadataIV,
-			}
-			// Legacy plaintext fallback. New uploads have these empty.
-			if att.EncryptedMetadata == "" {
-				ar.FileType = att.FileType
-				ar.FileName = att.FileName
-				ar.MimeType = att.MimeType
 			}
 			if env, ok := envelopes[att.ID]; ok {
 				ar.EncryptedFileKey = env.EncryptedFileKey

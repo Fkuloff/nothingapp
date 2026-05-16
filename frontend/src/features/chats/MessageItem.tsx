@@ -41,9 +41,9 @@ type AttachmentViewProps = {
 }
 
 // Derive the UI render bucket (image / video / document) from a mime type.
-// Mirrors the server-side `determineFileType` we used to run on the plaintext
-// claimed mime — moved client-side because the server no longer sees it (the
-// real mime is encrypted under file_key alongside the body).
+// Used to live server-side as `determineFileType`; moved client-side because
+// the server no longer sees the real mime (it's encrypted under file_key
+// alongside the body).
 function bucketFromMime(mime: string): 'image' | 'video' | 'document' {
   if (mime.startsWith('image/')) return 'image'
   if (mime.startsWith('video/')) return 'video'
@@ -51,26 +51,31 @@ function bucketFromMime(mime: string): 'image' | 'video' | 'document' {
 }
 
 /**
- * Renders one attachment. Branches on whether the attachment is E2E
- * (encrypted_file_key + envelope_iv + file_iv all present): if so, fetch the
- * ciphertext blob, unwrap the file_key, decrypt both metadata and body,
- * render via blob URL. Otherwise (legacy plaintext attachment) render the
- * presigned URL with the server-supplied file_name / mime / file_type.
+ * Renders one attachment. Every attachment is E2E: fetch the ciphertext blob,
+ * unwrap the file_key, decrypt both the small metadata blob (filename + mime)
+ * and the body, render via blob URL. Rows missing any E2E field
+ * (encrypted_file_key, envelope_iv, file_iv, encrypted_metadata, metadata_iv)
+ * are treated as broken and surface the "🔒 Не удалось расшифровать"
+ * placeholder — legacy plaintext attachments don't exist after the metadata
+ * migration.
  */
 function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps) {
   const accountKeyCtx = useAccountKey()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Decrypted filename + mime — empty until decrypt completes. Falls back to
-  // legacy plaintext att.file_name / att.mime_type when no encrypted_metadata
-  // is on the row (pre-encryption upload).
+  // Decrypted filename + mime — empty until decrypt completes.
   const [decryptedMeta, setDecryptedMeta] = useState<{ fileName: string; mimeType: string } | null>(null)
 
-  const isEncrypted = Boolean(att.encrypted_file_key && att.envelope_iv && att.file_iv)
-  const hasEncryptedMetadata = Boolean(att.encrypted_metadata && att.metadata_iv)
+  const hasAllE2EFields = Boolean(
+    att.encrypted_file_key &&
+      att.envelope_iv &&
+      att.file_iv &&
+      att.encrypted_metadata &&
+      att.metadata_iv,
+  )
 
   useEffect(() => {
-    if (!isEncrypted) return
+    if (!hasAllE2EFields) return
     if (accountKeyCtx.state.status !== 'ready') return
     if (!att.url) return
 
@@ -85,18 +90,13 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
         if (!chatKey) throw new Error('cannot derive chat_key for sender')
         const fileKey = await unwrapFileKey(att.encrypted_file_key as string, att.envelope_iv as string, chatKey)
 
-        // Decrypt the metadata blob FIRST when present so we know the real
-        // mime to pass to the Blob constructor (browser sniffs the bytes
-        // anyway for <img>, but a correct type matters for <video>/download).
-        let mime = att.mime_type ?? ''
-        let name = att.file_name ?? ''
-        if (hasEncryptedMetadata) {
-          const meta = await decryptMetadata(att.encrypted_metadata as string, att.metadata_iv as string, fileKey)
-          if (cancelled) return
-          mime = meta.mimeType || 'application/octet-stream'
-          name = meta.fileName
-          setDecryptedMeta({ fileName: name, mimeType: mime })
-        }
+        // Decrypt the metadata blob FIRST so we know the real mime to pass
+        // to the Blob constructor (browser sniffs bytes anyway for <img>,
+        // but a correct type matters for <video>/download).
+        const meta = await decryptMetadata(att.encrypted_metadata as string, att.metadata_iv as string, fileKey)
+        if (cancelled) return
+        const mime = meta.mimeType || 'application/octet-stream'
+        setDecryptedMeta({ fileName: meta.fileName, mimeType: mime })
 
         const ctRes = await fetch(att.url as string)
         if (!ctRes.ok) throw new Error(`fetch ${ctRes.status}`)
@@ -119,8 +119,7 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
       if (currentUrl) URL.revokeObjectURL(currentUrl)
     }
   }, [
-    isEncrypted,
-    hasEncryptedMetadata,
+    hasAllE2EFields,
     accountKeyCtx.state,
     senderUserId,
     att.url,
@@ -129,53 +128,53 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
     att.file_iv,
     att.encrypted_metadata,
     att.metadata_iv,
-    att.mime_type,
-    att.file_name,
   ])
 
   if (!att.id || !att.url) return null
 
-  // For E2E: wait until blobUrl is ready (or error).
-  const url = isEncrypted ? blobUrl : att.url
-
-  if (isEncrypted && error) {
+  // Rows missing any of the five required E2E fields are unrenderable.
+  // After the legacy metadata removal, every valid attachment must have
+  // all of them — show a clear "not decryptable" placeholder instead of
+  // silently rendering a broken file.
+  if (!hasAllE2EFields) {
     return <div className="attachment-document attachment-error">🔒 Не удалось расшифровать вложение</div>
   }
-  if (!url) {
+  if (error) {
+    return <div className="attachment-document attachment-error">🔒 Не удалось расшифровать вложение</div>
+  }
+  if (!blobUrl) {
     return <div className="attachment-document attachment-loading">🔒 Расшифровка…</div>
   }
 
-  // Effective filename + mime: decrypted-metadata wins, falls back to legacy
-  // plaintext columns for old rows that pre-date the encrypted-metadata layer.
-  const effFileName = decryptedMeta?.fileName || att.file_name || 'Файл'
-  const effMimeType = decryptedMeta?.mimeType || att.mime_type || 'application/octet-stream'
-  const effBucket = att.file_type || bucketFromMime(effMimeType)
+  const fileName = decryptedMeta?.fileName || 'Файл'
+  const mimeType = decryptedMeta?.mimeType || 'application/octet-stream'
+  const bucket = bucketFromMime(mimeType)
 
-  if (effBucket === 'image') {
+  if (bucket === 'image') {
     return (
       <button
         type="button"
         className="attachment-image-btn"
-        onClick={() => onImageClick(url, effFileName)}
+        onClick={() => onImageClick(blobUrl, fileName)}
       >
-        <img src={url} alt={effFileName} loading="lazy" />
+        <img src={blobUrl} alt={fileName} loading="lazy" />
       </button>
     )
   }
 
-  if (effBucket === 'video') {
+  if (bucket === 'video') {
     return (
       <video controls>
-        <source src={url} type={effMimeType} />
+        <source src={blobUrl} type={mimeType} />
       </video>
     )
   }
 
   return (
-    <a href={url} download={effFileName} className="attachment-document">
+    <a href={blobUrl} download={fileName} className="attachment-document">
       <span className="attachment-icon">📄</span>
       <div className="attachment-info">
-        <span className="attachment-name">{effFileName}</span>
+        <span className="attachment-name">{fileName}</span>
         <span className="attachment-size">{formatFileSize(att.file_size)}</span>
       </div>
     </a>

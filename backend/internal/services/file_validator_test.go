@@ -5,8 +5,6 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
-
-	"messenger/internal/models"
 )
 
 // newFileHeader creates a multipart.FileHeader for testing.
@@ -188,30 +186,7 @@ func TestFileValidator_validateAvatar(t *testing.T) {
 	}
 }
 
-func TestFileValidator_determineFileType(t *testing.T) {
-	v := &fileValidator{}
-
-	tests := []struct {
-		name     string
-		mimeType string
-		want     models.AttachmentType
-	}{
-		{"image/jpeg → Image", "image/jpeg", models.AttachmentTypeImage},
-		{"image/png → Image", "image/png", models.AttachmentTypeImage},
-		{"image/gif → Image", "image/gif", models.AttachmentTypeImage},
-		{"image/webp → Image", "image/webp", models.AttachmentTypeImage},
-		{"video/mp4 → Video", "video/mp4", models.AttachmentTypeVideo},
-		{"video/webm → Video", "video/webm", models.AttachmentTypeVideo},
-		{"application/pdf → Document", "application/pdf", models.AttachmentTypeDocument},
-		{"text/plain → Document", "text/plain", models.AttachmentTypeDocument},
-		{"unknown type → Document", "application/x-unknown", models.AttachmentTypeDocument},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := v.determineFileType(tt.mimeType); got != tt.want {
-				t.Errorf("determineFileType(%q) = %q, want %q", tt.mimeType, got, tt.want)
-			}
-		})
-	}
-}
+// determineFileType + AttachmentType were removed when attachment metadata
+// became client-side encrypted. The render bucket (image / video / document)
+// is now derived on the frontend from the decrypted mime — no equivalent test
+// to keep here. See e2e.test.ts:bucketFromMime.
