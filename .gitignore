@@ -17,6 +17,7 @@
 *.md
 !README.md
 !DEPLOYMENT.md
+!ops/**/*.md
 
 # Backend
 backend/.env
