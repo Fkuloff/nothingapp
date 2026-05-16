@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"messenger/internal/secret"
 	"messenger/internal/storage"
 
 	"github.com/joho/godotenv"
@@ -58,31 +59,49 @@ var (
 )
 
 // LoadConfig loads configuration from environment variables.
+//
+// Sensitive values (DB_URL, JWT_SECRET, MESSAGE_ENCRYPTION_KEY, VAPID_PRIVATE_KEY) also
+// support the `*_FILE` convention — set e.g. JWT_SECRET_FILE=/run/secrets/jwt_secret and
+// the value will be read from the file. Used to plug into Docker Compose secrets without
+// leaking the cleartext via `cat .env` or `docker inspect`.
 func LoadConfig() (*Config, error) {
 	// Load .env file if present (ignore error if not found)
 	_ = godotenv.Load() //nolint:errcheck // intentionally ignoring - .env is optional
 
-	dbURL := os.Getenv("DB_URL")
+	dbURL, err := secret.ReadEnvOrFile("DB_URL")
+	if err != nil {
+		return nil, err
+	}
 	if dbURL == "" {
 		return nil, errDBURLNotSet
 	}
 
-	jwtSecret := os.Getenv("JWT_SECRET")
+	jwtSecret, err := secret.ReadEnvOrFile("JWT_SECRET")
+	if err != nil {
+		return nil, err
+	}
 	if jwtSecret == "" {
 		return nil, errJWTSecretNotSet
 	}
-
 	if len(jwtSecret) < 32 {
 		return nil, fmt.Errorf("%w: got %d characters", errJWTSecretTooShort, len(jwtSecret))
 	}
 
-	msgEncKey := os.Getenv("MESSAGE_ENCRYPTION_KEY")
+	msgEncKey, err := secret.ReadEnvOrFile("MESSAGE_ENCRYPTION_KEY")
+	if err != nil {
+		return nil, err
+	}
 	if msgEncKey == "" {
 		return nil, errMsgEncKeyNotSet
 	}
 	keyBytes, err := base64.StdEncoding.DecodeString(msgEncKey)
 	if err != nil || len(keyBytes) != 32 {
 		return nil, errMsgEncKeyInvalid
+	}
+
+	vapidPrivateKey, err := secret.ReadEnvOrFile("VAPID_PRIVATE_KEY")
+	if err != nil {
+		return nil, err
 	}
 
 	jwtExpiryDays := defaultJWTExpiryDays
@@ -98,7 +117,7 @@ func LoadConfig() (*Config, error) {
 		MessageEncryptionKey: msgEncKey,
 		Storage:              storage.LoadStorageConfig(),
 		VAPIDPublicKey:       os.Getenv("VAPID_PUBLIC_KEY"),
-		VAPIDPrivateKey:      os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDPrivateKey:      vapidPrivateKey,
 		VAPIDSubject:         os.Getenv("VAPID_SUBJECT"),
 		FCMCredentialsPath:   os.Getenv("FCM_CREDENTIALS_PATH"),
 		JWTExpiryDays:        jwtExpiryDays,
