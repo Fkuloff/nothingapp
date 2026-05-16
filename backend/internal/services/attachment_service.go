@@ -281,6 +281,13 @@ func (s *AttachmentService) processEncryptedFileUpload(
 		FileName:   metadata.FileName,
 		FileSize:   metadata.Size,
 		MimeType:   meta.MimeType,
+		// The body's AES-GCM nonce — same for every recipient, different per
+		// attachment. Without persisting this the read path can't decrypt:
+		// the client needs (encrypted_file_key, envelope_iv, file_iv) all
+		// three, and an empty file_iv silently falls back to the
+		// "non-E2E" branch in the UI which then tries to render ciphertext
+		// bytes as a real image / video / pdf.
+		FileIV: meta.FileIV,
 	}
 
 	return attachment, metadata.Key, nil

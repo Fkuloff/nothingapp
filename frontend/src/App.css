@@ -510,31 +510,55 @@ textarea::placeholder,
   opacity: 0.9;
 }
 
-.attachment-item.attachment-document {
-  padding: 10px 14px;
-  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-hover) 100%);
-  border: 1px solid var(--border-light);
-  margin-top: 5px;
-  transition: var(--transition);
-}
-
-.attachment-item.attachment-document:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
-  transform: translateX(2px);
-}
-
-.attachment-item.attachment-document a {
-  text-decoration: none;
-  color: var(--text-primary);
+/* Document-style attachments (PDF, doc, generic file) — and the loading /
+   error placeholders that share the same look. The DOM is
+   <div class="attachment-item"><a class="attachment-document">...</a></div>,
+   so we have to use a descendant selector (the previous `.attachment-item
+   .attachment-document` compound selector matched zero elements, which is
+   why PDFs rendered as a bare inline blob inside the bubble). */
+.attachment-document {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  padding: 10px 14px;
+  margin-top: 5px;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-hover) 100%);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
   font-size: 0.9rem;
+  /* Override the line-height: 0 inherited from .attachment-item (that rule
+     exists to kill the baseline gap under inline-block <img>/<video>; for
+     a text-bearing document plate it crushes the icon and filename into a
+     thin strip). Restore a normal line-height for the text inside. */
+  line-height: 1.4;
+  text-decoration: none;
+  transition: var(--transition);
 }
 
-.attachment-item.attachment-document a:hover {
+.attachment-document:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
   color: var(--accent-primary);
+  transform: translateX(2px);
+}
+
+/* Loading + error placeholders use the same chrome as the real document so
+   the bubble doesn't visibly resize when decryption resolves. They're not
+   <a> tags so no hover transform — they're informational, not clickable. */
+.attachment-document.attachment-loading,
+.attachment-document.attachment-error {
+  color: var(--text-secondary);
+  cursor: default;
+}
+.attachment-document.attachment-loading:hover,
+.attachment-document.attachment-error:hover {
+  transform: none;
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+}
+.attachment-document.attachment-error {
+  color: var(--accent-danger);
 }
 
 .attachment-icon {

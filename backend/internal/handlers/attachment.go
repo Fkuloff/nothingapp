@@ -265,9 +265,12 @@ func serializeAttachmentSlice(attachments []models.Attachment, s storage.Storage
 }
 
 // serializeAttachment converts a single attachment model to a map with a presigned URL.
-// Does not include E2E envelope material — callers that need it should use
-// serializeAttachmentSliceForUser (read path) or serializeAttachmentsForBroadcast
-// (immediately after upload).
+// Includes file_iv (the body's AES-GCM nonce; identical across recipients, so
+// part of the attachment row itself, not the per-recipient envelope). Does not
+// include per-recipient envelope material — callers that need it should use
+// serializeAttachmentSliceForUser (read path: pre-resolved per user) or
+// serializeAttachmentsForBroadcast (write path: full envelope set, each client
+// filters to its own).
 func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]any {
 	return map[string]any{
 		"id":        att.ID,
@@ -276,6 +279,7 @@ func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]a
 		"file_size": att.FileSize,
 		"mime_type": att.MimeType,
 		"url":       s.GetURL(att.StorageKey),
+		"file_iv":   att.FileIV,
 	}
 }
 
