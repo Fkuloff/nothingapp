@@ -13,10 +13,14 @@
 # Claude
 .claude/
 
-# Documentation (keep README and deployment docs)
+# Documentation (keep README, OSS docs, and deployment docs)
 *.md
 !README.md
 !DEPLOYMENT.md
+!SECURITY.md
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!CHANGELOG.md
 !ops/**/*.md
 
 # Backend
@@ -43,9 +47,12 @@ uploads/
 .env
 .env.production
 
-# Firebase service account JSON � SECRET, never commit
+# Firebase service account JSON — SECRET, never commit
 fcm-credentials.json
 *-firebase-adminsdk-*.json
+
+# Firebase Android config — contains restricted API key, commit only the .example
+frontend/android/app/google-services.json
 
 # Capacitor build artifacts (android source itself is committed)
 frontend/android/app/build/
