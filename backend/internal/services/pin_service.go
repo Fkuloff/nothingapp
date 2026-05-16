@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"messenger/internal/crypto"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 
@@ -22,10 +21,10 @@ type PinService struct {
 	logger          *zap.Logger
 	pinnedRepo      *repositories.PinnedMessageRepo
 	messageRepo     *repositories.MessageRepo
+	envelopeRepo    *repositories.MessageEnvelopeRepo
 	chatRepo        *repositories.ChatRepo
 	participantRepo *repositories.ChatParticipantRepo
 	userRepo        *repositories.UserRepo
-	encryptor       *crypto.MessageEncryptor
 }
 
 // NewPinService creates a new PinService.
@@ -34,20 +33,20 @@ func NewPinService(
 	logger *zap.Logger,
 	pinnedRepo *repositories.PinnedMessageRepo,
 	messageRepo *repositories.MessageRepo,
+	envelopeRepo *repositories.MessageEnvelopeRepo,
 	chatRepo *repositories.ChatRepo,
 	participantRepo *repositories.ChatParticipantRepo,
 	userRepo *repositories.UserRepo,
-	encryptor *crypto.MessageEncryptor,
 ) *PinService {
 	return &PinService{
 		db:              db,
 		logger:          logger,
 		pinnedRepo:      pinnedRepo,
 		messageRepo:     messageRepo,
+		envelopeRepo:    envelopeRepo,
 		chatRepo:        chatRepo,
 		participantRepo: participantRepo,
 		userRepo:        userRepo,
-		encryptor:       encryptor,
 	}
 }
 
@@ -165,15 +164,39 @@ func (s *PinService) GetPinnedMessages(ctx context.Context, chatID, userID uint)
 		return nil, fmt.Errorf("get pinned messages: %w", err)
 	}
 
-	// Decrypt message texts.
+	// Resolve per-user envelopes for group scheme=2 pins. The pinned message row
+	// has empty Text/IV; the real ciphertext lives in message_envelopes addressed
+	// to this user. Pins without an envelope for this user (joined after the pin)
+	// stay empty and the UI renders a "🔒" placeholder.
+	var envelopeTargetIDs []uint
 	for i := range pins {
 		msg := &pins[i].Message
-		if msg.IV != "" && msg.Text != "" && !msg.IsDeleted {
-			if plaintext, decErr := s.encryptor.Decrypt(msg.Text, msg.IV); decErr == nil {
-				msg.Text = plaintext
-			} else {
-				msg.Text = decryptionErrorText
+		if msg.Scheme == models.SchemeClientSide && msg.Text == "" && msg.IV == "" {
+			envelopeTargetIDs = append(envelopeTargetIDs, msg.ID)
+		}
+	}
+	if len(envelopeTargetIDs) > 0 {
+		envelopes, err := s.envelopeRepo.FindForRecipient(ctx, userID, envelopeTargetIDs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve pin envelopes: %w", err)
+		}
+		for i := range pins {
+			msg := &pins[i].Message
+			if env, ok := envelopes[msg.ID]; ok {
+				msg.Text = env.Ciphertext
+				msg.IV = env.IV
 			}
+		}
+	}
+
+	// Legacy scheme=1 / scheme=0 pinned messages can no longer be decrypted
+	// (server key removed). Wipe Text/IV so clients render a "🔒 encrypted
+	// message" placeholder rather than garbled ciphertext. After the planned
+	// history-purge migration there should be no such rows left.
+	for i := range pins {
+		msg := &pins[i].Message
+		if msg.Scheme != models.SchemeClientSide {
+			msg.Text = ""
 			msg.IV = ""
 		}
 	}

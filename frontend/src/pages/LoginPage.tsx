@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
+import { useAccountKey } from '../features/auth/AccountKey'
 import { useAuthContext } from '../features/auth/AuthContext'
+import { bootstrapVaultOnLogin } from '../features/auth/vaultBootstrap'
 import { endpoints } from '../shared/api/endpoints'
 import { httpPost, setAuthToken } from '../shared/api/httpClient'
 import type { AuthLoginResponse } from '../shared/api/types'
@@ -13,6 +15,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
   const navigate = useNavigate()
   const { user, loading, refreshProfile } = useAuthContext()
+  const accountKeyCtx = useAccountKey()
 
   // Already authenticated — redirect to chats
   if (!loading && user) {
@@ -26,6 +29,18 @@ export default function LoginPage() {
     try {
       const res = await httpPost<AuthLoginResponse>(endpoints.auth.login, { username, password })
       setAuthToken(res.token)
+
+      // Establish the E2E account_key from the password the user just typed. This is
+      // the only moment in the session we have access to the password, so it has to
+      // happen here (not later in useAuth's refreshProfile path which has no password).
+      // Failures here don't block login — the user keeps using legacy scheme=1.
+      try {
+        const key = await bootstrapVaultOnLogin(password, res)
+        if (key) accountKeyCtx.setKey(key)
+      } catch (e2eErr) {
+        console.error('E2E vault bootstrap failed; falling back to scheme=1:', e2eErr)
+      }
+
       await refreshProfile()
       navigate('/')
     } catch (err) {

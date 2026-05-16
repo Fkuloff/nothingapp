@@ -59,6 +59,32 @@ func (r *UserRepo) UpdatePassword(ctx context.Context, userID uint, hashedPasswo
 	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("password", hashedPassword).Error
 }
 
+// UpdateVault overwrites the user's E2E vault material — salt, encrypted account
+// key, and the X25519 public key derived from that account key. All three are
+// stored as base64 strings; the server never inspects their contents.
+//
+// Pass empty strings to clear (e.g. when a user opts out of E2E). All three
+// must move together: half-state would let other users ECDH against a public_key
+// whose private half is no longer accessible.
+func (r *UserRepo) UpdateVault(ctx context.Context, userID uint, vaultSalt, encryptedAccountKey, publicKey string) error {
+	var saltPtr, keyPtr, pubPtr *string
+	if vaultSalt != "" {
+		saltPtr = &vaultSalt
+	}
+	if encryptedAccountKey != "" {
+		keyPtr = &encryptedAccountKey
+	}
+	if publicKey != "" {
+		pubPtr = &publicKey
+	}
+	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).
+		Updates(map[string]any{
+			"vault_salt":            saltPtr,
+			"encrypted_account_key": keyPtr,
+			"public_key":            pubPtr,
+		}).Error
+}
+
 // SearchByUsernameOrName searches users by username or name (case-insensitive, infix match).
 // The caller's own user_id is excluded from the results.
 //

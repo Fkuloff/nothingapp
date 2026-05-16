@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -31,15 +30,14 @@ const (
 
 // Config holds application configuration.
 type Config struct {
-	Storage              *storage.StorageConfig
-	DBURL                string
-	JWTSecret            string
-	MessageEncryptionKey string
-	VAPIDPublicKey       string
-	VAPIDPrivateKey      string
-	VAPIDSubject         string
-	FCMCredentialsPath   string
-	JWTExpiryDays        int
+	Storage            *storage.StorageConfig
+	DBURL              string
+	JWTSecret          string
+	VAPIDPublicKey     string
+	VAPIDPrivateKey    string
+	VAPIDSubject       string
+	FCMCredentialsPath string
+	JWTExpiryDays      int
 }
 
 // TokenRefreshThresholdSeconds returns the age (in seconds) at which the auth middleware
@@ -54,16 +52,20 @@ var (
 	errDBURLNotSet       = errors.New("DB_URL is not set")
 	errJWTSecretNotSet   = errors.New("JWT_SECRET is not set")
 	errJWTSecretTooShort = errors.New("JWT_SECRET must be at least 32 characters long")
-	errMsgEncKeyNotSet   = errors.New("MESSAGE_ENCRYPTION_KEY is not set")
-	errMsgEncKeyInvalid  = errors.New("MESSAGE_ENCRYPTION_KEY must be valid base64 encoding exactly 32 bytes")
 )
 
 // LoadConfig loads configuration from environment variables.
 //
-// Sensitive values (DB_URL, JWT_SECRET, MESSAGE_ENCRYPTION_KEY, VAPID_PRIVATE_KEY) also
-// support the `*_FILE` convention — set e.g. JWT_SECRET_FILE=/run/secrets/jwt_secret and
-// the value will be read from the file. Used to plug into Docker Compose secrets without
-// leaking the cleartext via `cat .env` or `docker inspect`.
+// Sensitive values (DB_URL, JWT_SECRET, VAPID_PRIVATE_KEY) also support the
+// `*_FILE` convention — set e.g. JWT_SECRET_FILE=/run/secrets/jwt_secret and
+// the value will be read from the file. Used to plug into Docker Compose secrets
+// without leaking the cleartext via `cat .env` or `docker inspect`.
+//
+// Note: MESSAGE_ENCRYPTION_KEY used to be required for legacy server-side
+// (scheme=1) message encryption. It was removed after the full migration to
+// client-side E2E (scheme=2). Old scheme=1 rows in the DB are no longer
+// readable by the server — clients render them as a "🔒 encrypted message"
+// placeholder. New deploys: don't set this variable.
 func LoadConfig() (*Config, error) {
 	// Load .env file if present (ignore error if not found)
 	_ = godotenv.Load() //nolint:errcheck // intentionally ignoring - .env is optional
@@ -87,18 +89,6 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("%w: got %d characters", errJWTSecretTooShort, len(jwtSecret))
 	}
 
-	msgEncKey, err := secret.ReadEnvOrFile("MESSAGE_ENCRYPTION_KEY")
-	if err != nil {
-		return nil, err
-	}
-	if msgEncKey == "" {
-		return nil, errMsgEncKeyNotSet
-	}
-	keyBytes, err := base64.StdEncoding.DecodeString(msgEncKey)
-	if err != nil || len(keyBytes) != 32 {
-		return nil, errMsgEncKeyInvalid
-	}
-
 	vapidPrivateKey, err := secret.ReadEnvOrFile("VAPID_PRIVATE_KEY")
 	if err != nil {
 		return nil, err
@@ -112,14 +102,13 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &Config{
-		DBURL:                dbURL,
-		JWTSecret:            jwtSecret,
-		MessageEncryptionKey: msgEncKey,
-		Storage:              storage.LoadStorageConfig(),
-		VAPIDPublicKey:       os.Getenv("VAPID_PUBLIC_KEY"),
-		VAPIDPrivateKey:      vapidPrivateKey,
-		VAPIDSubject:         os.Getenv("VAPID_SUBJECT"),
-		FCMCredentialsPath:   os.Getenv("FCM_CREDENTIALS_PATH"),
-		JWTExpiryDays:        jwtExpiryDays,
+		DBURL:              dbURL,
+		JWTSecret:          jwtSecret,
+		Storage:            storage.LoadStorageConfig(),
+		VAPIDPublicKey:     os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey:    vapidPrivateKey,
+		VAPIDSubject:       os.Getenv("VAPID_SUBJECT"),
+		FCMCredentialsPath: os.Getenv("FCM_CREDENTIALS_PATH"),
+		JWTExpiryDays:      jwtExpiryDays,
 	}, nil
 }

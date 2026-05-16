@@ -158,10 +158,13 @@ func (h *authHandler) RegisterAPI(c *gin.Context) {
 	}
 
 	sendCreated(c, gin.H{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"name":     user.Name,
-		"token":    tokenString,
+		"user_id":               user.ID,
+		"username":              user.Username,
+		"name":                  user.Name,
+		"token":                 tokenString,
+		"vault_salt":            user.VaultSalt,
+		"encrypted_account_key": user.EncryptedAccountKey,
+		"public_key":            user.PublicKey,
 	})
 }
 
@@ -190,10 +193,13 @@ func (h *authHandler) LoginAPI(c *gin.Context) {
 	}
 
 	sendSuccess(c, gin.H{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"name":     user.Name,
-		"token":    tokenString,
+		"user_id":               user.ID,
+		"username":              user.Username,
+		"name":                  user.Name,
+		"token":                 tokenString,
+		"vault_salt":            user.VaultSalt,
+		"encrypted_account_key": user.EncryptedAccountKey,
+		"public_key":            user.PublicKey,
 	})
 }
 
@@ -257,10 +263,53 @@ func (h *authHandler) GetCurrentUser(c *gin.Context) {
 	// Refresh avatar URL for S3 presigned URLs
 	h.userService.RefreshUserAvatarURL(user)
 
+	// Vault material is included whenever it has been provisioned. Clients use it on
+	// app start to derive the vault key, unwrap the account key, and re-derive the
+	// X25519 keypair. Absence (all three fields null) means the user hasn't opted
+	// into E2E yet — their messages will stay scheme=1.
 	sendSuccess(c, gin.H{
-		"id":         user.ID,
-		"username":   user.Username,
-		"name":       user.Name,
-		"avatar_url": user.AvatarURL,
+		"id":                    user.ID,
+		"username":              user.Username,
+		"name":                  user.Name,
+		"avatar_url":            user.AvatarURL,
+		"vault_salt":            user.VaultSalt,
+		"encrypted_account_key": user.EncryptedAccountKey,
+		"public_key":            user.PublicKey,
 	})
+}
+
+// UpdateVaultAPI accepts the user's E2E vault material:
+//
+//   - vault_salt: PBKDF2 salt used to derive vault_key from the password.
+//   - encrypted_account_key: account_key sealed under vault_key (AES-GCM).
+//   - public_key: X25519 public key derived deterministically from account_key.
+//     Published openly so other users can ECDH against it.
+//
+// All three are stored as opaque base64 strings. The server never sees the
+// vault_key, the cleartext account_key, or the X25519 private half.
+//
+// Pass empty strings for all three to opt out of E2E. Half-state is rejected —
+// other users could otherwise ECDH against a public_key that no one can match.
+func (h *authHandler) UpdateVaultAPI(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		VaultSalt           string `json:"vault_salt"`
+		EncryptedAccountKey string `json:"encrypted_account_key"`
+		PublicKey           string `json:"public_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		sendBadRequest(c, "Invalid request body")
+		return
+	}
+
+	if err := h.userService.UpdateVault(c.Request.Context(), userID, req.VaultSalt, req.EncryptedAccountKey, req.PublicKey); err != nil {
+		sendBadRequest(c, err.Error())
+		return
+	}
+
+	sendSuccess(c, gin.H{"success": true})
 }

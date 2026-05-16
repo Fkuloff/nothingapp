@@ -137,6 +137,44 @@ func (h *groupHandler) GetGroupInfoAPI(c *gin.Context) {
 	})
 }
 
+// GetGroupKeysAPI returns the X25519 public_key of every group member. Only
+// members may call it. Clients fetch this before composing to decide whether
+// they can send: if any participant's public_key is empty (hasn't onboarded
+// into E2E yet), the composer is blocked at the UI layer with a banner
+// naming the missing user. The server enforces the same — non-scheme=2
+// sends are rejected.
+//
+// GET /api/groups/:id/keys
+func (h *groupHandler) GetGroupKeysAPI(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	chatID, err := parseUintParam(c, "id")
+	if err != nil {
+		sendBadRequest(c, "Invalid group ID")
+		return
+	}
+
+	inGroup, gErr := h.groupService.IsUserInGroup(c.Request.Context(), chatID, userID)
+	if gErr != nil {
+		sendInternalError(c, "Failed to check group membership")
+		return
+	}
+	if !inGroup {
+		sendForbidden(c, "Access denied")
+		return
+	}
+
+	keys, err := h.groupService.GetGroupParticipantKeys(c.Request.Context(), chatID)
+	if err != nil {
+		sendInternalError(c, "Failed to load group keys")
+		return
+	}
+	sendSuccess(c, gin.H{"members": keys})
+}
+
 // UpdateGroupInfoAPI updates group name.
 // PUT /api/groups/:id { "name": "New Name" }
 func (h *groupHandler) UpdateGroupInfoAPI(c *gin.Context) {

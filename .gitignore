@@ -43,7 +43,7 @@ uploads/
 .env
 .env.production
 
-# Firebase service account JSON — SECRET, never commit
+# Firebase service account JSON � SECRET, never commit
 fcm-credentials.json
 *-firebase-adminsdk-*.json
 
@@ -64,3 +64,6 @@ backups/
 /*.sql
 uploads/*.sql
 backend/uploads/*.sql
+
+# Local docker-compose overrides (e.g. for binding postgres port to host)
+docker-compose.override.yml
