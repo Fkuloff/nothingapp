@@ -150,10 +150,6 @@ linters-settings:
     asserts: true
     comparison: true
 
-  # Error naming
-  errname:
-    check-type-assertions: true
-
   # Style check (minimal rules)
   stylecheck:
     checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022"]

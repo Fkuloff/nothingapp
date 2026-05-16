@@ -15,15 +15,36 @@ import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 import { subscribePendingChat } from '../shared/pendingChat'
 
+const CACHED_CHATS_KEY = 'cached_chats_list'
+
+function readCachedChats(): ChatItem[] {
+  try {
+    const raw = localStorage.getItem(CACHED_CHATS_KEY)
+    if (!raw) return []
+    const data = JSON.parse(raw) as ChatItem[]
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+function writeCachedChats(chats: ChatItem[]) {
+  try {
+    localStorage.setItem(CACHED_CHATS_KEY, JSON.stringify(chats))
+  } catch {
+    // ignore quota / serialization issues — caching is best-effort
+  }
+}
+
 export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const callContext = useCallContext()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [chats, setChats] = useState<ChatItem[]>([])
+  const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
-  const [loadingChats, setLoadingChats] = useState(true)
+  const [loadingChats, setLoadingChats] = useState(() => readCachedChats().length === 0)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [chatsError, setChatsError] = useState<string | null>(null)
   const [messagesError, setMessagesError] = useState<string | null>(null)
@@ -284,16 +305,24 @@ export default function ChatsPage() {
   }, [isConnected, activeChatId])
 
   const loadChats = useCallback(async () => {
+    // If we already have data (from cache or a previous load), keep showing it while
+    // we refetch in the background — never flash a spinner on top of stale-but-useful data.
+    const haveData = chatsRef.current.length > 0
     try {
       setChatsError(null)
-      setLoadingChats(true)
+      if (!haveData) setLoadingChats(true)
       const data = await getCurrentUserChats()
       const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       chatsRef.current = sortedData
       setChats(sortedData)
+      writeCachedChats(sortedData)
     } catch (err) {
       console.error('Ошибка загрузки чатов', err)
-      setChatsError(err instanceof Error ? err.message : 'Не удалось загрузить чаты')
+      // Only surface the error if we have no cached data — otherwise the user sees their
+      // last-known chat list, which is more useful than an error message.
+      if (!haveData) {
+        setChatsError(err instanceof Error ? err.message : 'Не удалось загрузить чаты')
+      }
     } finally {
       setLoadingChats(false)
     }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"messenger/internal/config"
 	"messenger/internal/crypto"
@@ -52,8 +53,10 @@ func SetupRoutes(
 	pinnedMessageRepo := repositories.NewPinnedMessageRepo(db)
 	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, chatRepo, participantRepo, userRepo, msgEncryptor)
 
+	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
+
 	// Initialize handlers
-	authH := newAuthHandler(authService, userService, secret)
+	authH := newAuthHandler(authService, userService, secret, tokenTTL)
 	chatH := newChatHandler(chatService, userService, fileStorage)
 	chatH.SetGroupService(groupService)
 	profileH := newProfileHandler(userService, contactService, logger)
@@ -85,21 +88,21 @@ func SetupRoutes(
 	router.POST("/api/auth/login", authH.LoginAPI)
 
 	// Attachment download — JWT required (presigned URLs are the primary access method)
-	router.GET("/api/attachments/:id", jwtMiddleware(secret, logger), attachH.DownloadAttachment)
+	router.GET("/api/attachments/:id", jwtMiddleware(secret, logger, tokenTTL), attachH.DownloadAttachment)
 
 	// Public avatar endpoints
 	router.GET("/api/avatars/:user_id", userH.GetAvatar)
 	router.GET("/api/group-avatars/:chat_id", groupH.GetGroupAvatar)
 
 	// WebSocket endpoint with JWT middleware
-	router.GET("/ws", jwtMiddleware(secret, logger), wsH.HandleWebSocket)
+	router.GET("/ws", jwtMiddleware(secret, logger, tokenTTL), wsH.HandleWebSocket)
 
 	// Protected attachment endpoint (DELETE requires JWT)
-	router.DELETE("/api/attachments/:id", jwtMiddleware(secret, logger), attachH.DeleteAttachment)
+	router.DELETE("/api/attachments/:id", jwtMiddleware(secret, logger, tokenTTL), attachH.DeleteAttachment)
 
 	// Protected API routes (JWT required)
 	api := router.Group("/api")
-	api.Use(jwtMiddleware(secret, logger))
+	api.Use(jwtMiddleware(secret, logger, tokenTTL))
 	registerAuthRoutes(api, authH)
 	registerChatRoutes(api, chatH, attachH, pinH)
 	registerProfileRoutes(api, profileH)

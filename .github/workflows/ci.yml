@@ -23,9 +23,11 @@ jobs:
           go-version: '1.24'
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Pin to v1.x — the in-repo .golangci.yml uses v1 schema (e.g. output.formats
+          # as a slice). Bumping to v2 requires migrating the whole config; not in scope.
+          version: v1.64.8
           args: --timeout=5m
           working-directory: ./backend
 

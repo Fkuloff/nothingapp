@@ -3,6 +3,7 @@ import { isNative } from '../platform'
 const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true'
 const BASE_URL = USE_PROXY ? '' : import.meta.env.VITE_API_BASE_URL ?? ''
 const TOKEN_KEY = 'auth_token'
+const REFRESH_TOKEN_HEADER = 'X-Refresh-Token'
 // Hard ceiling for any single HTTP request. Without this, fetch() has no default timeout,
 // so a silently-dead backend (e.g. on a flaky mobile network) hangs the promise forever
 // and the UI gets stuck on "loading...". 15 seconds covers slow 3G uploads with margin.
@@ -82,6 +83,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         ...(options.headers ?? {}),
       },
     })
+
+    // Sliding-session refresh: if the server rotated our token (sent when the active
+    // token is older than a day) the response carries a fresh JWT we should adopt.
+    // Backend exposes this header via CORS ExposeHeaders so fetch() can read it.
+    const refreshed = response.headers.get(REFRESH_TOKEN_HEADER)
+    if (refreshed && refreshed !== token) {
+      setAuthToken(refreshed)
+    }
 
     if (!response.ok) {
       const errorBody = await response.text()
