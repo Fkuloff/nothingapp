@@ -13,27 +13,35 @@ import { deriveChatKey, encryptForGroup } from './e2e'
  * Promises are memoised too so concurrent send paths don't issue duplicate HTTP
  * requests. The cache is wiped on logout (via clearPeerKeys below) and never persisted
  * to disk — public keys are cheap to refetch and bounded to the chats the user touches.
+ *
+ * NOTE: only *non-null* keys are cached. If we look up a peer who hasn't onboarded
+ * into E2E yet, the result is NOT memoised — the next call refetches. Otherwise
+ * we'd be stuck in "peer has no key" forever, even after they bootstrap and start
+ * sending us scheme=2 messages. (Previous behaviour caused the "🔒 placeholder"
+ * + "X не настроил шифрование" banner to persist after the peer was actually ready.)
  */
-const cache: Map<number, string | null> = new Map()
+const cache: Map<number, string> = new Map()
 const inflight: Map<number, Promise<string | null>> = new Map()
 
 type ProfileResponse = { public_key?: string | null }
 
 /**
  * Look up another user's X25519 public_key. Returns null if the user hasn't onboarded
- * into E2E yet — callers should treat that as "fall back to scheme=1 for messages to
- * this peer".
+ * into E2E yet — callers should treat that as "peer is not E2E-ready, block the
+ * send (the new strict policy)". Null lookups are NOT cached so we automatically
+ * recover the moment the peer onboards.
  */
 export async function getPeerPublicKey(userId: number): Promise<string | null> {
-  if (cache.has(userId)) return cache.get(userId) ?? null
+  const cached = cache.get(userId)
+  if (cached !== undefined) return cached
   const existing = inflight.get(userId)
   if (existing) return existing
 
   const promise = (async () => {
     try {
       const profile = await httpGet<ProfileResponse>(endpoints.profile(userId))
-      const key = profile.public_key ?? null
-      cache.set(userId, key)
+      const key = profile.public_key || null
+      if (key) cache.set(userId, key)
       return key
     } catch (err) {
       console.warn('failed to fetch peer public_key:', err)
@@ -46,6 +54,16 @@ export async function getPeerPublicKey(userId: number): Promise<string | null> {
   })()
   inflight.set(userId, promise)
   return promise
+}
+
+/**
+ * Forget the cached public_key for a single peer. Used when we receive a signal
+ * that the peer just onboarded (e.g. they came online for the first time) so the
+ * next message decrypt fetches fresh.
+ */
+export function invalidatePeerPublicKey(userId: number): void {
+  cache.delete(userId)
+  inflight.delete(userId)
 }
 
 /**
