@@ -5,6 +5,7 @@ import './App.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import { AccountKeyProvider } from './features/auth/AccountKeyProvider'
 import { AuthProvider } from './features/auth/AuthContext'
 import { CallProvider } from './features/calls/CallProvider'
 import { AppRouter } from './router/AppRouter'
@@ -24,11 +25,13 @@ hydrateAuthToken().finally(() => {
       <AndroidBackProvider>
         <ThemeProvider>
           <ToastProvider>
-            <AuthProvider>
-              <CallProvider>
-                <AppRouter />
-              </CallProvider>
-            </AuthProvider>
+            <AccountKeyProvider>
+              <AuthProvider>
+                <CallProvider>
+                  <AppRouter />
+                </CallProvider>
+              </AuthProvider>
+            </AccountKeyProvider>
           </ToastProvider>
         </ThemeProvider>
       </AndroidBackProvider>

@@ -12,6 +12,10 @@ type Props = {
   uploading: boolean
   sending?: boolean
   showEmojiPanel?: boolean
+  /** When true, the input + send button are disabled and styled greyed out.
+   *  Used to gate sends behind E2E-readiness: if any recipient hasn't set up
+   *  encryption, the composer is blocked until they do. */
+  disabled?: boolean
   onMessageTextChange: (text: string) => void
   onSubmit: (event: React.FormEvent) => void
   onFileSelect: (files: File[]) => void
@@ -29,6 +33,7 @@ export function MessageComposer({
   uploading,
   sending,
   showEmojiPanel,
+  disabled = false,
   onMessageTextChange,
   onSubmit,
   onFileSelect,
@@ -93,7 +98,7 @@ export function MessageComposer({
           className="btn icon-btn attach-btn"
           title="Прикрепить файл"
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || disabled}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
@@ -113,7 +118,7 @@ export function MessageComposer({
               onSubmit(e as unknown as React.FormEvent)
             }
           }}
-          disabled={uploading}
+          disabled={uploading || disabled}
         />
         <div className="composer-right">
           <button
@@ -121,7 +126,7 @@ export function MessageComposer({
             className={`btn icon-btn emoji-toggle-large${showEmojiPanel ? ' emoji-toggle-active' : ''}`}
             title="Смайлики"
             onClick={onToggleEmoji}
-            disabled={uploading}
+            disabled={uploading || disabled}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="12" r="10" />
@@ -137,7 +142,7 @@ export function MessageComposer({
             onMouseDown={(e) => e.preventDefault()}
             className={`btn icon-btn send-btn${sending ? ' send-btn--sending' : ''}`}
             title="Отправить"
-            disabled={uploading || sending || (!messageText.trim() && selectedFiles.length === 0)}
+            disabled={uploading || disabled || sending || (!messageText.trim() && selectedFiles.length === 0)}
           >
             {sending ? (
               <span className="send-spinner" />

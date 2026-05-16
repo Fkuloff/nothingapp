@@ -195,6 +195,39 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID uint, name strin
 	return s.userRepo.UpdateName(ctx, userID, name)
 }
 
+// UpdateVault writes the E2E vault material (salt, encrypted account key, public key)
+// for a user. All three are opaque base64 strings; the server doesn't inspect them.
+//
+// Length caps are sanity bounds, not crypto requirements:
+//   - vault_salt: ~24 base64 chars for 16 raw bytes, 64 is plenty.
+//   - encrypted_account_key: ~120 chars in practice; 4096 leaves headroom.
+//   - public_key: X25519 is exactly 44 base64 chars; 64 leaves a tiny bit.
+//
+// All three move together — partial state lets other users ECDH against a
+// public_key whose private half they can't unwrap. We accept "all set" or
+// "all cleared" and reject everything in between.
+func (s *UserService) UpdateVault(ctx context.Context, userID uint, vaultSalt, encryptedAccountKey, publicKey string) error {
+	if len(vaultSalt) > 64 {
+		return fmt.Errorf("vault_salt too long")
+	}
+	if len(encryptedAccountKey) > 4096 {
+		return fmt.Errorf("encrypted_account_key too long")
+	}
+	if len(publicKey) > 64 {
+		return fmt.Errorf("public_key too long")
+	}
+	nonEmpty := 0
+	for _, v := range []string{vaultSalt, encryptedAccountKey, publicKey} {
+		if v != "" {
+			nonEmpty++
+		}
+	}
+	if nonEmpty != 0 && nonEmpty != 3 {
+		return fmt.Errorf("vault_salt, encrypted_account_key, and public_key must all be set or all cleared")
+	}
+	return s.userRepo.UpdateVault(ctx, userID, vaultSalt, encryptedAccountKey, publicKey)
+}
+
 // GetAvatarURL returns a presigned URL for the given avatar key
 func (s *UserService) GetAvatarURL(avatarKey *string) *string {
 	if avatarKey == nil || *avatarKey == "" {

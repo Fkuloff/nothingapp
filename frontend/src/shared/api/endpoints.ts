@@ -5,6 +5,7 @@ export const endpoints = {
     logout: '/api/auth/logout',
     changePassword: '/api/auth/password',
     me: '/api/auth/me',
+    vault: '/api/auth/vault',
   },
   profile: (userId?: number | string) => (userId ? `/api/profile/${userId}` : '/api/profile'),
   chats: {
@@ -44,6 +45,7 @@ export const endpoints = {
     leave: (groupId: number | string) => `/api/groups/${groupId}/leave`,
     changeRole: (groupId: number | string, userId: number | string) =>
       `/api/groups/${groupId}/members/${userId}/role`,
+    keys: (groupId: number | string) => `/api/groups/${groupId}/keys`,
     uploadAvatar: (groupId: number | string) => `/api/groups/${groupId}/avatar`,
     removeAvatar: (groupId: number | string) => `/api/groups/${groupId}/avatar`,
     getAvatar: (chatId: number | string) => `/api/group-avatars/${chatId}`,

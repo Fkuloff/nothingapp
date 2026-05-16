@@ -64,6 +64,11 @@ type messageResponse struct {
 	ReplyToID   *uint                `json:"reply_to_id"`
 	EditedAt    *time.Time           `json:"edited_at"`
 	Attachments []attachmentResponse `json:"attachments"`
+	// Scheme + IV are emitted only for client-side encrypted messages (scheme=2).
+	// Legacy scheme=1 rows keep the previous JSON shape so existing clients keep
+	// working unchanged.
+	Scheme uint8  `json:"scheme,omitempty"`
+	IV     string `json:"iv,omitempty"`
 }
 
 func (h *chatHandler) toMessageResponses(messages []models.Message) []messageResponse {
@@ -86,7 +91,7 @@ func (h *chatHandler) toMessageResponses(messages []models.Message) []messageRes
 			})
 		}
 
-		result = append(result, messageResponse{
+		out := messageResponse{
 			ID:          msg.ID,
 			ChatID:      msg.ChatID,
 			UserID:      msg.UserID,
@@ -97,7 +102,15 @@ func (h *chatHandler) toMessageResponses(messages []models.Message) []messageRes
 			IsDeleted:   msg.IsDeleted,
 			CreatedAt:   msg.CreatedAt,
 			Attachments: atts,
-		})
+		}
+		// For client-side encrypted (E2E) messages, ChatService leaves IV populated
+		// because the server can't decrypt. Propagate both scheme + IV so the
+		// receiving client can decrypt locally.
+		if msg.Scheme == models.SchemeClientSide {
+			out.Scheme = msg.Scheme
+			out.IV = msg.IV
+		}
+		result = append(result, out)
 	}
 	return result
 }
@@ -134,17 +147,23 @@ func (h *chatHandler) getParticipantCount(ctx context.Context, chatID uint) int 
 	return len(ids)
 }
 
-// buildGroupListItem creates a chatListItem for a group chat.
-func (h *chatHandler) buildGroupListItem(ctx context.Context, chat *models.Chat, lastMessage string, unreadCounts map[uint]int64) chatListItem {
+// buildGroupListItem creates a chatListItem for a group chat. The last-message
+// E2E metadata is pre-resolved for the caller's user (per-user envelope picked
+// in GetLastMessageForChat) — the client decrypts via ECDH(self, sender.public).
+func (h *chatHandler) buildGroupListItem(ctx context.Context, chat *models.Chat, lastMessage string, unreadCounts map[uint]int64, lmScheme uint8, lmCT, lmIV string, lmSenderID uint) chatListItem {
 	return chatListItem{
-		ID:          chat.ID,
-		IsGroup:     true,
-		GroupName:   chat.GetGroupName(),
-		MemberCount: h.getParticipantCount(ctx, chat.ID),
-		AvatarURL:   h.getGroupAvatarURL(chat),
-		LastMessage: lastMessage,
-		UnreadCount: int(unreadCounts[chat.ID]),
-		UpdatedAt:   chat.UpdatedAt,
+		ID:                    chat.ID,
+		IsGroup:               true,
+		GroupName:             chat.GetGroupName(),
+		MemberCount:           h.getParticipantCount(ctx, chat.ID),
+		AvatarURL:             h.getGroupAvatarURL(chat),
+		LastMessage:           lastMessage,
+		LastMessageScheme:     lmScheme,
+		LastMessageCiphertext: lmCT,
+		LastMessageIV:         lmIV,
+		LastMessageSenderID:   lmSenderID,
+		UnreadCount:           int(unreadCounts[chat.ID]),
+		UpdatedAt:             chat.UpdatedAt,
 	}
 }
 
@@ -182,9 +201,18 @@ func (h *chatHandler) checkChatAccess(c *gin.Context, chat *models.Chat, userID 
 // formatLastMessage extracts display text from the last non-deleted message in a chat.
 // Deleted messages are filtered out upstream (see ChatService.GetLastMessageForChat), so we don't
 // need a "deleted" fallback here — an empty chat simply renders no preview.
+//
+// For scheme=2 (client-side encrypted) messages the server can't decrypt the text, so
+// the preview becomes a generic placeholder instead of leaking ciphertext into the
+// chat-list UI. Clients can do their own ECDH decrypt to show the real preview if
+// they want; this fallback is what gets rendered when the client doesn't bother.
 func formatLastMessage(lastMsg *models.Message, err error) string {
 	if err != nil || lastMsg == nil {
 		return ""
+	}
+
+	if lastMsg.Scheme == models.SchemeClientSide {
+		return "🔒 Зашифрованное сообщение"
 	}
 
 	text := lastMsg.Text
@@ -219,7 +247,7 @@ func (h *chatHandler) GetChatData(c *gin.Context) {
 		return
 	}
 
-	messages, err := h.chatService.GetRecentMessages(c.Request.Context(), chatID, maxRecentMessages)
+	messages, err := h.chatService.GetRecentMessages(c.Request.Context(), chatID, userID, maxRecentMessages)
 	if err != nil {
 		sendInternalError(c, "Failed to load messages")
 		return
@@ -265,24 +293,44 @@ func (h *chatHandler) ListChatsAPI(c *gin.Context) {
 
 	items := make([]chatListItem, 0, len(chats))
 	for _, chat := range chats {
-		lastMsg, lErr := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID)
+		lastMsg, lErr := h.chatService.GetLastMessageForChat(c.Request.Context(), chat.ID, userID)
 		lastMessageText := formatLastMessage(lastMsg, lErr)
 
+		// For scheme=2 messages the lastMessageText is the "🔒 placeholder"
+		// (server can't decrypt). Pass the raw ciphertext + iv + sender so the
+		// client can decrypt the preview locally and replace the placeholder.
+		var (
+			lmScheme   uint8
+			lmCT       string
+			lmIV       string
+			lmSenderID uint
+		)
+		if lErr == nil && lastMsg != nil && lastMsg.Scheme == models.SchemeClientSide {
+			lmScheme = lastMsg.Scheme
+			lmCT = lastMsg.Text
+			lmIV = lastMsg.IV
+			lmSenderID = lastMsg.UserID
+		}
+
 		if chat.IsGroup {
-			items = append(items, h.buildGroupListItem(c.Request.Context(), &chat, lastMessageText, unreadCounts))
+			items = append(items, h.buildGroupListItem(c.Request.Context(), &chat, lastMessageText, unreadCounts, lmScheme, lmCT, lmIV, lmSenderID))
 		} else {
 			otherUser, otherUserID := chat.GetOtherUser(userID)
 			h.userService.RefreshUserAvatarURL(otherUser)
 
 			items = append(items, chatListItem{
-				ID:            chat.ID,
-				IsGroup:       false,
-				OtherUserID:   otherUserID,
-				OtherUserName: otherUser.GetDisplayName(),
-				AvatarURL:     otherUser.AvatarURL,
-				LastMessage:   lastMessageText,
-				UnreadCount:   int(unreadCounts[chat.ID]),
-				UpdatedAt:     chat.UpdatedAt,
+				ID:                    chat.ID,
+				IsGroup:               false,
+				OtherUserID:           otherUserID,
+				OtherUserName:         otherUser.GetDisplayName(),
+				AvatarURL:             otherUser.AvatarURL,
+				LastMessage:           lastMessageText,
+				LastMessageScheme:     lmScheme,
+				LastMessageCiphertext: lmCT,
+				LastMessageIV:         lmIV,
+				LastMessageSenderID:   lmSenderID,
+				UnreadCount:           int(unreadCounts[chat.ID]),
+				UpdatedAt:             chat.UpdatedAt,
 			})
 		}
 	}
@@ -427,7 +475,7 @@ func (h *chatHandler) GetChatMessagesAPI(c *gin.Context) {
 		return
 	}
 
-	messages, err := h.chatService.GetMessages(c.Request.Context(), chatID)
+	messages, err := h.chatService.GetMessages(c.Request.Context(), chatID, userID)
 	if err != nil {
 		sendInternalError(c, "Failed to load messages")
 		return

@@ -17,10 +17,9 @@ import (
 )
 
 const (
-	maxGroupNameLength  = 100
-	maxGroupMembers     = 50
-	unknownActorName    = "Кто-то"
-	decryptionErrorText = "[Ошибка расшифровки]"
+	maxGroupNameLength = 100
+	maxGroupMembers    = 50
+	unknownActorName   = "Кто-то"
 )
 
 // GroupService handles business logic for group chats.
@@ -621,6 +620,36 @@ func (s *GroupService) IsUserInGroup(ctx context.Context, chatID, userID uint) (
 // GetParticipantUserIDs returns all participant user IDs for a chat.
 func (s *GroupService) GetParticipantUserIDs(ctx context.Context, chatID uint) ([]uint, error) {
 	return s.participantRepo.GetParticipantUserIDs(ctx, chatID)
+}
+
+// GroupParticipantKey carries the X25519 public_key for a single participant.
+// Empty PublicKey means the user hasn't completed E2E onboarding yet, in which
+// case the calling client must fall back to scheme=1 for the whole group send.
+type GroupParticipantKey struct {
+	UserID    uint   `json:"user_id"`
+	PublicKey string `json:"public_key"`
+}
+
+// GetGroupParticipantKeys returns the X25519 public_key of every group member,
+// keyed by user_id. Used by clients before composing a scheme=2 group message:
+//   - if every key is non-empty, encrypt one envelope per recipient (pairwise);
+//   - otherwise fall back to scheme=1 so users without E2E setup can still read.
+//
+// The caller-authorisation check (only members may read) belongs to the handler.
+func (s *GroupService) GetGroupParticipantKeys(ctx context.Context, chatID uint) ([]GroupParticipantKey, error) {
+	participants, err := s.participantRepo.GetByChatIDWithUsers(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("get participants: %w", err)
+	}
+	out := make([]GroupParticipantKey, 0, len(participants))
+	for _, p := range participants {
+		key := ""
+		if p.User.PublicKey != nil {
+			key = *p.User.PublicKey
+		}
+		out = append(out, GroupParticipantKey{UserID: p.UserID, PublicKey: key})
+	}
+	return out, nil
 }
 
 // --- private helpers ---

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"messenger/internal/crypto"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 	"messenger/internal/services"
@@ -45,7 +44,6 @@ type webSocketHandler struct {
 	groupService    *services.GroupService
 	participantRepo *repositories.ChatParticipantRepo
 	logger          *zap.Logger
-	encryptor       *crypto.MessageEncryptor
 	fileStorage     storage.Storage
 	clients         map[uint][]*wsClient // userID -> []clients
 	mu              sync.RWMutex
@@ -61,7 +59,6 @@ func newWebSocketHandler(
 	pushService *services.PushNotificationService,
 	userService *services.UserService,
 	logger *zap.Logger,
-	encryptor *crypto.MessageEncryptor,
 	fileStorage storage.Storage,
 ) *webSocketHandler {
 	return &webSocketHandler{
@@ -70,7 +67,6 @@ func newWebSocketHandler(
 		pushService:     pushService,
 		userService:     userService,
 		logger:          logger,
-		encryptor:       encryptor,
 		fileStorage:     fileStorage,
 		clients:         make(map[uint][]*wsClient),
 		activeCalls:     make(map[uint]activeCallInfo),
@@ -844,31 +840,56 @@ func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			replyToIDVal = *unread.Message.ReplyToID
 		}
 
-		// Decrypt message text from DB before broadcasting
-		text := unread.Message.Text
-		if unread.Message.IV != "" {
-			if plaintext, err := h.encryptor.Decrypt(text, unread.Message.IV); err == nil {
-				text = plaintext
+		// For group scheme=2 messages the row carries no ciphertext — we need to
+		// substitute the envelope addressed to this user. If there's no envelope
+		// (user joined the group after the message was sent), skip the replay
+		// entirely so we don't broadcast an empty bubble.
+		msgCopy := unread.Message
+		if msgCopy.Scheme == models.SchemeClientSide && msgCopy.Text == "" && msgCopy.IV == "" {
+			applied, err := h.chatService.FillEnvelopeForUser(client.ctx, &msgCopy, userID)
+			if err != nil {
+				h.logger.Warn("failed to resolve envelope for pending message",
+					zap.Error(err),
+					zap.Uint("message_id", msgCopy.ID),
+					zap.Uint("user_id", userID),
+				)
+				continue
+			}
+			if !applied {
+				continue
 			}
 		}
+
+		// scheme=2 messages are forwarded with their ciphertext + IV intact and
+		// the receiving client decrypts locally. Legacy scheme=1 rows can't be
+		// decrypted on the server anymore — skip the replay so the client
+		// doesn't try to render an unreadable bubble.
+		if msgCopy.Scheme != models.SchemeClientSide {
+			continue
+		}
+		text := msgCopy.Text
 
 		// Serialize attachments for the broadcast (with presigned URLs)
 		var attachmentsList []map[string]any
 		if h.fileStorage != nil {
-			attachmentsList = serializeAttachmentSlice(unread.Message.Attachments, h.fileStorage)
+			attachmentsList = serializeAttachmentSlice(msgCopy.Attachments, h.fileStorage)
 		}
 
 		broadcastData := map[string]any{
 			"action":      "new",
 			"chat_id":     unread.ChatID,
-			"user_id":     unread.Message.UserID,
+			"user_id":     msgCopy.UserID,
 			"text":        text,
 			"reply_to_id": replyToIDVal,
-			"id":          unread.Message.ID,
-			"created_at":  unread.Message.CreatedAt,
-			"is_deleted":  unread.Message.IsDeleted,
+			"id":          msgCopy.ID,
+			"created_at":  msgCopy.CreatedAt,
+			"is_deleted":  msgCopy.IsDeleted,
 			"attachments": attachmentsList,
 		}
+		// Replay treats the resolved-envelope form as a 1-on-1-shaped scheme=2
+		// payload (text + iv populated, no envelopes array) — receiving client
+		// decrypts with deriveChatKey(self, sender.public) regardless of chat type.
+		addE2EFieldsToBroadcast(broadcastData, msgCopy.Scheme, msgCopy.IV, nil)
 
 		msgJSON, err := json.Marshal(broadcastData)
 		if err != nil {

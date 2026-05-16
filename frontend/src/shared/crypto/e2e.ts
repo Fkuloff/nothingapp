@@ -1,0 +1,465 @@
+import { x25519 } from '@noble/curves/ed25519.js'
+
+// End-to-end message encryption — see backend/ops/E2E.md for the full design.
+//
+// Layered keys:
+//   password            (only in the user's head + briefly in app state during login)
+//      └─→ PBKDF2  → vault_key                     (derived per login, never persisted)
+//             └─→ AES-GCM wraps account_key        (account_key is random 32 bytes)
+//                    └─→ stored as `encrypted_account_key` on the server (opaque blob)
+//
+//   account_key         (cached on device, used to AES-GCM each scheme=2 message)
+//
+// Multi-device sync works because every device with the same password derives the same
+// vault_key, then unwraps the same account_key — the server stores the wrapped blob,
+// not the key.
+//
+// KDF choice: PBKDF2-HMAC-SHA256 with 600 000 iterations. Built into WebCrypto in every
+// modern browser and Android WebView, no external dependency. Argon2id would be more
+// memory-hard but requires libsodium.js (~150 KB WASM). For a personal-messenger
+// threat model PBKDF2 is adequate; if a stronger KDF is needed later, add a version
+// field to `vault_salt` and roll forward.
+
+const PBKDF2_ITERATIONS = 600_000
+const PBKDF2_HASH = 'SHA-256'
+const ACCOUNT_KEY_BYTES = 32 // AES-256
+const SALT_BYTES = 16
+const IV_BYTES = 12 // AES-GCM nonce
+
+export type VaultMaterial = {
+  vaultSalt: string // base64 of the 16-byte PBKDF2 salt
+  encryptedAccountKey: string // base64 of (iv || ciphertext || GCM tag) wrapping the 32-byte account key
+}
+
+/** True when WebCrypto AES-GCM + PBKDF2 are usable in this runtime. */
+export function isE2EAvailable(): boolean {
+  return typeof crypto !== 'undefined' && typeof crypto.subtle !== 'undefined'
+}
+
+// ---------- low-level helpers ----------
+
+// TypeScript 5.7 tightened the typing on Uint8Array — the underlying buffer is
+// `ArrayBufferLike` (could be a SharedArrayBuffer), and WebCrypto refuses to accept
+// anything but a real `ArrayBuffer`-backed view. Cast through `BufferSource` at each
+// WebCrypto boundary. Safe in practice — every Uint8Array we touch is allocated by
+// us, so the backing buffer is always a regular ArrayBuffer.
+const asBuffer = (b: Uint8Array): BufferSource => b as unknown as BufferSource
+
+function randomUint8Array(n: number): Uint8Array {
+  const bytes = new Uint8Array(n)
+  crypto.getRandomValues(bytes)
+  return bytes
+}
+
+function b64encode(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+function b64decode(s: string): Uint8Array {
+  const binary = atob(s)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function deriveVaultKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey'],
+  )
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: asBuffer(salt),
+      iterations: PBKDF2_ITERATIONS,
+      hash: PBKDF2_HASH,
+    },
+    passwordKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
+async function aesGcmEncrypt(plaintext: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
+  const iv = randomUint8Array(IV_BYTES)
+  const ctBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    key,
+    asBuffer(plaintext),
+  )
+  const ct = new Uint8Array(ctBuffer)
+  const out = new Uint8Array(iv.length + ct.length)
+  out.set(iv, 0)
+  out.set(ct, iv.length)
+  return out
+}
+
+async function aesGcmDecrypt(combined: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
+  const iv = combined.slice(0, IV_BYTES)
+  const ct = combined.slice(IV_BYTES)
+  const pt = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    key,
+    asBuffer(ct),
+  )
+  return new Uint8Array(pt)
+}
+
+async function importAccountKey(raw: Uint8Array): Promise<CryptoKey> {
+  // extractable=true so we can re-wrap on password change (export -> wrap with new vault_key).
+  // The key is in JS memory anyway; non-extractable would not actually protect it against
+  // an attacker with code-execution.
+  return crypto.subtle.importKey('raw', asBuffer(raw), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt'])
+}
+
+// ---------- high-level operations ----------
+
+/**
+ * First-time onboarding: generate a fresh account_key + vault salt, wrap account_key
+ * under a freshly-derived vault_key, return both pieces — caller uploads the vault
+ * material to the server and caches the imported account_key locally.
+ */
+export async function setupNewVault(password: string): Promise<{
+  accountKey: CryptoKey
+  vault: VaultMaterial
+}> {
+  const rawAccountKey = randomUint8Array(ACCOUNT_KEY_BYTES)
+  const salt = randomUint8Array(SALT_BYTES)
+  const vaultKey = await deriveVaultKey(password, salt)
+  const wrapped = await aesGcmEncrypt(rawAccountKey, vaultKey)
+  const accountKey = await importAccountKey(rawAccountKey)
+  return {
+    accountKey,
+    vault: {
+      vaultSalt: b64encode(salt),
+      encryptedAccountKey: b64encode(wrapped),
+    },
+  }
+}
+
+/**
+ * Unwrap an existing account_key using the password and the server-stored salt + blob.
+ * Throws if the password is wrong (AES-GCM auth tag mismatches) — the caller treats
+ * that as "user typed the wrong password" rather than as a corruption.
+ */
+export async function openVault(password: string, vault: VaultMaterial): Promise<CryptoKey> {
+  const salt = b64decode(vault.vaultSalt)
+  const wrapped = b64decode(vault.encryptedAccountKey)
+  const vaultKey = await deriveVaultKey(password, salt)
+  const rawAccountKey = await aesGcmDecrypt(wrapped, vaultKey)
+  return importAccountKey(rawAccountKey)
+}
+
+/**
+ * Re-wrap the same account_key under a new password (used on password change).
+ * The account_key itself doesn't rotate — that would orphan every stored message — only
+ * the wrapper changes, with a fresh salt and a new derivation from the new password.
+ */
+export async function rewrapAccountKey(
+  accountKey: CryptoKey,
+  newPassword: string,
+): Promise<VaultMaterial> {
+  const rawBuffer = await crypto.subtle.exportKey('raw', accountKey)
+  const raw = new Uint8Array(rawBuffer)
+  const salt = randomUint8Array(SALT_BYTES)
+  const vaultKey = await deriveVaultKey(newPassword, salt)
+  const wrapped = await aesGcmEncrypt(raw, vaultKey)
+  return {
+    vaultSalt: b64encode(salt),
+    encryptedAccountKey: b64encode(wrapped),
+  }
+}
+
+/**
+ * Encrypt a message body with account_key. Returns base64 ciphertext + base64 IV,
+ * matching what the backend stores under scheme=2 (the GORM `Text` and `IV` columns).
+ */
+export async function encryptMessage(
+  plaintext: string,
+  accountKey: CryptoKey,
+): Promise<{ ciphertext: string; iv: string }> {
+  const iv = randomUint8Array(IV_BYTES)
+  const ctBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: asBuffer(iv) },
+    accountKey,
+    asBuffer(new TextEncoder().encode(plaintext)),
+  )
+  return {
+    ciphertext: b64encode(new Uint8Array(ctBuffer)),
+    iv: b64encode(iv),
+  }
+}
+
+/**
+ * Decrypt a base64-encoded ciphertext + iv with account_key. Throws on auth tag
+ * mismatch (wrong key, corrupted blob, IV mismatch). Callers should catch and
+ * fall back to a placeholder string rather than letting the throw bubble into
+ * the render path.
+ */
+export async function decryptMessage(
+  ciphertext: string,
+  iv: string,
+  accountKey: CryptoKey,
+): Promise<string> {
+  const ctUint8Array = b64decode(ciphertext)
+  const ivUint8Array = b64decode(iv)
+  const ptBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: asBuffer(ivUint8Array) },
+    accountKey,
+    asBuffer(ctUint8Array),
+  )
+  return new TextDecoder().decode(ptBuffer)
+}
+
+// ---------- X25519 keypair (Phase C — inter-user E2E) ----------
+//
+// Each user has an X25519 keypair derived deterministically from their account_key.
+// Multi-device sync still works: both devices have the same account_key, so both
+// derive the same private key + the same public key.
+//
+// To send a scheme=2 message from Alice to Bob:
+//   shared = X25519(Alice.private, Bob.public)
+//   message_key = HKDF(shared, info="msg-key")     // see deriveChatKey below
+//   ciphertext = AES-GCM(plaintext, message_key)
+//
+// Bob receives ciphertext + IV + Alice's user_id. He fetches Alice's public_key
+// from the server, computes the same shared via X25519(Bob.private, Alice.public),
+// derives the same message_key, decrypts. ECDH symmetry guarantees both sides
+// arrive at the same shared bytes.
+//
+// Private key is never persisted separately — it's re-derived from account_key on
+// demand via HKDF-SHA-256 with a fixed info label so the same account_key always
+// produces the same X25519 scalar.
+
+const X25519_SCALAR_LABEL = 'messenger-x25519-private-v1'
+const CHAT_KEY_HKDF_LABEL = 'messenger-chat-aes-v1'
+
+/**
+ * Derive the X25519 private scalar from a raw account_key. Uses HKDF-SHA-256 with
+ * a fixed info label so the output is deterministic — every device with the same
+ * account_key derives the same scalar.
+ */
+async function deriveX25519Private(rawAccountKey: Uint8Array): Promise<Uint8Array> {
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    asBuffer(rawAccountKey),
+    { name: 'HKDF' },
+    false,
+    ['deriveBits'],
+  )
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode(X25519_SCALAR_LABEL),
+    },
+    baseKey,
+    256,
+  )
+  return new Uint8Array(bits)
+}
+
+/**
+ * X25519 keypair derived from a CryptoKey (the imported account_key). Both halves
+ * are returned as raw 32-byte arrays. The library's X25519 expects raw byte slices
+ * for both scalar and public point.
+ */
+async function deriveX25519Keypair(
+  accountKey: CryptoKey,
+): Promise<{ privateKey: Uint8Array; publicKey: Uint8Array }> {
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', accountKey))
+  const privateKey = await deriveX25519Private(raw)
+  const publicKey = x25519.getPublicKey(privateKey)
+  return { privateKey, publicKey }
+}
+
+/** Base64 of the user's X25519 public key — what gets uploaded to /api/auth/vault. */
+export async function publicKeyBase64(accountKey: CryptoKey): Promise<string> {
+  const { publicKey } = await deriveX25519Keypair(accountKey)
+  return b64encode(publicKey)
+}
+
+/**
+ * Compute the AES-GCM-256 key shared between two parties via X25519 ECDH +
+ * HKDF-SHA-256. Both sender (using their private + peer's public) and recipient
+ * (using their private + sender's public) derive byte-identical chat keys —
+ * that's the symmetry property of ECDH.
+ */
+export async function deriveChatKey(
+  myAccountKey: CryptoKey,
+  peerPublicKeyBase64: string,
+): Promise<CryptoKey> {
+  const { privateKey } = await deriveX25519Keypair(myAccountKey)
+  const peerPublic = b64decode(peerPublicKeyBase64)
+  const shared = x25519.getSharedSecret(privateKey, peerPublic)
+  // Run HKDF over the raw ECDH output so a discrete-log break against the curve
+  // isn't enough to recover the AES key without also breaking SHA-256.
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    asBuffer(shared),
+    { name: 'HKDF' },
+    false,
+    ['deriveKey'],
+  )
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode(CHAT_KEY_HKDF_LABEL),
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
+// ---------- group pairwise E2E (Variant A) ----------
+//
+// For 1-on-1 chats `deriveChatKey(self, peer.public)` gives both sides the same
+// AES-GCM key. For groups we generalise: the sender derives a separate chat key
+// per recipient (including a self-loopback for own-device echo), encrypts the
+// plaintext once per recipient, and packs the resulting (recipient_id, ct, iv)
+// envelopes into the WebSocket payload. Each receiving client decrypts only
+// the envelope addressed to them, using the same X25519(self, sender.public)
+// → HKDF → AES-GCM key.
+//
+// Edge cases worth flagging here so MessageComposer can decide what to do:
+//   - A participant whose public_key is empty hasn't completed E2E onboarding.
+//     The caller should bail out of scheme=2 and fall back to scheme=1 for the
+//     whole group, otherwise that user simply can't read the message.
+//   - The sender's own envelope uses ECDH(self.private, self.public) — well-
+//     defined for X25519, deterministic, and only reproducible by the sender.
+
+export type GroupRecipientKey = {
+  userID: number
+  /** Base64 of the recipient's X25519 public key, or empty if they haven't onboarded. */
+  publicKey: string
+}
+
+export type GroupEnvelope = {
+  recipient_id: number
+  ciphertext: string
+  iv: string
+}
+
+/**
+ * Encrypt `plaintext` once per recipient, returning the envelope list to send
+ * to the backend. Throws if any recipient is missing a public_key — the
+ * caller's UI gates the send on `getGroupKeyStatus` first, so reaching this
+ * function with an empty key is a programmer error. Sender must be included
+ * in `recipients` so they can read their own outgoing message on another
+ * device.
+ */
+export async function encryptForGroup(
+  plaintext: string,
+  recipients: GroupRecipientKey[],
+  senderAccountKey: CryptoKey,
+): Promise<GroupEnvelope[]> {
+  if (recipients.length === 0) {
+    throw new Error('encryptForGroup: no recipients')
+  }
+  const envelopes: GroupEnvelope[] = []
+  for (const r of recipients) {
+    if (!r.publicKey) {
+      throw new Error(`encryptForGroup: recipient ${r.userID} has no public_key`)
+    }
+    const chatKey = await deriveChatKey(senderAccountKey, r.publicKey)
+    const { ciphertext, iv } = await encryptMessage(plaintext, chatKey)
+    envelopes.push({ recipient_id: r.userID, ciphertext, iv })
+  }
+  return envelopes
+}
+
+// ---------- key persistence ----------
+
+const STORED_ACCOUNT_KEY = 'account_key_b64'
+
+/**
+ * Persist the raw account_key bytes (base64) to localStorage + Capacitor Preferences.
+ *
+ * Threat model: the device's app-private storage is the trust boundary. localStorage in
+ * a Capacitor WebView (androidScheme=https) is sandboxed per app. Capacitor Preferences
+ * on Android maps to SharedPreferences, which on modern Android is encrypted at rest by
+ * the OS as part of file-based encryption. If an attacker has code-execution on the
+ * device, they read this key — same as any other native messenger.
+ */
+export async function saveAccountKey(accountKey: CryptoKey): Promise<void> {
+  const rawBuffer = await crypto.subtle.exportKey('raw', accountKey)
+  const b64 = b64encode(new Uint8Array(rawBuffer))
+  try {
+    localStorage.setItem(STORED_ACCOUNT_KEY, b64)
+  } catch {
+    // localStorage may be unavailable in private modes; non-fatal — account_key just
+    // won't survive page reload, user re-enters password on next visit.
+  }
+  try {
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.isNativePlatform()) {
+      const { Preferences } = await import('@capacitor/preferences')
+      await Preferences.set({ key: STORED_ACCOUNT_KEY, value: b64 })
+    }
+  } catch (err) {
+    console.warn('Failed to mirror account_key to Preferences:', err)
+  }
+}
+
+/** Read the account_key back from localStorage (after hydrate copied it from Prefs). */
+export async function loadStoredAccountKey(): Promise<CryptoKey | null> {
+  const b64 = localStorage.getItem(STORED_ACCOUNT_KEY)
+  if (!b64) return null
+  try {
+    const raw = b64decode(b64)
+    return await importAccountKey(raw)
+  } catch (err) {
+    console.warn('Stored account_key is corrupt:', err)
+    return null
+  }
+}
+
+/** Wipe the account_key from all storage. Called on logout. */
+export async function clearStoredAccountKey(): Promise<void> {
+  try {
+    localStorage.removeItem(STORED_ACCOUNT_KEY)
+  } catch {
+    // ignore
+  }
+  try {
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.isNativePlatform()) {
+      const { Preferences } = await import('@capacitor/preferences')
+      await Preferences.remove({ key: STORED_ACCOUNT_KEY })
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Mirror native-side Preferences → localStorage at app boot, the same way the auth
+ * token hydration works. Must run before useAuth tries to load the key.
+ */
+export async function hydrateAccountKey(): Promise<void> {
+  try {
+    const { Capacitor } = await import('@capacitor/core')
+    if (!Capacitor.isNativePlatform()) return
+    const { Preferences } = await import('@capacitor/preferences')
+    const { value } = await Preferences.get({ key: STORED_ACCOUNT_KEY })
+    if (value) {
+      localStorage.setItem(STORED_ACCOUNT_KEY, value)
+    } else {
+      const existing = localStorage.getItem(STORED_ACCOUNT_KEY)
+      if (existing) await Preferences.set({ key: STORED_ACCOUNT_KEY, value: existing })
+    }
+  } catch (err) {
+    console.warn('Failed to hydrate account_key from Preferences:', err)
+  }
+}

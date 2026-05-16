@@ -3,6 +3,9 @@ import './App.css'
 import { useCallback, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 
+import { useAccountKey } from './features/auth/AccountKey'
+import { useAuthContext } from './features/auth/AuthContext'
+import { LazyVaultModal } from './features/auth/LazyVaultModal'
 import { ActiveCallOverlay } from './features/calls/ActiveCallOverlay'
 import { useCallContext } from './features/calls/CallContext'
 import { IncomingCallModal } from './features/calls/IncomingCallModal'
@@ -19,6 +22,14 @@ export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const onChatSelectedRef = useRef<((chatId: number) => void) | null>(null)
   const { callState, acceptCall, rejectCall, hangup, toggleMute } = useCallContext()
+  const { user, loading } = useAuthContext()
+  const accountKeyCtx = useAccountKey()
+  // Show the lazy-vault modal only when we know the user is authenticated
+  // AND we definitely don't have an account_key on this device. AccountKey
+  // 'loading' is the boot-time hydrate window — don't flash the modal during
+  // it. Auth 'loading' means we haven't decided yet whether the user is in.
+  const needsVaultBootstrap =
+    !loading && user !== null && accountKeyCtx.state.status === 'missing'
 
   useFCMNotifications(true)
 
@@ -63,6 +74,8 @@ export default function AppLayout() {
             onReject={rejectCall}
           />
         )}
+
+        {needsVaultBootstrap && <LazyVaultModal />}
       </div>
     </>
   )

@@ -6,6 +6,10 @@ import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../..
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
+import { encryptMessage } from '../../shared/crypto/e2e'
+import type { GroupKeyStatus } from '../../shared/crypto/peerKeys'
+import { encryptGroupMessage, getChatKey, getGroupKeyStatus, getPeerPublicKey } from '../../shared/crypto/peerKeys'
+import { useAccountKey } from '../auth/AccountKey'
 import { useCallContext } from '../calls/CallContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
@@ -14,6 +18,12 @@ import { GroupInfoPanel } from './GroupInfoPanel'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
 import { PinnedMessagesBar } from './PinnedMessagesBar'
+
+// Hoist the default empty members array to module scope so the destructured
+// default below resolves to a stable reference. Otherwise every render of
+// ChatWindow creates a new `[]`, which makes the e2eStatus useEffect refire
+// on every render → setE2EStatus → render → refire forever, freezing the tab.
+const NO_GROUP_MEMBERS: GroupMember[] = []
 
 type Props = {
   chatId?: number
@@ -63,7 +73,7 @@ export function ChatWindow({
   onDeleteChat,
   isGroup = false,
   groupName = '',
-  groupMembers = [],
+  groupMembers = NO_GROUP_MEMBERS,
   onGroupUpdated,
   onGroupDeleted,
   onGroupLeft,
@@ -90,6 +100,20 @@ export function ChatWindow({
     | { kind: 'delete-message'; messageId: number }
     | null
   >(null)
+  // E2E readiness for the active chat. Strict mode: composer is active only
+  // when every recipient (including ourselves) has a published public_key.
+  // Lazy-vault-bootstrap modal in App.tsx guarantees logged-in users always
+  // have a public_key — so 'not-ready' is essentially an edge case (e.g. a
+  // member who hasn't been online since E2E was rolled out).
+  //   - 'loading'   : still fetching keys, composer disabled.
+  //   - 'ready'     : everyone has public_key, composer fully active.
+  //   - 'not-ready' : someone (named in missingMemberNames) is missing a key,
+  //                   composer disabled, yellow banner.
+  type E2EStatus =
+    | { kind: 'loading' }
+    | { kind: 'ready'; groupStatus?: GroupKeyStatus }
+    | { kind: 'not-ready'; missingMemberNames: string[] }
+  const [e2eStatus, setE2EStatus] = useState<E2EStatus>({ kind: 'loading' })
   const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
@@ -107,8 +131,73 @@ export function ChatWindow({
     setIsMenuOpen(false)
     setIsGroupInfoOpen(false)
     setConfirmAction(null)
+    setE2EStatus({ kind: 'loading' })
     pendingUploadRef.current = null
   }, [chatId])
+
+  // Fetch E2E readiness for the active chat. Recomputes when participants
+  // change (group member added/removed → groupMembers prop identity flips,
+  // which is debounced upstream via groupInfo state in ChatsPage).
+  //
+  // `setStatusIfChanged` is critical: even with stable deps, React's strict
+  // mode + react-refresh can cause the effect to refire on hot reload. If we
+  // set e2eStatus to a new-object-but-equivalent value each time, the
+  // ensuing re-render makes deps appear "changed" → infinite loop. Compare
+  // shallow contents and skip the update when nothing material changed.
+  useEffect(() => {
+    if (!chatId) return
+    let cancelled = false
+
+    const setStatusIfChanged = (next: E2EStatus) => {
+      setE2EStatus((prev) => {
+        if (prev.kind !== next.kind) return next
+        if (prev.kind === 'ready' && next.kind === 'ready') return prev
+        if (prev.kind === 'not-ready' && next.kind === 'not-ready') {
+          const a = prev.missingMemberNames.join('|')
+          const b = next.missingMemberNames.join('|')
+          return a === b ? prev : next
+        }
+        return next
+      })
+    }
+
+    const resolveMissingNames = (missingIds: number[]) =>
+      missingIds.map((uid) => {
+        const m = groupMembers.find((gm) => gm.user_id === uid)
+        return m?.name || m?.username || `id=${uid}`
+      })
+
+    if (isGroup) {
+      getGroupKeyStatus(chatId).then((status) => {
+        if (cancelled) return
+        if (!status) {
+          setStatusIfChanged({ kind: 'loading' })
+          return
+        }
+        if (status.missingUserIds.length === 0) {
+          setStatusIfChanged({ kind: 'ready', groupStatus: status })
+        } else {
+          setStatusIfChanged({
+            kind: 'not-ready',
+            missingMemberNames: resolveMissingNames(status.missingUserIds),
+          })
+        }
+      }).catch(() => {
+        if (!cancelled) setStatusIfChanged({ kind: 'loading' })
+      })
+    } else if (otherUserId) {
+      getPeerPublicKey(otherUserId).then((key) => {
+        if (cancelled) return
+        setStatusIfChanged(key ? { kind: 'ready' } : { kind: 'not-ready', missingMemberNames: [otherUsername || 'собеседник'] })
+      }).catch(() => {
+        if (!cancelled) setStatusIfChanged({ kind: 'loading' })
+      })
+    } else {
+      setStatusIfChanged({ kind: 'loading' })
+    }
+
+    return () => { cancelled = true }
+  }, [chatId, isGroup, otherUserId, otherUsername, groupMembers])
 
   // Close kebab menu on outside click
   useEffect(() => {
@@ -149,6 +238,7 @@ export function ChatWindow({
 
   const { showToast } = useToast()
   const { callState, initiateCall } = useCallContext()
+  const accountKeyCtx = useAccountKey()
 
   const handleStartCall = useCallback(() => {
     if (!chatId || !otherUserId || !otherUsername) return
@@ -220,8 +310,86 @@ export function ChatWindow({
       return
     }
 
+    // E2E is the ONLY supported scheme post-migration. We block the send if
+    // any recipient isn't onboarded (the E2E status banner in the composer
+    // shows who's missing). Same rules apply to edits — the backend only
+    // accepts scheme=2 now, so trying to "downgrade" would just 400 anyway.
+    const accountKey =
+      accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
+    if (!accountKey) {
+      showToast('Шифрование не настроено. Перелогиньтесь, чтобы активировать.', 'error')
+      return
+    }
+    // 'ready' and 'partial' both allow sending — partial just means some
+    // members in the group won't get an envelope (they'll see "🔒" until they
+    // onboard). Block on 'loading' (status still being fetched) and
+    // 'not-ready' (1-on-1 with no peer key, or group where sender is missing
+    // their own public_key).
+    if (e2eStatus.kind === 'loading') {
+      showToast('Проверяем статус шифрования, попробуйте через секунду.', 'info')
+      return
+    }
+    if (e2eStatus.kind === 'not-ready') {
+      const who = e2eStatus.missingMemberNames.join(', ')
+      showToast(`Нельзя отправить — ${who} не настроил(и) шифрование.`, 'warning')
+      return
+    }
+
+    const peerUserId = isGroup ? null : (otherUserId ?? null)
+    const editTarget = editingMessageId
+      ? messages.find((m) => m.id === editingMessageId)
+      : null
+
     if (editingMessageId) {
-      const success = send({ action: 'edit', chat_id: chatId, message_id: editingMessageId, text })
+      // Editing only makes sense on a scheme=2 message we sent ourselves —
+      // legacy scheme=1 rows have no recoverable plaintext on this device.
+      if (editTarget && editTarget.scheme !== 2) {
+        showToast('Это сообщение нельзя редактировать.', 'warning')
+        return
+      }
+      let payload: WSMessageAction
+      if (isGroup && currentUserId && e2eStatus.kind === 'ready' && e2eStatus.groupStatus) {
+        try {
+          const envelopes = await encryptGroupMessage(text, e2eStatus.groupStatus, accountKey, currentUserId)
+          payload = {
+            action: 'edit',
+            chat_id: chatId,
+            message_id: editingMessageId,
+            text: '',
+            scheme: 2,
+            envelopes,
+          }
+        } catch (err) {
+          console.error('Group E2E re-encrypt failed on edit:', err)
+          showToast('Не удалось зашифровать сообщение, повторите.', 'error')
+          return
+        }
+      } else if (peerUserId !== null) {
+        try {
+          const chatKey = await getChatKey(accountKey, peerUserId)
+          if (!chatKey) {
+            showToast('Получатель отключил шифрование. Сообщение нельзя отправить.', 'warning')
+            return
+          }
+          const { ciphertext, iv } = await encryptMessage(text, chatKey)
+          payload = {
+            action: 'edit',
+            chat_id: chatId,
+            message_id: editingMessageId,
+            text: ciphertext,
+            iv,
+            scheme: 2,
+          }
+        } catch (err) {
+          console.error('E2E encrypt failed on edit:', err)
+          showToast('Не удалось зашифровать сообщение, повторите.', 'error')
+          return
+        }
+      } else {
+        showToast('Не удалось зашифровать сообщение.', 'error')
+        return
+      }
+      const success = send(payload)
       if (success) {
         setMessageText('')
         setEditingMessageId(null)
@@ -237,12 +405,44 @@ export function ChatWindow({
     }
 
     setSending(true)
-    const success = send({
-      action: 'send',
-      chat_id: chatId,
-      text: text || ' ',
-      reply_to_id: replyToId ?? undefined,
-    })
+    const rawText = text || ' '
+    let outgoing: WSMessageAction
+
+    try {
+      if (isGroup && currentUserId && e2eStatus.kind === 'ready' && e2eStatus.groupStatus) {
+        // Group pairwise: one envelope per current participant.
+        const envelopes = await encryptGroupMessage(rawText, e2eStatus.groupStatus, accountKey, currentUserId)
+        outgoing = {
+          action: 'send',
+          chat_id: chatId,
+          text: '',
+          scheme: 2,
+          envelopes,
+          reply_to_id: replyToId ?? undefined,
+        }
+      } else if (peerUserId !== null) {
+        const chatKey = await getChatKey(accountKey, peerUserId)
+        if (!chatKey) throw new Error('peer public_key disappeared between status check and send')
+        const { ciphertext, iv } = await encryptMessage(rawText, chatKey)
+        outgoing = {
+          action: 'send',
+          chat_id: chatId,
+          text: ciphertext,
+          iv,
+          scheme: 2,
+          reply_to_id: replyToId ?? undefined,
+        }
+      } else {
+        throw new Error('no recipient — neither group nor peer userId')
+      }
+    } catch (err) {
+      console.error('E2E encrypt failed on send:', err)
+      pendingUploadRef.current = null
+      setSending(false)
+      showToast('Не удалось зашифровать сообщение, попробуйте ещё раз.', 'error')
+      return
+    }
+    const success = send(outgoing)
 
     if (success) {
       setMessageText('')
@@ -484,6 +684,23 @@ export function ChatWindow({
           onUnpin={handleUnpin}
         />
 
+        {e2eStatus.kind === 'not-ready' && (
+          <div
+            style={{
+              padding: '8px 12px',
+              background: 'rgba(255, 193, 7, 0.12)',
+              borderTop: '1px solid rgba(255, 193, 7, 0.3)',
+              color: '#ffc107',
+              fontSize: 13,
+              lineHeight: 1.4,
+            }}
+          >
+            🔒 Шифрование не активно: {e2eStatus.missingMemberNames.join(', ')}
+            {e2eStatus.missingMemberNames.length === 1 ? ' не настроил(а)' : ' не настроили'} шифрование.
+            Отправка возможна, когда{' '}
+            {e2eStatus.missingMemberNames.length === 1 ? 'он(а)' : 'все'} зайдут в приложение.
+          </div>
+        )}
         <MessageComposer
           messages={messages}
           replyToId={replyToId}
@@ -499,6 +716,7 @@ export function ChatWindow({
           onRemoveFile={handleRemoveFile}
           onCancelDraft={handleCancelDraft}
           onToggleEmoji={handleToggleEmoji}
+          disabled={e2eStatus.kind !== 'ready'}
         />
       </div>
 

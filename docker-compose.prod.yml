@@ -5,7 +5,6 @@
 #   /etc/messenger/secrets/postgres_password         640 root:docker
 #   /etc/messenger/secrets/minio_root_password       640 root:docker
 #   /etc/messenger/secrets/jwt_secret                640 root:docker
-#   /etc/messenger/secrets/message_encryption_key    640 root:docker
 #   /etc/messenger/secrets/vapid_private_key         640 root:docker
 #   /etc/messenger/secrets/db_url                    640 root:docker
 #   /etc/messenger/secrets/fcm_credentials.json      640 root:docker
@@ -27,8 +26,6 @@ secrets:
     file: /etc/messenger/secrets/minio_root_password
   jwt_secret:
     file: /etc/messenger/secrets/jwt_secret
-  message_encryption_key:
-    file: /etc/messenger/secrets/message_encryption_key
   vapid_private_key:
     file: /etc/messenger/secrets/vapid_private_key
   db_url:
@@ -154,7 +151,6 @@ services:
         condition: service_healthy
     secrets:
       - jwt_secret
-      - message_encryption_key
       - vapid_private_key
       - minio_root_password
       - db_url
@@ -165,7 +161,6 @@ services:
       # not set, so `docker inspect messenger-backend` does not leak them either.
       DB_URL_FILE: /run/secrets/db_url
       JWT_SECRET_FILE: /run/secrets/jwt_secret
-      MESSAGE_ENCRYPTION_KEY_FILE: /run/secrets/message_encryption_key
       VAPID_PRIVATE_KEY_FILE: /run/secrets/vapid_private_key
       STORAGE_S3_SECRET_KEY_FILE: /run/secrets/minio_root_password
       FCM_CREDENTIALS_PATH: /run/secrets/fcm_credentials

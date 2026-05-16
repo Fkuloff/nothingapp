@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 
 import type { OutletContextType } from '../App'
+import { useAccountKey } from '../features/auth/AccountKey'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { useCallContext } from '../features/calls/CallContext'
 import { ChatList } from '../features/chats/ChatList'
@@ -10,7 +11,29 @@ import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
-import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEvent } from '../shared/api/types'
+import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEnvelope, WSEvent } from '../shared/api/types'
+import { decryptIncomingText } from '../shared/crypto/decryptIncoming'
+import { getChatKey } from '../shared/crypto/peerKeys'
+
+// selectScheme2Payload picks (ciphertext, iv) for a scheme=2 WS broadcast. For
+// 1-on-1 it's just the top-level text/iv. For group pairwise (envelopes set)
+// it's the envelope addressed to the current user — if none is present the
+// current user wasn't a recipient (e.g. joined the group after the message
+// was sent) and we return null so the UI shows the placeholder.
+function selectScheme2Payload(
+  envelopes: WSEnvelope[] | undefined,
+  topText: string,
+  topIv: string | undefined,
+  currentUserId: number | undefined,
+): { text: string; iv: string | undefined } | null {
+  if (!envelopes || envelopes.length === 0) {
+    return { text: topText, iv: topIv }
+  }
+  if (!currentUserId) return null
+  const own = envelopes.find((e) => e.recipient_id === currentUserId)
+  if (!own) return null
+  return { text: own.ciphertext, iv: own.iv }
+}
 import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 import { subscribePendingChat } from '../shared/pendingChat'
@@ -40,6 +63,16 @@ export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const callContext = useCallContext()
+  const accountKeyCtx = useAccountKey()
+  // Snapshot the current account_key in a ref so the WS event handler (which captures
+  // closures with stale `accountKeyCtx`) always sees the latest value. The handler
+  // re-renders on `accountKeyCtx.state` would otherwise unsubscribe/resubscribe the
+  // WS pipe each time the key changes.
+  const accountKeyRef = useRef<CryptoKey | null>(null)
+  useEffect(() => {
+    accountKeyRef.current =
+      accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
+  }, [accountKeyCtx.state])
   const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
@@ -54,6 +87,7 @@ export default function ChatsPage() {
   const [groupInfo, setGroupInfo] = useState<GroupInfoResponse | null>(null)
   const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([])
   const chatsRef = useRef<ChatItem[]>([])
+  const messagesRef = useRef<Message[]>([])
   const loadChatsRef = useRef<() => void>(() => {})
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
   const messageCacheRef = useRef<Map<number, Message[]>>(new Map())
@@ -63,6 +97,9 @@ export default function ChatsPage() {
   useEffect(() => {
     chatsRef.current = chats
   }, [chats])
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   useEffect(() => {
     handleCallEventRef.current = callContext.handleCallEvent
@@ -156,54 +193,85 @@ export default function ChatsPage() {
       if (!chatId) return
 
       if (event.action === 'new') {
-        const text = event.text
+        // Decrypt scheme=2 payloads before they touch either the chat-list preview
+        // or the message thread.
+        //   - 1-on-1: chat_key = ECDH(self, peer.public_key) — both sides derive
+        //     the same key by symmetry, so the same key encrypts and decrypts.
+        //   - Group pairwise: the broadcast carries one envelope per recipient.
+        //     Pick the envelope addressed to us, then chat_key = ECDH(self,
+        //     sender.public_key). For my own outgoing message in a group this
+        //     resolves to ECDH(self, self.public) via the self-envelope — same
+        //     derivation rule, no special case in the receive path.
+        const accountKey = accountKeyRef.current
+        const chat = chatsRef.current.find((c) => c.id === chatId)
+        const isGroup = chat?.is_group ?? false
+        const ecdhPeerUserId = isGroup
+          ? event.user_id
+          : (chat?.other_user_id ?? null)
 
-        // Update chat list reactively
-        setChats((prevChats) => {
-          const chatIndex = prevChats.findIndex((c) => c.id === chatId)
-          if (chatIndex === -1) {
-            // New chat — reload
-            loadChatsRef.current()
-            return prevChats
-          }
+        const payload = event.scheme === 2
+          ? selectScheme2Payload(event.envelopes, event.text, event.iv, user?.id)
+          : { text: event.text, iv: event.iv }
 
-          const updatedChats = [...prevChats]
-          const chat = { ...updatedChats[chatIndex] }
-          chat.last_message = text.trim() || '[Вложение]'
-          chat.updated_at = event.created_at
+        const decryptPromise = payload === null
+          ? Promise.resolve({ text: '[зашифрованное сообщение]', scheme: event.scheme, iv: undefined })
+          : getChatKey(accountKey, ecdhPeerUserId).then((chatKey) => decryptIncomingText(
+              { text: payload.text, scheme: event.scheme, iv: payload.iv },
+              chatKey,
+            ))
 
-          if (chatId !== activeChatId && event.user_id !== user?.id) {
-            chat.unread_count = (chat.unread_count || 0) + 1
-          }
+        decryptPromise.then((decrypted) => {
+          const text = decrypted.text
 
-          updatedChats[chatIndex] = chat
-          return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-        })
+          // Update chat list reactively
+          setChats((prevChats) => {
+            const chatIndex = prevChats.findIndex((c) => c.id === chatId)
+            if (chatIndex === -1) {
+              // New chat — reload
+              loadChatsRef.current()
+              return prevChats
+            }
 
-        // Add message to active chat
-        if (chatId === activeChatId) {
-          const newMessage: Message = {
-            id: event.id,
-            chat_id: event.chat_id,
-            user_id: event.user_id,
-            text,
-            reply_to_id: event.reply_to_id ?? null,
-            edited_at: event.edited_at ?? null,
-            is_deleted: event.is_deleted,
-            created_at: event.created_at,
-            attachments: event.attachments ?? [],
-          }
-          setMessages((prev) => {
-            // Deduplicate: after a WebSocket reconnect the server replays unread messages,
-            // which may already be in prev from the HTTP fetch we triggered on reconnect.
-            // Blindly appending would show the same message two or three times until the
-            // user re-enters the chat and the list is freshly loaded.
-            if (prev.some((m) => m.id === newMessage.id)) return prev
-            const next = [...prev, newMessage]
-            messageCacheRef.current.set(chatId, next)
-            return next
+            const updatedChats = [...prevChats]
+            const chat = { ...updatedChats[chatIndex] }
+            chat.last_message = text.trim() || '[Вложение]'
+            chat.updated_at = event.created_at
+
+            if (chatId !== activeChatId && event.user_id !== user?.id) {
+              chat.unread_count = (chat.unread_count || 0) + 1
+            }
+
+            updatedChats[chatIndex] = chat
+            return updatedChats.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
           })
-        }
+
+          // Add message to active chat
+          if (chatId === activeChatId) {
+            const newMessage: Message = {
+              id: event.id,
+              chat_id: event.chat_id,
+              user_id: event.user_id,
+              text,
+              // Preserve scheme so EditMessage knows whether to re-encrypt or not.
+              scheme: event.scheme,
+              reply_to_id: event.reply_to_id ?? null,
+              edited_at: event.edited_at ?? null,
+              is_deleted: event.is_deleted,
+              created_at: event.created_at,
+              attachments: event.attachments ?? [],
+            }
+            setMessages((prev) => {
+              // Deduplicate: after a WebSocket reconnect the server replays unread messages,
+              // which may already be in prev from the HTTP fetch we triggered on reconnect.
+              // Blindly appending would show the same message two or three times until the
+              // user re-enters the chat and the list is freshly loaded.
+              if (prev.some((m) => m.id === newMessage.id)) return prev
+              const next = [...prev, newMessage]
+              messageCacheRef.current.set(chatId, next)
+              return next
+            })
+          }
+        }).catch((err) => console.error('decrypt new message failed:', err))
         return
       }
 
@@ -219,15 +287,45 @@ export default function ChatsPage() {
       }
 
       if (event.action === 'edit' && chatId === activeChatId) {
-        setMessages((prev) => {
-          const next = prev.map((msg) =>
-            msg.id === event.id
-              ? { ...msg, text: event.text, edited_at: event.edited_at ?? new Date().toISOString() }
-              : msg
-          )
-          messageCacheRef.current.set(chatId, next)
-          return next
-        })
+        // Same envelope/sender resolution rules as the 'new' path above. For
+        // group scheme=2 edits the broadcast carries a fresh envelope set;
+        // for 1-on-1 it carries text+iv directly.
+        const accountKey = accountKeyRef.current
+        const chat = chatsRef.current.find((c) => c.id === chatId)
+        const isGroup = chat?.is_group ?? false
+        // Use the original sender's user_id for group; need to look it up.
+        const existing = messagesRef.current.find((m) => m.id === event.id)
+        const senderUserId = existing?.user_id ?? user?.id ?? 0
+        const ecdhPeerUserId = isGroup
+          ? senderUserId
+          : (chat?.other_user_id ?? null)
+
+        const payload = event.scheme === 2
+          ? selectScheme2Payload(event.envelopes, event.text, event.iv, user?.id)
+          : { text: event.text, iv: event.iv }
+
+        const decryptPromise = payload === null
+          ? Promise.resolve({ text: '[зашифрованное сообщение]', scheme: event.scheme, iv: undefined })
+          : getChatKey(accountKey, ecdhPeerUserId).then((chatKey) => decryptIncomingText(
+              { text: payload.text, scheme: event.scheme, iv: payload.iv },
+              chatKey,
+            ))
+
+        decryptPromise.then((decrypted) => {
+          setMessages((prev) => {
+            const next = prev.map((msg) =>
+              msg.id === event.id
+                ? {
+                    ...msg,
+                    text: decrypted.text,
+                    edited_at: event.edited_at ?? new Date().toISOString(),
+                  }
+                : msg,
+            )
+            messageCacheRef.current.set(chatId, next)
+            return next
+          })
+        }).catch((err) => console.error('decrypt edit failed:', err))
         return
       }
 
@@ -312,6 +410,30 @@ export default function ChatsPage() {
       setChatsError(null)
       if (!haveData) setLoadingChats(true)
       const data = await getCurrentUserChats()
+      // Decrypt the last-message preview for any scheme=2 chat where the server
+      // attached the raw ciphertext + sender_id. 1-on-1: chat_key derived from
+      // peer's public_key (sender is either us or peer, both → same key). Group:
+      // chat_key derived from sender's public_key (per-user envelope already
+      // resolved server-side).
+      const accountKey = accountKeyRef.current
+      await Promise.all(data.map(async (c) => {
+        if (
+          c.last_message_scheme === 2 &&
+          c.last_message_ciphertext &&
+          c.last_message_iv &&
+          c.last_message_sender_id !== undefined
+        ) {
+          const ecdhPeerUserId = c.is_group
+            ? c.last_message_sender_id
+            : (c.other_user_id ?? null)
+          const chatKey = await getChatKey(accountKey, ecdhPeerUserId)
+          const decrypted = await decryptIncomingText(
+            { text: c.last_message_ciphertext, scheme: 2, iv: c.last_message_iv },
+            chatKey,
+          )
+          c.last_message = decrypted.text.trim() || c.last_message
+        }
+      }))
       const sortedData = data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       chatsRef.current = sortedData
       setChats(sortedData)
@@ -352,7 +474,31 @@ export default function ChatsPage() {
     // Always fetch fresh data in background
     try {
       setMessagesError(null)
-      const data = await getChatMessages(chatId)
+      const raw = await getChatMessages(chatId)
+      // For 1-on-1: derive one chat_key from the peer's public_key and decrypt
+      // every scheme=2 message with it. For groups: server already resolved
+      // each row's per-user envelope into text/iv, but each message may have a
+      // different sender, so we derive a chat_key per unique sender_id. The
+      // peerKeys cache makes the N lookups effectively free after the first.
+      const chat = chatsRef.current.find((c) => c.id === chatId)
+      const accountKey = accountKeyRef.current
+      let data: Message[]
+      if (chat?.is_group) {
+        const senderKeys = new Map<number, CryptoKey | null>()
+        const uniqueSenders = Array.from(new Set(raw.filter((m) => m.scheme === 2).map((m) => m.user_id)))
+        await Promise.all(
+          uniqueSenders.map(async (senderId) => {
+            senderKeys.set(senderId, await getChatKey(accountKey, senderId))
+          }),
+        )
+        data = await Promise.all(
+          raw.map((m) => decryptIncomingText(m, m.scheme === 2 ? (senderKeys.get(m.user_id) ?? null) : null)),
+        )
+      } else {
+        const peerUserId = chat?.other_user_id ?? null
+        const chatKey = await getChatKey(accountKey, peerUserId)
+        data = await Promise.all(raw.map((m) => decryptIncomingText(m, chatKey)))
+      }
       messageCacheRef.current.set(chatId, data)
       setMessages(data)
     } catch (err) {

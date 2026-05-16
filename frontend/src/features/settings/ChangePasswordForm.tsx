@@ -2,6 +2,9 @@ import { type FormEvent, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPut } from '../../shared/api/httpClient'
+import { publicKeyBase64, rewrapAccountKey } from '../../shared/crypto/e2e'
+import { useAccountKey } from '../auth/AccountKey'
+import { putVault } from '../auth/vaultBootstrap'
 
 type Status = 'idle' | 'loading' | 'success' | 'error'
 
@@ -11,6 +14,7 @@ export function ChangePasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [errorMessage, setErrorMessage] = useState('')
+  const accountKeyCtx = useAccountKey()
 
   const canSubmit =
     status !== 'loading' &&
@@ -30,6 +34,31 @@ export function ChangePasswordForm() {
         old_password: oldPassword,
         new_password: newPassword,
       })
+
+      // E2E: re-wrap the in-memory account_key under the new password and push the
+      // new vault material to the server. The account_key itself doesn't rotate —
+      // that would orphan every existing scheme=2 message — only the password-derived
+      // wrapper around it. Failure here is non-fatal (password is changed, user just
+      // needs to be aware their vault still points at the old password; we surface
+      // it so they can retry).
+      if (accountKeyCtx.state.status === 'ready') {
+        try {
+          const newVault = await rewrapAccountKey(accountKeyCtx.state.key, newPassword)
+          // public_key is deterministic from account_key, which doesn't rotate on
+          // password change — but the API contract requires all three fields on
+          // every vault write, so we recompute and include it.
+          const pub = await publicKeyBase64(accountKeyCtx.state.key)
+          await putVault({ ...newVault, publicKey: pub })
+        } catch (vaultErr) {
+          console.error('vault rewrap failed:', vaultErr)
+          setStatus('error')
+          setErrorMessage(
+            'Пароль изменён, но не удалось обновить ключ шифрования. Войдите заново.',
+          )
+          return
+        }
+      }
+
       setStatus('success')
       setOldPassword('')
       setNewPassword('')

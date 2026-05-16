@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
+import { useAccountKey } from '../features/auth/AccountKey'
 import { useAuthContext } from '../features/auth/AuthContext'
+import { bootstrapVaultOnLogin } from '../features/auth/vaultBootstrap'
 import { endpoints } from '../shared/api/endpoints'
 import { httpPost, setAuthToken } from '../shared/api/httpClient'
 import type { AuthRegisterResponse } from '../shared/api/types'
@@ -14,6 +16,7 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false)
   const navigate = useNavigate()
   const { user, loading, refreshProfile } = useAuthContext()
+  const accountKeyCtx = useAccountKey()
 
   // Already authenticated — redirect to chats
   if (!loading && user) {
@@ -44,6 +47,18 @@ export default function RegisterPage() {
         password,
       })
       setAuthToken(res.token)
+
+      // First login of this account — server has no vault material yet, so this
+      // path always generates a fresh account_key, encrypts it under the new
+      // password, and uploads. Failures are non-fatal: registration succeeded,
+      // user just gets legacy scheme=1 messages until they try again.
+      try {
+        const key = await bootstrapVaultOnLogin(password, res)
+        if (key) accountKeyCtx.setKey(key)
+      } catch (e2eErr) {
+        console.error('E2E vault setup failed during registration:', e2eErr)
+      }
+
       await refreshProfile()
       navigate('/')
     } catch (err) {
