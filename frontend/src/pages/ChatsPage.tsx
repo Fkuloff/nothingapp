@@ -8,6 +8,7 @@ import { useCallContext } from '../features/calls/CallContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
+import { UpdateBanner } from '../features/updates/UpdateBanner'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
@@ -750,7 +751,11 @@ export default function ChatsPage() {
   }, [chats, searchQuery])
 
   return (
-    <div className={`telegram-layout${isMobile && activeChatId ? ' chat-active' : ''}`}>
+    <div className="chats-page-shell">
+      {/* Self-update banner — sits above the chat layout, doesn't affect
+          the inner flex sizing. Renders null when no update is offered. */}
+      <UpdateBanner />
+      <div className={`telegram-layout${isMobile && activeChatId ? ' chat-active' : ''}`}>
       {/* Sidebar with chat list */}
       <div className="telegram-sidebar">
         <div className="telegram-sidebar__header">
@@ -805,6 +810,7 @@ export default function ChatsPage() {
           onPinMessage={handlePinMessage}
           onUnpinMessage={handleUnpinMessage}
         />
+      </div>
       </div>
     </div>
   )

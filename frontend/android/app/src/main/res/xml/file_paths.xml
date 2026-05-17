@@ -2,4 +2,11 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!--
+        Updater plugin downloads new APKs into `cache/updates/` and hands the
+        URI to the system PackageInstaller via Intent.ACTION_VIEW. Android
+        requires APK install URIs to come from a FileProvider — direct file://
+        access triggers FileUriExposedException on API 24+.
+    -->
+    <cache-path name="updates" path="updates/" />
 </paths>

@@ -37,7 +37,12 @@ type Config struct {
 	VAPIDPrivateKey    string
 	VAPIDSubject       string
 	FCMCredentialsPath string
-	JWTExpiryDays      int
+	// AdminAPIKey gates the /api/admin/* endpoints (currently just the release
+	// registration POST). Compared via constant-time match against the
+	// X-Admin-Key header. Empty value disables every admin endpoint (returns
+	// 503) so accidental empty-env deploys don't expose an open-write API.
+	AdminAPIKey   string
+	JWTExpiryDays int
 }
 
 // TokenRefreshThresholdSeconds returns the age (in seconds) at which the auth middleware
@@ -94,6 +99,14 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
+	// Optional. Empty value disables admin endpoints rather than crashing
+	// on boot, so production deploys can run before a release-pipeline
+	// secret is provisioned.
+	adminAPIKey, err := secret.ReadEnvOrFile("ADMIN_API_KEY")
+	if err != nil {
+		return nil, err
+	}
+
 	jwtExpiryDays := defaultJWTExpiryDays
 	if raw := os.Getenv("JWT_EXPIRY_DAYS"); raw != "" {
 		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
@@ -109,6 +122,7 @@ func LoadConfig() (*Config, error) {
 		VAPIDPrivateKey:    vapidPrivateKey,
 		VAPIDSubject:       os.Getenv("VAPID_SUBJECT"),
 		FCMCredentialsPath: os.Getenv("FCM_CREDENTIALS_PATH"),
+		AdminAPIKey:        adminAPIKey,
 		JWTExpiryDays:      jwtExpiryDays,
 	}, nil
 }

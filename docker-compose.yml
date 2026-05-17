@@ -86,6 +86,9 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # Optional: gates /api/admin/* endpoints (release registration).
+      # Empty value disables admin endpoints with 503 rather than 401.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
     healthcheck:
       test: ["CMD", "/app/messenger", "-health"]
       interval: 10s
