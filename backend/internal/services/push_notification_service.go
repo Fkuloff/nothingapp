@@ -162,6 +162,14 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 	return nil
 }
 
+// dismissPushTTL caps how long the push provider should keep an undelivered
+// dismiss queued for an offline device. Short on purpose — a dismiss issued
+// at t=10 must NOT arrive at t=100 and close a notification for a fresh
+// message that arrived at t=50. If the device is offline > a minute, the
+// situation has drifted enough that the dismiss is stale; better to drop and
+// let the chat-open hook clean up when the user actually comes back online.
+const dismissPushTTL = 60
+
 // SendDismiss fans a "dismiss notifications for this chat" data-only push to
 // all of recipientUserID's Web Push subscriptions and FCM tokens. Triggered
 // when the user reads / opens / deletes their way to "no unread messages
@@ -208,13 +216,23 @@ func (s *PushNotificationService) SendDismiss(ctx context.Context, recipientUser
 
 	bgCtx := context.Background()
 	for _, sub := range subs {
-		go s.sendToSubscription(bgCtx, sub, payloadJSON) //nolint:contextcheck // intentionally detached from caller context
+		// Short TTL on dismiss so the push provider drops it if the device
+		// has been offline more than a minute — see dismissPushTTL above
+		// for the race condition this avoids.
+		go s.sendToSubscriptionTTL(bgCtx, sub, payloadJSON, dismissPushTTL) //nolint:contextcheck // intentionally detached from caller context
 	}
 	return nil
 }
 
 // sendToSubscription sends push to a single subscription endpoint
+// with the default 24-hour TTL (regular messages).
 func (s *PushNotificationService) sendToSubscription(ctx context.Context, sub models.PushSubscription, payload []byte) {
+	s.sendToSubscriptionTTL(ctx, sub, payload, 86400)
+}
+
+// sendToSubscriptionTTL is the parameterized version — dismiss-pushes pass
+// a short TTL so a stale dismiss can't close a fresh-message notification.
+func (s *PushNotificationService) sendToSubscriptionTTL(ctx context.Context, sub models.PushSubscription, payload []byte, ttl int) {
 	subscription := &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys: webpush.Keys{
@@ -228,7 +246,7 @@ func (s *PushNotificationService) sendToSubscription(ctx context.Context, sub mo
 		Subscriber:      s.vapidSubject,
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,
-		TTL:             86400, // 24 hours
+		TTL:             ttl,
 		Urgency:         webpush.UrgencyHigh,
 	})
 	if err != nil {

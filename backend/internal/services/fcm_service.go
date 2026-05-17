@@ -168,6 +168,11 @@ func (s *FCMService) sendDismissToToken(ctx context.Context, t models.FCMToken, 
 		}
 	}()
 
+	// Short TTL so a stale dismiss can't close a notification for a
+	// brand-new message the user actually wants to see. If the device is
+	// offline > 60s the dismiss is dropped at FCM-server-side; the
+	// chat-open hook will catch up when the user actually comes back.
+	ttl := time.Minute
 	msg := &messaging.Message{
 		Token: t.Token,
 		// No Notification — pure data so the receiver handler always fires,
@@ -181,6 +186,7 @@ func (s *FCMService) sendDismissToToken(ctx context.Context, t models.FCMToken, 
 			// high priority so Doze / battery saver don't bury the dismiss
 			// for tens of minutes — dismiss is meant to feel near-instant.
 			Priority: "high",
+			TTL:      &ttl,
 		},
 	}
 

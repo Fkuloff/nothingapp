@@ -408,7 +408,12 @@ func (h *webSocketHandler) handleDeleteMessage(ctx context.Context, userID uint,
 	// everyone — only those who hit zero get the dismiss. Sender is included
 	// in the sweep (their unread state is unchanged by deleting their own
 	// message, so the EXISTS check skips them in practice).
-	h.fanoutDismissAfterUnreadChange(ctx, msgData.ChatID)
+	//
+	// Detached goroutine: for a 50-member group this is 50 sync EXISTS
+	// round-trips (~50-100ms total). We don't want to block the WS read
+	// loop on push housekeeping — the broadcast above already informed
+	// peers, dismiss is best-effort tray cleanup.
+	go h.fanoutDismissAfterUnreadChange(context.Background(), msgData.ChatID) //nolint:contextcheck // detached on purpose
 	return nil
 }
 
@@ -440,9 +445,17 @@ func (h *webSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgD
 // the user's push notifications for that chat from every device they have.
 // Covers the "tapped notification but didn't actually read anything" case
 // the mark_read-based dismiss would otherwise miss.
-func (h *webSocketHandler) handleChatOpened(_ context.Context, userID uint, msgData messageAction) error {
+//
+// Access-checked even though the dismiss is targeted at the caller's own
+// subscriptions — otherwise a malicious WS client could send arbitrary
+// chat_ids and amplify each WS frame into one outbound HTTP per push API
+// (web + FCM). Cheap DoS-amplification vector; gated by membership check.
+func (h *webSocketHandler) handleChatOpened(ctx context.Context, userID uint, msgData messageAction) error {
 	if msgData.ChatID == 0 {
 		return &wsError{message: "chat_id is required"}
+	}
+	if err := h.checkWSChatAccess(ctx, msgData.ChatID, userID); err != nil {
+		return err
 	}
 	h.fireDismissPush(userID, msgData.ChatID)
 	return nil

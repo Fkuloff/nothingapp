@@ -101,6 +101,7 @@ for the dismiss-push to bounce back.
 | Browser closed entirely (no SW process) | Dismiss delivers on next browser open / push wake | Standard web push lifecycle. |
 | Partial read (1 of N visible) | Tray entry **stays** because backend still sees `unread > 0` | By design — collapsed tray is a per-chat indicator, not per-message. Open the chat (mark_read empties everything) to clear it. |
 | Race: dismiss-push arrives **after** a fresh new-message push for the same chat | Tray briefly empty, then re-appears with the new message | Correct. The dismiss only closes the entries that exist at that moment; later pushes are independent. |
+| Stale dismiss after long offline period (e.g. plane mode > 1 min) | Push provider drops it; tray reflects current truth, not history | Both dismiss paths set a **60s TTL** (web push HTTP header + FCM `AndroidConfig.TTL`). Defends against the scenario "dismiss issued at t=10 arrives at t=100 and closes a tray entry for a NEW message that arrived at t=50". Regular new-message pushes keep their 24h TTL — those should always deliver eventually. |
 | User has multiple devices, reads on A | Devices B, C, D all clear within ~1s | Backend blasts dismiss to every subscription / FCM token of the user. The source device dismisses locally (instant) and gets the dismiss-push too (no-op since nothing to close). |
 | `pushService.SendDismiss` itself errors | Logged at WARN, no retry | Best-effort. Worst case: tray entry sticks until the user manually clears or opens the chat (which would re-fire). |
 
