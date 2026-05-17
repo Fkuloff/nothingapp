@@ -22,7 +22,10 @@ func NewAppReleaseRepo(db *gorm.DB) *AppReleaseRepo {
 // GetLatest returns the highest-VersionCode release for the given platform.
 // Returns (nil, nil) when no release rows exist yet — callers should treat
 // this as "up to date" so a fresh deploy without any releases registered
-// doesn't surface phantom update banners.
+// doesn't surface phantom update banners. Matches the (nil, nil)-on-empty
+// pattern already in use across this package (see UserRepo).
+//
+//nolint:nilnil // see godoc above; nil-result-with-nil-error is the API
 func (r *AppReleaseRepo) GetLatest(ctx context.Context, platform string) (*models.AppRelease, error) {
 	var rel models.AppRelease
 	err := r.db.WithContext(ctx).

@@ -72,10 +72,11 @@ type CreateReleaseRequest struct {
 	Changelog               string `json:"changelog"`
 }
 
-// CreateRelease validates + inserts a new release row. Auth happens upstream
-// at the handler (admin-only via X-Admin-Key); this function trusts the
-// caller has already cleared that gate, but does not trust the payload.
-func (s *AppReleaseService) CreateRelease(ctx context.Context, req CreateReleaseRequest) (*models.AppRelease, error) {
+// validateCreateRequest normalises + checks the admin-supplied payload and
+// returns a ready-to-persist AppRelease. Split out of CreateRelease so the
+// latter stays under gocyclo's cyclomatic-complexity threshold; pure
+// function, no side effects.
+func validateCreateRequest(req CreateReleaseRequest) (*models.AppRelease, error) {
 	platform := strings.TrimSpace(req.Platform)
 	if platform == "" {
 		platform = PlatformAndroid
@@ -113,12 +114,11 @@ func (s *AppReleaseService) CreateRelease(ctx context.Context, req CreateRelease
 		return nil, errors.New("size_bytes must be positive")
 	}
 
-	changelog := req.Changelog
-	if len(changelog) > maxChangelogLen {
+	if len(req.Changelog) > maxChangelogLen {
 		return nil, fmt.Errorf("changelog must be ≤ %d bytes", maxChangelogLen)
 	}
 
-	rel := &models.AppRelease{
+	return &models.AppRelease{
 		Platform:                platform,
 		VersionName:             versionName,
 		VersionCode:             req.VersionCode,
@@ -126,9 +126,20 @@ func (s *AppReleaseService) CreateRelease(ctx context.Context, req CreateRelease
 		URL:                     url,
 		SHA256:                  digest,
 		SizeBytes:               req.SizeBytes,
-		Changelog:               changelog,
+		Changelog:               req.Changelog,
 		ReleasedAt:              time.Now().UTC(),
+	}, nil
+}
+
+// CreateRelease validates + inserts a new release row. Auth happens upstream
+// at the handler (admin-only via X-Admin-Key); this function trusts the
+// caller has already cleared that gate, but does not trust the payload.
+func (s *AppReleaseService) CreateRelease(ctx context.Context, req CreateReleaseRequest) (*models.AppRelease, error) {
+	rel, err := validateCreateRequest(req)
+	if err != nil {
+		return nil, err
 	}
+
 	if err := s.repo.Create(ctx, rel); err != nil {
 		if strings.Contains(err.Error(), "idx_releases_platform_code") ||
 			strings.Contains(err.Error(), "duplicate key") {
@@ -136,9 +147,10 @@ func (s *AppReleaseService) CreateRelease(ctx context.Context, req CreateRelease
 		}
 		return nil, fmt.Errorf("persist release: %w", err)
 	}
+
 	s.log.Info("registered new app release",
-		zap.String("platform", platform),
-		zap.String("version_name", versionName),
+		zap.String("platform", rel.Platform),
+		zap.String("version_name", rel.VersionName),
 		zap.Int("version_code", rel.VersionCode),
 		zap.Int("min_supported", rel.MinSupportedVersionCode),
 		zap.Int64("size_bytes", rel.SizeBytes),

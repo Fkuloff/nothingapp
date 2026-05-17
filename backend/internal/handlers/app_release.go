@@ -51,10 +51,10 @@ func (h *appReleaseHandler) GetLatestRelease(c *gin.Context) {
 // length of the configured secret through timing.
 //
 // CI workflow (when set up):
-//   1. CI builds + signs APK, computes its SHA-256
-//   2. CI uploads APK to a public bucket
-//   3. CI POSTs the metadata here with X-Admin-Key=$ADMIN_API_KEY
-//   4. Backend persists the row + fires the WS broadcast hook
+//  1. CI builds + signs APK, computes its SHA-256
+//  2. CI uploads APK to a public bucket
+//  3. CI POSTs the metadata here with X-Admin-Key=$ADMIN_API_KEY
+//  4. Backend persists the row + fires the WS broadcast hook
 func (h *appReleaseHandler) CreateRelease(c *gin.Context) {
 	if h.adminAPIKey == "" {
 		// Refuse rather than 401 — clearer signal to admins that the env
