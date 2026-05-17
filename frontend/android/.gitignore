@@ -99,3 +99,11 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# Capacitor auto-regenerates these on every `cap sync` based on installed
+# plugins. Tracking them creates CRLF/LF noise diffs on Windows + risk of
+# stale plugin lists drifting from package.json. Each dev runs sync after
+# `npm install` to materialise them locally (already documented as the
+# canonical pre-build step in CLAUDE.md → `npm run sync:android`).
+app/capacitor.build.gradle
+capacitor.settings.gradle
