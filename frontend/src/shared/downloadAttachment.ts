@@ -10,12 +10,18 @@
 //   2. Tell the user where it landed via a toast (the caller renders it).
 //
 // We try in this order:
-//   * Directory.Documents → /storage/emulated/0/Documents/Messenger/<file>
-//     Visible in any file manager / Files app on Android 11+. No runtime
-//     permission needed for the app's own subdir of a public collection.
+//   * Directory.ExternalStorage + Download/<file>:
+//       /storage/emulated/0/Download/<file> — the system Downloads folder
+//       browsers also use. Works on Android ≤ 9 directly, on Android 10
+//       with `requestLegacyExternalStorage`, and on Android 11+ ONLY with
+//       MANAGE_EXTERNAL_STORAGE (which Google Play restricts). Almost
+//       always throws on modern Samsung / Pixel — we catch and move on.
+//   * Directory.Documents + Messenger/<file>:
+//       /storage/emulated/0/Documents/Messenger/<file>. Public collection,
+//       writable by any app to its own subdir without runtime permission
+//       on Android 11+. This is the reliable fallback.
 //   * Cache + @capacitor/share fallback for the rare case Documents write
-//     fails (very old Android, custom ROMs, locked-down devices). Worse
-//     UX (extra sheet) but at least the file isn't lost.
+//     also fails (very locked-down ROMs).
 
 import { isNative } from './platform'
 
@@ -43,7 +49,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 export type NativeDownloadResult =
-  | { ok: true; savedTo: 'documents'; humanPath: string }
+  | { ok: true; savedTo: 'download' | 'documents'; humanPath: string }
   | { ok: true; savedTo: 'shared' }
   | { ok: false; error: string }
 
@@ -65,7 +71,22 @@ export async function downloadAttachmentNative(
 
   const { Filesystem, Directory } = await import('@capacitor/filesystem')
 
-  // Primary path: public Documents/Messenger/<file>. Works without runtime
+  // Primary: real system Download folder. Almost certainly throws on
+  // Android 11+ unless MANAGE_EXTERNAL_STORAGE is granted, but worth a
+  // try — on older devices and some custom ROMs this works directly.
+  try {
+    await Filesystem.writeFile({
+      path: `Download/${safeName}`,
+      data: base64,
+      directory: Directory.ExternalStorage,
+      recursive: true,
+    })
+    return { ok: true, savedTo: 'download', humanPath: `Download/${safeName}` }
+  } catch (err) {
+    console.warn('ExternalStorage/Download write failed, trying Documents:', err)
+  }
+
+  // Fallback: public Documents/Messenger/<file>. Works without runtime
   // permission on Android 11+ because /Documents is a public MediaStore
   // collection and we're writing to our own subdir.
   try {
@@ -80,9 +101,9 @@ export async function downloadAttachmentNative(
     console.warn('Documents write failed, falling back to share sheet:', err)
   }
 
-  // Fallback: write to app cache + invoke the share sheet so the user can
-  // route the file wherever they want. Worse UX (extra sheet) but cache
-  // writes can't fail for permission reasons.
+  // Last resort: write to app cache + invoke the share sheet so the user
+  // can route the file wherever they want. Worse UX (extra sheet) but
+  // cache writes can't fail for permission reasons.
   try {
     const written = await Filesystem.writeFile({
       path: safeName,

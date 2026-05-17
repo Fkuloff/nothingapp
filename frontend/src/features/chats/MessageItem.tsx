@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 
 import type { Attachment, Message } from '../../shared/api/types'
+import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { useToast } from '../../shared/components/ToastContext'
 import { decryptFile, decryptMetadata, unwrapFileKey } from '../../shared/crypto/e2e'
 import { getChatKey } from '../../shared/crypto/peerKeys'
@@ -68,6 +69,11 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [decryptedBlob, setDecryptedBlob] = useState<Blob | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // True while the download-confirmation modal is on screen.
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  // True while the native save+share chain is running — disables modal
+  // buttons so we don't fire two downloads on a double-tap.
+  const [downloading, setDownloading] = useState(false)
   // Decrypted filename + mime — empty until decrypt completes.
   const [decryptedMeta, setDecryptedMeta] = useState<{ fileName: string; mimeType: string } | null>(null)
 
@@ -159,23 +165,51 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   const mimeType = decryptedMeta?.mimeType || 'application/octet-stream'
   const bucket = bucketFromMime(mimeType)
 
-  // Native (Capacitor WebView) doesn't honour the `<a download>` attribute —
-  // tapping the link does nothing. Intercept here: hand the decrypted blob
-  // to the helper which writes it straight into the public Documents/Messenger
-  // folder and tells us where it landed so we can surface a toast. On web we
-  // fall through and let the browser's download manager handle it as before.
+  // The chat-bubble document plate always opens a confirmation modal first:
+  // browsers fire `<a download>` instantly with no chance to cancel, and on
+  // native we'd silently start writing to disk. The modal gives the user a
+  // clear "Скачать file.pdf?" prompt before either path runs.
   const handleDocClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!isNative() || !decryptedBlob) return
     e.preventDefault()
-    void downloadAttachmentNative(decryptedBlob, fileName).then((res) => {
-      if (res.ok && res.savedTo === 'documents') {
-        showToast(`Сохранено: ${res.humanPath}`, 'success')
-      } else if (!res.ok) {
-        showToast('Не удалось скачать файл', 'error')
-        console.warn('native download failed:', res.error)
+    if (!blobUrl) return
+    setConfirmOpen(true)
+  }
+
+  // Confirm-flow: dispatch to the native helper or trigger a synthetic
+  // browser download. Either way, close the modal when we're done.
+  const handleConfirmDownload = () => {
+    if (downloading || !blobUrl) return
+
+    if (isNative()) {
+      if (!decryptedBlob) {
+        showToast('Файл ещё расшифровывается', 'warning')
+        return
       }
-      // savedTo === 'shared' → share sheet was shown; no extra toast needed.
-    })
+      setDownloading(true)
+      void downloadAttachmentNative(decryptedBlob, fileName).then((res) => {
+        setDownloading(false)
+        setConfirmOpen(false)
+        if (res.ok && (res.savedTo === 'download' || res.savedTo === 'documents')) {
+          showToast(`Сохранено: ${res.humanPath}`, 'success')
+        } else if (!res.ok) {
+          showToast('Не удалось скачать файл', 'error')
+          console.warn('native download failed:', res.error)
+        }
+        // savedTo === 'shared' → system share sheet already gave feedback.
+      })
+      return
+    }
+
+    // Web: synthesise an anchor click so the browser's download manager
+    // takes over (the visible <a> already has href/download, but it can't
+    // be the source of the click because we preventDefault'd it above).
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setConfirmOpen(false)
   }
 
   if (bucket === 'image') {
@@ -199,13 +233,25 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   }
 
   return (
-    <a href={blobUrl} download={fileName} className="attachment-document" onClick={handleDocClick}>
-      <span className="attachment-icon">📄</span>
-      <div className="attachment-info">
-        <span className="attachment-name">{fileName}</span>
-        <span className="attachment-size">{formatFileSize(att.file_size)}</span>
-      </div>
-    </a>
+    <>
+      <a href={blobUrl} download={fileName} className="attachment-document" onClick={handleDocClick}>
+        <span className="attachment-icon">📄</span>
+        <div className="attachment-info">
+          <span className="attachment-name">{fileName}</span>
+          <span className="attachment-size">{formatFileSize(att.file_size)}</span>
+        </div>
+      </a>
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        title="Скачать файл?"
+        message={`${fileName} (${formatFileSize(att.file_size)})`}
+        confirmLabel="Скачать"
+        cancelLabel="Отмена"
+        busy={downloading}
+        onConfirm={handleConfirmDownload}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
   )
 }
 
