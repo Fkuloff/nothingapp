@@ -205,6 +205,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.ChatParticipant{},
 		&models.PinnedMessage{},
 		&models.FCMToken{},
+		&models.AppRelease{},
 	); err != nil {
 		return err
 	}

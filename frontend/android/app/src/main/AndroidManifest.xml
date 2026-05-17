@@ -44,4 +44,13 @@
     <!-- FCM push notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!--
+        Self-update: needed to invoke PackageInstaller on the downloaded APK.
+        Special permission on Android 8+ (API 26+) — user is forced through
+        the system "Install unknown apps" toggle the first time they trigger
+        an update. We can deep-link them straight to that settings page but
+        can't bypass the toggle itself.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

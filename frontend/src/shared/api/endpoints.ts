@@ -64,4 +64,7 @@ export const endpoints = {
   ws: {
     global: '/ws',
   },
+  updates: {
+    latest: '/api/updates/latest',
+  },
 }

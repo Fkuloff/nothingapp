@@ -8,6 +8,8 @@ import { createRoot } from 'react-dom/client'
 import { AccountKeyProvider } from './features/auth/AccountKeyProvider'
 import { AuthProvider } from './features/auth/AuthContext'
 import { CallProvider } from './features/calls/CallProvider'
+import { UpdateMandatoryScreen } from './features/updates/UpdateMandatoryScreen'
+import { UpdateProvider } from './features/updates/UpdateProvider'
 import { AppRouter } from './router/AppRouter'
 import { hydrateAuthToken } from './shared/api/httpClient'
 import { ToastProvider } from './shared/components/Toast'
@@ -28,7 +30,19 @@ hydrateAuthToken().finally(() => {
             <AccountKeyProvider>
               <AuthProvider>
                 <CallProvider>
-                  <AppRouter />
+                  {/*
+                    UpdateProvider lives ABOVE AuthProvider's gating so the
+                    mandatory-update screen blocks even the login page — a
+                    user on an unsupported build shouldn't be able to log
+                    in (they may not be able to use the result anyway). The
+                    Screen renders its children unchanged when no mandatory
+                    update is in flight.
+                  */}
+                  <UpdateProvider>
+                    <UpdateMandatoryScreen>
+                      <AppRouter />
+                    </UpdateMandatoryScreen>
+                  </UpdateProvider>
                 </CallProvider>
               </AuthProvider>
             </AccountKeyProvider>

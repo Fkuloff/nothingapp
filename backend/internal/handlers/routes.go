@@ -52,6 +52,8 @@ func SetupRoutes(
 	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
 	pinnedMessageRepo := repositories.NewPinnedMessageRepo(db)
 	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, envelopeRepo, chatRepo, participantRepo, userRepo)
+	appReleaseRepo := repositories.NewAppReleaseRepo(db)
+	appReleaseService := services.NewAppReleaseService(logger, appReleaseRepo)
 
 	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
 
@@ -72,6 +74,7 @@ func SetupRoutes(
 	healthH := newHealthHandler(db)
 	groupH := newGroupHandler(groupService, presenceService, userService)
 	pinH := newPinHandler(pinService, fileStorage)
+	releaseH := newAppReleaseHandler(appReleaseService, cfg.AdminAPIKey, logger)
 
 	// Configure presence service to broadcast status changes via WebSocket
 	presenceService.SetOnChangeCallback(wsH.broadcastPresenceChange)
@@ -99,6 +102,16 @@ func SetupRoutes(
 	// Public avatar endpoints
 	router.GET("/api/avatars/:user_id", userH.GetAvatar)
 	router.GET("/api/group-avatars/:chat_id", groupH.GetGroupAvatar)
+
+	// Self-update: latest-release lookup is public so unauthenticated clients
+	// (e.g. an app stuck on a mandatory-update screen before login) can still
+	// poll for the build they need to install.
+	router.GET("/api/updates/latest", releaseH.GetLatestRelease)
+
+	// Admin endpoint for registering new releases. Auth is via X-Admin-Key
+	// header (NOT JWT) so the CI pipeline doesn't need to mint a real user
+	// session. Disabled when ADMIN_API_KEY is unset (returns 503).
+	router.POST("/api/admin/releases", releaseH.CreateRelease)
 
 	// WebSocket endpoint with JWT middleware
 	router.GET("/ws", jwtMiddleware(secret, logger, tokenTTL), wsH.HandleWebSocket)

@@ -7,9 +7,10 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // Register our custom MediaStore-backed Downloads plugin BEFORE
-        // super.onCreate so the Capacitor bridge sees it during boot.
+        // Register our custom plugins BEFORE super.onCreate so the Capacitor
+        // bridge sees them during boot.
         registerPlugin(DownloadsPlugin.class);
+        registerPlugin(UpdaterPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
