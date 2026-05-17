@@ -593,7 +593,9 @@ textarea::placeholder,
   background: var(--bg-hover);
   border-color: var(--accent-primary);
   color: var(--accent-primary);
-  transform: translateX(2px);
+  /* No transform on hover — the shift looked jittery especially with
+     the bubble bleed-margins, and made the plate visibly "slide" under
+     the bubble's rounded corners. Keep just the colour/border highlight. */
 }
 
 /* Loading + error placeholders use the same chrome as the real document so
@@ -1758,11 +1760,14 @@ textarea::placeholder,
 
 .confirm-dialog__btn {
   min-width: 88px;
-  padding: 8px 18px;
+  /* 12px vertical so the button reads as a comfortable tap target
+     (~40px total height with 0.9rem text) rather than a thin bar. */
+  padding: 12px 18px;
   border: none;
   border-radius: var(--radius-md);
   font-size: 0.9rem;
   font-weight: 550;
+  line-height: 1.2;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
 }
