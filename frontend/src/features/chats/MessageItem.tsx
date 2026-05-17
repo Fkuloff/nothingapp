@@ -186,7 +186,7 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
         return
       }
       setDownloading(true)
-      void downloadAttachmentNative(decryptedBlob, fileName).then((res) => {
+      void downloadAttachmentNative(decryptedBlob, fileName, mimeType).then((res) => {
         setDownloading(false)
         setConfirmOpen(false)
         if (res.ok && (res.savedTo === 'download' || res.savedTo === 'documents')) {

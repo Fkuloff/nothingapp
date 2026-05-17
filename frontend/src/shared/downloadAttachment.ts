@@ -4,25 +4,24 @@
 // browser routes the click through its download manager. The Capacitor
 // Android WebView does NOT honour `download`: nothing happens, the file
 // stays inside the WebView's memory. So on native we have to manually:
-//   1. Write the decrypted Blob to a user-visible directory via
-//      @capacitor/filesystem (round-tripping through base64 because the
-//      Android bridge marshals strings, not Blobs).
+//   1. Write the decrypted Blob to a user-visible directory.
 //   2. Tell the user where it landed via a toast (the caller renders it).
 //
 // We try in this order:
-//   * Directory.ExternalStorage + Download/<file>:
-//       /storage/emulated/0/Download/<file> — the system Downloads folder
-//       browsers also use. Works on Android ≤ 9 directly, on Android 10
-//       with `requestLegacyExternalStorage`, and on Android 11+ ONLY with
-//       MANAGE_EXTERNAL_STORAGE (which Google Play restricts). Almost
-//       always throws on modern Samsung / Pixel — we catch and move on.
+//   * Custom DownloadsPlugin → MediaStore.Downloads (Android 10+):
+//       Drops the file in /storage/emulated/0/Download/ exactly like a
+//       browser would, with the system "Download complete" notification.
+//       No permissions needed — MediaStore.Downloads is Google's
+//       sanctioned API for non-file-manager apps to write to /Download.
 //   * Directory.Documents + Messenger/<file>:
 //       /storage/emulated/0/Documents/Messenger/<file>. Public collection,
-//       writable by any app to its own subdir without runtime permission
-//       on Android 11+. This is the reliable fallback.
-//   * Cache + @capacitor/share fallback for the rare case Documents write
-//     also fails (very locked-down ROMs).
+//       writable by any app to its own subdir without runtime permission.
+//       Fallback for Android < 10 (where MediaStore.Downloads doesn't
+//       exist) and for the rare case the MediaStore call itself fails.
+//   * Cache + @capacitor/share — last-resort if even Documents fails
+//     (extremely locked-down ROMs).
 
+import { Downloads } from './nativeDownloads'
 import { isNative } from './platform'
 
 /** Strip path-traversal characters from a user-supplied filename so we can
@@ -63,28 +62,25 @@ export type NativeDownloadResult =
 export async function downloadAttachmentNative(
   blob: Blob,
   fileName: string,
+  mimeType: string = 'application/octet-stream',
 ): Promise<NativeDownloadResult> {
   if (!isNative()) return { ok: false, error: 'not native' }
 
   const safeName = sanitizeFileName(fileName)
   const base64 = await blobToBase64(blob)
 
-  const { Filesystem, Directory } = await import('@capacitor/filesystem')
-
-  // Primary: real system Download folder. Almost certainly throws on
-  // Android 11+ unless MANAGE_EXTERNAL_STORAGE is granted, but worth a
-  // try — on older devices and some custom ROMs this works directly.
+  // Primary: our custom DownloadsPlugin → MediaStore.Downloads on Android
+  // 10+. Lands the file in /storage/emulated/0/Download/ exactly like a
+  // browser, with the system "Download complete" notification, no perms.
+  // Rejects with "unsupported_api" on Android < 10 → we fall through.
   try {
-    await Filesystem.writeFile({
-      path: `Download/${safeName}`,
-      data: base64,
-      directory: Directory.ExternalStorage,
-      recursive: true,
-    })
-    return { ok: true, savedTo: 'download', humanPath: `Download/${safeName}` }
+    const res = await Downloads.saveToDownloads({ data: base64, fileName: safeName, mimeType })
+    return { ok: true, savedTo: 'download', humanPath: res.path }
   } catch (err) {
-    console.warn('ExternalStorage/Download write failed, trying Documents:', err)
+    console.warn('MediaStore Downloads failed, trying Documents:', err)
   }
+
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
 
   // Fallback: public Documents/Messenger/<file>. Works without runtime
   // permission on Android 11+ because /Documents is a public MediaStore
