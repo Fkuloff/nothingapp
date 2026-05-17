@@ -27,6 +27,17 @@ type PushPayload struct {
 	Tag    string `json:"tag,omitempty"`
 }
 
+// dismissPayload is the wire shape for a "close notifications for this chat"
+// signal. No title / body — the service worker (web) and the Capacitor
+// pushNotificationReceived handler (Android) branch on type=="dismiss" and
+// call getNotifications + close / removeDeliveredNotifications, without
+// showing anything new in the tray.
+type dismissPayload struct {
+	Type   string `json:"type"`
+	ChatID uint   `json:"chat_id"`
+	Tag    string `json:"tag"`
+}
+
 // PushNotificationService fans push notifications out to Web Push (VAPID) and FCM (mobile).
 type PushNotificationService struct {
 	logger          *zap.Logger
@@ -148,6 +159,57 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 		go s.sendToSubscription(bgCtx, sub, payloadJSON) //nolint:contextcheck // intentionally detached from caller context
 	}
 
+	return nil
+}
+
+// SendDismiss fans a "dismiss notifications for this chat" data-only push to
+// all of recipientUserID's Web Push subscriptions and FCM tokens. Triggered
+// when the user reads / opens / deletes their way to "no unread messages
+// remaining in chat X" on one device, so the same notification gets
+// cleared from the tray on every other device they have.
+//
+// Idempotent + safe to over-fire: getNotifications + close is a no-op when
+// nothing matches the tag (the receiving device might have already cleared
+// it via WS handler, OS click dismiss, etc).
+func (s *PushNotificationService) SendDismiss(ctx context.Context, recipientUserID, chatID uint) error {
+	// FCM fan-out (mobile) runs in parallel to VAPID (web).
+	if s.fcm != nil && s.fcm.IsEnabled() {
+		if err := s.fcm.SendDismiss(ctx, recipientUserID, chatID); err != nil {
+			s.logger.Warn("FCM dismiss fan-out failed", zap.Error(err), zap.Uint("user_id", recipientUserID))
+		}
+	}
+
+	if !s.enabled {
+		return nil
+	}
+
+	subs, err := s.pushSubRepo.GetByUser(ctx, recipientUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get push subscriptions: %w", err)
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+
+	payloadJSON, err := json.Marshal(dismissPayload{
+		Type:   "dismiss",
+		ChatID: chatID,
+		Tag:    fmt.Sprintf("chat-%d", chatID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal dismiss payload: %w", err)
+	}
+
+	s.logger.Debug("sending dismiss push",
+		zap.Uint("recipient_id", recipientUserID),
+		zap.Uint("chat_id", chatID),
+		zap.Int("subscription_count", len(subs)),
+	)
+
+	bgCtx := context.Background()
+	for _, sub := range subs {
+		go s.sendToSubscription(bgCtx, sub, payloadJSON) //nolint:contextcheck // intentionally detached from caller context
+	}
 	return nil
 }
 

@@ -65,6 +65,7 @@ func SetupRoutes(
 	wsH := newWebSocketHandler(chatService, presenceService, pushService, userService, logger, fileStorage)
 	wsH.SetGroupService(groupService, participantRepo)
 	wsH.SetAttachmentService(attachmentService)
+	wsH.SetUnreadMessageRepo(unreadMessageRepo)
 	attachH := newAttachmentHandler(attachmentService, chatService, wsH, participantRepo, fileStorage)
 	fileH := newFileHandler(fileStorage, logger)
 	pushH := newPushHandler(pushService, fcmService, logger)
@@ -77,6 +78,9 @@ func SetupRoutes(
 
 	// Configure chat handler to broadcast chat events (clear/delete) via WebSocket
 	chatH.SetOnChatEventCallback(wsH.broadcastChatEvent)
+	// And to fan out dismiss-pushes after destructive chat ops drain unread
+	// for every participant — keeps notification trays in sync across devices.
+	chatH.SetOnUnreadDrainedCallback(wsH.dismissForParticipants)
 
 	// Configure group handler to broadcast group events via WebSocket
 	groupH.setOnGroupEventCallback(wsH.broadcastGroupEvent)

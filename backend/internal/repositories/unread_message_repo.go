@@ -53,6 +53,20 @@ func (r *UnreadMessageRepo) DeleteByUser(ctx context.Context, userID uint) error
 		Delete(&models.UnreadMessage{}).Error
 }
 
+// HasUnreadInChat returns true if userID still has at least one unread
+// message in chatID. Used by the auto-dismiss path: after a delete /
+// clear_chat / etc. we check this per recipient to decide whether to fire
+// a SendDismiss push.
+func (r *UnreadMessageRepo) HasUnreadInChat(ctx context.Context, userID, chatID uint) (bool, error) {
+	var n int64
+	err := r.db.WithContext(ctx).
+		Model(&models.UnreadMessage{}).
+		Where("user_id = ? AND chat_id = ?", userID, chatID).
+		Limit(1).
+		Count(&n).Error
+	return n > 0, err
+}
+
 // GetUnreadCounts returns count of unread messages per chat for a user
 func (r *UnreadMessageRepo) GetUnreadCounts(ctx context.Context, userID uint) (map[uint]int64, error) {
 	var results []struct {

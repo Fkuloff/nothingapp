@@ -31,6 +31,22 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  // Dismiss-type push: backend tells us "this chat is now read on some
+  // other device, clear any tray entries for it here too". Close every
+  // notification whose tag matches chat-<chatId> and stop — don't show
+  // anything new. Backend fires this on mark_read / delete_message /
+  // clear_chat / delete_chat / chat_opened.
+  if (payload.type === 'dismiss' && (payload.chat_id !== undefined || payload.tag)) {
+    const tag = payload.tag || `chat-${payload.chat_id}`
+    event.waitUntil(
+      self.registration.getNotifications({ tag }).then((notifs) => {
+        console.log(`[SW] dismiss for ${tag}: closing ${notifs.length} notif(s)`)
+        notifs.forEach((n) => n.close())
+      }),
+    )
+    return
+  }
+
   const options = {
     body: payload.body || '',
     icon: '/favicon.svg',

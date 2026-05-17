@@ -14,6 +14,7 @@ import { getUserPresence } from '../shared/api/presenceApi'
 import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEnvelope, WSEvent } from '../shared/api/types'
 import { decryptIncomingText } from '../shared/crypto/decryptIncoming'
 import { getChatKey } from '../shared/crypto/peerKeys'
+import { dismissChatNotifications } from '../shared/dismissChatNotifications'
 
 // selectScheme2Payload picks (ciphertext, iv) for a scheme=2 WS broadcast. For
 // 1-on-1 it's just the top-level text/iv. For group pairwise (envelopes set)
@@ -608,11 +609,17 @@ export default function ChatsPage() {
     }
   }, [activeChatId, loadMessages])
 
-  // Notify server about read status (separate effect to avoid reloading on WS reconnect)
+  // Notify server about read status (separate effect to avoid reloading on WS reconnect).
+  // Also immediately clears any local tray notifications for this chat — the
+  // backend dispatch of dismiss-pushes (triggered by the mark_read action) will
+  // handle OTHER devices, but doing it locally too avoids the user staring at
+  // their own tray entry for a second after they've already opened the chat.
   useEffect(() => {
-    if (activeChatId && isConnected) {
+    if (!activeChatId) return
+    if (isConnected) {
       send({ action: 'mark_read', chat_id: activeChatId })
     }
+    void dismissChatNotifications(activeChatId)
   }, [activeChatId, isConnected, send])
 
   const handleClearChat = useCallback(async (chatId: number) => {
