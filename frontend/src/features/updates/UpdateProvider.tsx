@@ -5,9 +5,6 @@ import { Updater } from '../../shared/nativeUpdater'
 import { isNative } from '../../shared/platform'
 import { UpdateContext, type UpdateState } from './UpdateContext'
 
-/** How often we silently re-poll /api/updates/latest on cold start. */
-const CHECK_DEBOUNCE_MS = 24 * 60 * 60 * 1000 // 24h
-
 const PREFS_LAST_CHECK = 'update_check_last_at'
 const PREFS_DISMISSED_CODE = 'update_dismissed_version_code'
 
@@ -63,21 +60,15 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       }
       const currentCode = currentVersionRef.current
 
-      // Debounce: skip if we polled recently and the user didn't ask to
-      // force a re-check. Stored as ms-since-epoch in Preferences.
-      if (!force) {
-        const { Preferences } = await import('@capacitor/preferences')
-        const { value } = await Preferences.get({ key: PREFS_LAST_CHECK })
-        if (value) {
-          const last = Number(value)
-          if (Number.isFinite(last) && Date.now() - last < CHECK_DEBOUNCE_MS) {
-            // Still mark up_to_date — we don't have a fresh server response
-            // but the cached situation is "no banner shown".
-            setStateIfDifferent({ status: 'up_to_date', currentVersionCode: currentCode })
-            return
-          }
-        }
-      }
+      // Note: a previous version used a 24h debounce here to skip the
+      // HTTP poll on rapid cold starts. That had a bug — when the
+      // debounce hit, we set state to 'up_to_date' unconditionally,
+      // which hid the banner even when an available release existed in
+      // memory. Until we persist the release-row itself across cold
+      // starts (and re-evaluate the version comparison from cache), the
+      // simpler invariant is to always poll. ~300-byte response is
+      // cheap; cold starts are infrequent enough that this isn't load.
+      void force // intentionally unused while the debounce is disabled
 
       let latest
       try {
