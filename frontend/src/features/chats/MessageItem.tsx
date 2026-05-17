@@ -3,6 +3,8 @@ import { memo, useCallback, useEffect, useState } from 'react'
 import type { Attachment, Message } from '../../shared/api/types'
 import { decryptFile, decryptMetadata, unwrapFileKey } from '../../shared/crypto/e2e'
 import { getChatKey } from '../../shared/crypto/peerKeys'
+import { downloadAttachmentNative } from '../../shared/downloadAttachment'
+import { isNative } from '../../shared/platform'
 import { formatFileSize, formatMessageTime } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
 import { ImageLightbox } from './ImageLightbox'
@@ -62,6 +64,7 @@ function bucketFromMime(mime: string): 'image' | 'video' | 'document' {
 function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps) {
   const accountKeyCtx = useAccountKey()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [decryptedBlob, setDecryptedBlob] = useState<Blob | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Decrypted filename + mime — empty until decrypt completes.
   const [decryptedMeta, setDecryptedMeta] = useState<{ fileName: string; mimeType: string } | null>(null)
@@ -105,6 +108,10 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
         if (cancelled) return
         currentUrl = URL.createObjectURL(decrypted)
         setBlobUrl(currentUrl)
+        // Keep the raw Blob too — native download path needs the bytes
+        // (can't read them back from blob: URL through the Capacitor
+        // WebView's restricted fetch on a fresh tab).
+        setDecryptedBlob(decrypted)
       } catch (err) {
         if (!cancelled) {
           console.warn('attachment decrypt failed:', err)
@@ -150,6 +157,19 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   const mimeType = decryptedMeta?.mimeType || 'application/octet-stream'
   const bucket = bucketFromMime(mimeType)
 
+  // Native (Capacitor WebView) doesn't honour the `<a download>` attribute —
+  // tapping the link does nothing. Intercept here: write the decrypted blob
+  // to the app's cache directory and pop the native share sheet so the user
+  // can save it to Files / open with another app. On web we fall through
+  // and let the browser's download manager handle it as before.
+  const handleDocClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!isNative() || !decryptedBlob) return
+    e.preventDefault()
+    void downloadAttachmentNative(decryptedBlob, fileName).catch((err) => {
+      console.warn('native download failed:', err)
+    })
+  }
+
   if (bucket === 'image') {
     return (
       <button
@@ -171,7 +191,7 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   }
 
   return (
-    <a href={blobUrl} download={fileName} className="attachment-document">
+    <a href={blobUrl} download={fileName} className="attachment-document" onClick={handleDocClick}>
       <span className="attachment-icon">📄</span>
       <div className="attachment-info">
         <span className="attachment-name">{fileName}</span>

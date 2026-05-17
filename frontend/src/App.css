@@ -593,7 +593,9 @@ textarea::placeholder,
   background: var(--bg-hover);
   border-color: var(--accent-primary);
   color: var(--accent-primary);
-  transform: translateX(2px);
+  /* No transform on hover — the shift looked jittery especially with
+     the bubble bleed-margins, and made the plate visibly "slide" under
+     the bubble's rounded corners. Keep just the colour/border highlight. */
 }
 
 /* Loading + error placeholders use the same chrome as the real document so
