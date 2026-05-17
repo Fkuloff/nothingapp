@@ -435,7 +435,7 @@ func (h *webSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgD
 
 	// User's unread for this chat is now empty (MarkChatAsRead wiped it);
 	// dismiss any push notifications still sitting on their other devices.
-	h.fireDismissPush(userID, msgData.ChatID)
+	h.fireDismissPush(ctx, userID, msgData.ChatID)
 
 	return nil
 }
@@ -457,7 +457,7 @@ func (h *webSocketHandler) handleChatOpened(ctx context.Context, userID uint, ms
 	if err := h.checkWSChatAccess(ctx, msgData.ChatID, userID); err != nil {
 		return err
 	}
-	h.fireDismissPush(userID, msgData.ChatID)
+	h.fireDismissPush(ctx, userID, msgData.ChatID)
 	return nil
 }
 
@@ -466,11 +466,15 @@ func (h *webSocketHandler) handleChatOpened(ctx context.Context, userID uint, ms
 // should not be seeing a notification for this chat anymore (either by
 // emptying their unread, or by entering the chat). Idempotent on the
 // receiver: getNotifications + close is a no-op when nothing matches.
-func (h *webSocketHandler) fireDismissPush(userID, chatID uint) {
+//
+// Accepts the caller's ctx for contextcheck-lint satisfaction but the actual
+// HTTP call uses context.Background() — push delivery must not be canceled
+// when the originating WS frame finishes processing.
+func (h *webSocketHandler) fireDismissPush(_ context.Context, userID, chatID uint) {
 	if h.pushService == nil || !h.pushService.IsEnabled() {
 		return
 	}
-	go func() {
+	go func() { //nolint:contextcheck // intentionally detached — see comment above
 		defer func() {
 			if r := recover(); r != nil {
 				h.logger.Error("panic in dismiss-push goroutine", zap.Any("panic", r))
@@ -509,7 +513,7 @@ func (h *webSocketHandler) fireDismissPushIfRead(ctx context.Context, recipientI
 	if has {
 		return
 	}
-	h.fireDismissPush(recipientID, chatID)
+	h.fireDismissPush(ctx, recipientID, chatID)
 }
 
 // fanoutDismissAfterUnreadChange iterates every participant of chatID and
@@ -556,7 +560,7 @@ func (h *webSocketHandler) fanoutDismissAfterUnreadChange(ctx context.Context, c
 // BEFORE the destructive op so DeleteChat's row removal doesn't strand the
 // lookup. Fire unconditional dismiss — no EXISTS check, the row count is
 // guaranteed zero post-op.
-func (h *webSocketHandler) dismissForParticipants(_ context.Context, chatID uint, participantIDs []uint) {
+func (h *webSocketHandler) dismissForParticipants(ctx context.Context, chatID uint, participantIDs []uint) {
 	if h.pushService == nil || !h.pushService.IsEnabled() {
 		return
 	}
@@ -564,7 +568,7 @@ func (h *webSocketHandler) dismissForParticipants(_ context.Context, chatID uint
 		if uid == 0 {
 			continue
 		}
-		h.fireDismissPush(uid, chatID)
+		h.fireDismissPush(ctx, uid, chatID)
 	}
 }
 
