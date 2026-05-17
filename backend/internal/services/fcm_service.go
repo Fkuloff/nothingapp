@@ -122,6 +122,91 @@ func (s *FCMService) SendNotification(ctx context.Context, recipientUserID uint,
 	return nil
 }
 
+// SendDismiss delivers a data-only FCM message to every registered token of
+// recipientUserID. The receiving Capacitor handler branches on
+// data.type=="dismiss" and calls removeDeliveredNotifications for any
+// tray entries with tag "chat-<chatID>". Data-only (no Notification field)
+// is required so the message hits the app's onMessageReceived path in
+// background as well as foreground; if we set Notification here, Android
+// would auto-display it and our handler wouldn't see it until tap.
+//
+// Caveat: force-stopped Android apps don't receive data-only messages —
+// the tray entry stays until the user next opens the app, at which point
+// the WS reconnect + chat-open hook will catch up. Same trade-off
+// every messenger has on Android.
+func (s *FCMService) SendDismiss(ctx context.Context, recipientUserID, chatID uint) error {
+	if !s.enabled {
+		return nil
+	}
+
+	tokens, err := s.tokenRepo.GetByUser(ctx, recipientUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get FCM tokens: %w", err)
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	s.logger.Debug("sending FCM dismiss",
+		zap.Uint("recipient_id", recipientUserID),
+		zap.Uint("chat_id", chatID),
+		zap.Int("token_count", len(tokens)),
+	)
+
+	bgCtx := context.Background()
+	for _, t := range tokens {
+		go s.sendDismissToToken(bgCtx, t, chatID) //nolint:contextcheck // detached from caller
+	}
+	return nil
+}
+
+// sendDismissToToken sends one data-only FCM message and prunes invalid tokens.
+func (s *FCMService) sendDismissToToken(ctx context.Context, t models.FCMToken, chatID uint) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("panic in FCM dismiss goroutine", zap.Any("panic", r))
+		}
+	}()
+
+	// Short TTL so a stale dismiss can't close a notification for a
+	// brand-new message the user actually wants to see. If the device is
+	// offline > 60s the dismiss is dropped at FCM-server-side; the
+	// chat-open hook will catch up when the user actually comes back.
+	ttl := time.Minute
+	msg := &messaging.Message{
+		Token: t.Token,
+		// No Notification — pure data so the receiver handler always fires,
+		// not Android's auto-display path.
+		Data: map[string]string{
+			"type":    "dismiss",
+			"chat_id": strconv.FormatUint(uint64(chatID), 10),
+			"tag":     fmt.Sprintf("chat-%d", chatID),
+		},
+		Android: &messaging.AndroidConfig{
+			// high priority so Doze / battery saver don't bury the dismiss
+			// for tens of minutes — dismiss is meant to feel near-instant.
+			Priority: "high",
+			TTL:      &ttl,
+		},
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, fcmSendTimeout)
+	defer cancel()
+
+	if _, err := s.client.Send(sendCtx, msg); err != nil {
+		if messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err) {
+			s.logger.Info("FCM token invalid on dismiss, removing",
+				zap.Uint("user_id", t.UserID),
+			)
+			if delErr := s.tokenRepo.DeleteByTokenGlobal(ctx, t.Token); delErr != nil {
+				s.logger.Error("failed to prune invalid FCM token", zap.Error(delErr))
+			}
+			return
+		}
+		s.logger.Warn("FCM dismiss send failed", zap.Error(err), zap.Uint("user_id", t.UserID))
+	}
+}
+
 // sendToToken delivers to a single device token and prunes on permanent failure.
 func (s *FCMService) sendToToken(ctx context.Context, t models.FCMToken, payload PushPayload) {
 	defer func() {

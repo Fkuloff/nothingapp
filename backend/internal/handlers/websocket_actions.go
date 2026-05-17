@@ -401,6 +401,19 @@ func (h *webSocketHandler) handleDeleteMessage(ctx context.Context, userID uint,
 			zap.Uint("chat_id", msgData.ChatID),
 		)
 	}
+
+	// After delete: any recipient whose unread for this chat dropped to zero
+	// shouldn't keep seeing a tray notification for it. Per-recipient check
+	// because the deleted message may not have been the LAST unread for
+	// everyone — only those who hit zero get the dismiss. Sender is included
+	// in the sweep (their unread state is unchanged by deleting their own
+	// message, so the EXISTS check skips them in practice).
+	//
+	// Detached goroutine: for a 50-member group this is 50 sync EXISTS
+	// round-trips (~50-100ms total). We don't want to block the WS read
+	// loop on push housekeeping — the broadcast above already informed
+	// peers, dismiss is best-effort tray cleanup.
+	go h.fanoutDismissAfterUnreadChange(context.Background(), msgData.ChatID) //nolint:contextcheck // detached on purpose
 	return nil
 }
 
@@ -420,7 +433,143 @@ func (h *webSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgD
 		return &wsError{message: "Failed to mark messages as read"}
 	}
 
+	// User's unread for this chat is now empty (MarkChatAsRead wiped it);
+	// dismiss any push notifications still sitting on their other devices.
+	h.fireDismissPush(ctx, userID, msgData.ChatID)
+
 	return nil
+}
+
+// handleChatOpened is the "I'm in this chat right now" signal — fires when
+// the frontend mounts a chat view. Doesn't mutate unread state; just clears
+// the user's push notifications for that chat from every device they have.
+// Covers the "tapped notification but didn't actually read anything" case
+// the mark_read-based dismiss would otherwise miss.
+//
+// Access-checked even though the dismiss is targeted at the caller's own
+// subscriptions — otherwise a malicious WS client could send arbitrary
+// chat_ids and amplify each WS frame into one outbound HTTP per push API
+// (web + FCM). Cheap DoS-amplification vector; gated by membership check.
+func (h *webSocketHandler) handleChatOpened(ctx context.Context, userID uint, msgData messageAction) error {
+	if msgData.ChatID == 0 {
+		return &wsError{message: "chat_id is required"}
+	}
+	if err := h.checkWSChatAccess(ctx, msgData.ChatID, userID); err != nil {
+		return err
+	}
+	h.fireDismissPush(ctx, userID, msgData.ChatID)
+	return nil
+}
+
+// fireDismissPush kicks off a background dismiss push to the user's other
+// devices. Unconditional — callers have already established that this user
+// should not be seeing a notification for this chat anymore (either by
+// emptying their unread, or by entering the chat). Idempotent on the
+// receiver: getNotifications + close is a no-op when nothing matches.
+//
+// Accepts the caller's ctx for contextcheck-lint satisfaction but the actual
+// HTTP call uses context.Background() — push delivery must not be canceled
+// when the originating WS frame finishes processing.
+func (h *webSocketHandler) fireDismissPush(_ context.Context, userID, chatID uint) {
+	if h.pushService == nil || !h.pushService.IsEnabled() {
+		return
+	}
+	go func() { //nolint:contextcheck // intentionally detached — see comment above
+		defer func() {
+			if r := recover(); r != nil {
+				h.logger.Error("panic in dismiss-push goroutine", zap.Any("panic", r))
+			}
+		}()
+		if err := h.pushService.SendDismiss(context.Background(), userID, chatID); err != nil {
+			h.logger.Warn("dismiss push failed",
+				zap.Error(err),
+				zap.Uint("user_id", userID),
+				zap.Uint("chat_id", chatID),
+			)
+		}
+	}()
+}
+
+// fireDismissPushIfRead is the per-recipient version: only dispatches if
+// recipientID's unread for chatID has actually hit zero. Used after
+// delete_message and clear_chat where we don't know in advance which
+// recipients lost their last unread.
+func (h *webSocketHandler) fireDismissPushIfRead(ctx context.Context, recipientID, chatID uint) {
+	if h.pushService == nil || !h.pushService.IsEnabled() {
+		return
+	}
+	if h.unreadMessageRepo == nil {
+		return
+	}
+	has, err := h.unreadMessageRepo.HasUnreadInChat(ctx, recipientID, chatID)
+	if err != nil {
+		h.logger.Warn("unread check failed for dismiss",
+			zap.Error(err),
+			zap.Uint("user_id", recipientID),
+			zap.Uint("chat_id", chatID),
+		)
+		return
+	}
+	if has {
+		return
+	}
+	h.fireDismissPush(ctx, recipientID, chatID)
+}
+
+// fanoutDismissAfterUnreadChange iterates every participant of chatID and
+// fires a per-recipient dismiss-if-read check. Used after operations that
+// can drop someone's unread count to zero in bulk (delete_message). For
+// 1-on-1 chats this is exactly 2 cheap EXISTS queries; for max-50-member
+// groups it's 50 — still trivial. The fire-and-forget dismiss inside
+// fireDismissPushIfRead spins its own goroutine so a slow push provider
+// can't back up the WS handler.
+func (h *webSocketHandler) fanoutDismissAfterUnreadChange(ctx context.Context, chatID uint) {
+	if h.pushService == nil || !h.pushService.IsEnabled() {
+		return
+	}
+	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
+	if err != nil {
+		h.logger.Warn("fanout dismiss: chat lookup failed", zap.Error(err), zap.Uint("chat_id", chatID))
+		return
+	}
+	var memberIDs []uint
+	if chat.IsGroup {
+		if h.participantRepo == nil {
+			return
+		}
+		ids, perr := h.participantRepo.GetParticipantUserIDs(ctx, chatID)
+		if perr != nil {
+			h.logger.Warn("fanout dismiss: participants lookup failed", zap.Error(perr))
+			return
+		}
+		memberIDs = ids
+	} else {
+		memberIDs = []uint{chat.GetUser1ID(), chat.GetUser2ID()}
+	}
+	for _, uid := range memberIDs {
+		if uid == 0 {
+			continue
+		}
+		h.fireDismissPushIfRead(ctx, uid, chatID)
+	}
+}
+
+// dismissForParticipants is the unconditional version used for chat-level
+// destructive ops (clear / delete) where we know every participant's unread
+// for the chat just got wiped. participantIDs is captured by the caller
+// BEFORE the destructive op so DeleteChat's row removal doesn't strand the
+// lookup. Fire unconditional dismiss — no EXISTS check, the row count is
+// guaranteed zero post-op.
+func (h *webSocketHandler) dismissForParticipants(ctx context.Context, chatID uint, participantIDs []uint) {
+	if h.pushService == nil || !h.pushService.IsEnabled() {
+		return
+	}
+	for _, uid := range participantIDs {
+		if uid == 0 {
+			continue
+		}
+		h.fireDismissPush(ctx, uid, chatID)
+	}
 }
 
 // checkWSChatAccess verifies the user has access to the chat (1-on-1 or group).

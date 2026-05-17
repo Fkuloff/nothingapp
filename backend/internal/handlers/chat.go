@@ -19,6 +19,15 @@ type chatHandler struct {
 	attachmentService *services.AttachmentService
 	storage           storage.Storage
 	onChatEvent       func(chatID, initiatorUserID uint, action string)
+	// onUnreadDrained fires after a destructive chat-level action (clear /
+	// delete) successfully wipes every recipient's unread for the chat —
+	// hooked by webSocketHandler to fan out dismiss-pushes across each
+	// participant's devices. Called from chatAction once the destructive
+	// DB op returns nil. participantIDs is captured BEFORE the destructive
+	// op (DeleteChat removes the row, so a post-op lookup would 404), and
+	// the dismiss is unconditional (we know unread was wiped, no EXISTS
+	// check needed).
+	onUnreadDrained func(ctx context.Context, chatID uint, participantIDs []uint)
 }
 
 // SetAttachmentService injects the attachment service so message-list responses
@@ -32,6 +41,14 @@ func (h *chatHandler) SetAttachmentService(as *services.AttachmentService) {
 // Called by webSocketHandler to enable real-time sync between participants.
 func (h *chatHandler) SetOnChatEventCallback(cb func(chatID, initiatorUserID uint, action string)) {
 	h.onChatEvent = cb
+}
+
+// SetOnUnreadDrainedCallback registers a callback that fires after a chat-level
+// destructive op (clear / delete) succeeds. Wired to webSocketHandler's
+// dismissForParticipants so notification trays clear on every participant's
+// other devices.
+func (h *chatHandler) SetOnUnreadDrainedCallback(cb func(ctx context.Context, chatID uint, participantIDs []uint)) {
+	h.onUnreadDrained = cb
 }
 
 // SetGroupService sets the group service for group chat support in chat handlers.
@@ -465,6 +482,12 @@ func (h *chatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 		return
 	}
 
+	// Capture participants BEFORE the destructive op so the dismiss-push
+	// fanout below can address them — DeleteChat removes the chat row, so
+	// a post-op lookup would 404 and the notifications would stay on
+	// users' devices forever.
+	participantIDs := h.resolveChatParticipants(c.Request.Context(), chat)
+
 	// Broadcast BEFORE destructive action (chat record must exist for participant lookup)
 	if h.onChatEvent != nil {
 		h.onChatEvent(chatID, userID, eventAction)
@@ -480,7 +503,43 @@ func (h *chatHandler) chatAction(c *gin.Context, action func(ctx context.Context
 		return
 	}
 
+	// Dismiss any push notifications for this chat on every participant's
+	// devices. The destructive op (clear / delete) wiped every recipient's
+	// unread_messages row for the chat, so the dismiss is unconditional.
+	if h.onUnreadDrained != nil && len(participantIDs) > 0 {
+		h.onUnreadDrained(c.Request.Context(), chatID, participantIDs)
+	}
+
 	sendSuccess(c, gin.H{"message": successMsg})
+}
+
+// resolveChatParticipants returns the list of user IDs that participate in the
+// chat: both 1-on-1 endpoints, or every chat_participant for a group. Caller
+// uses it to fan out dismiss-pushes after a destructive chat-level op (clear /
+// delete) — captured BEFORE the op so DeleteChat's row removal doesn't strand
+// the lookup.
+func (h *chatHandler) resolveChatParticipants(ctx context.Context, chat *models.Chat) []uint {
+	if chat == nil {
+		return nil
+	}
+	if !chat.IsGroup {
+		ids := make([]uint, 0, 2)
+		if u := chat.GetUser1ID(); u != 0 {
+			ids = append(ids, u)
+		}
+		if u := chat.GetUser2ID(); u != 0 {
+			ids = append(ids, u)
+		}
+		return ids
+	}
+	if h.groupService == nil {
+		return nil
+	}
+	ids, err := h.groupService.GetParticipantUserIDs(ctx, chat.ID)
+	if err != nil {
+		return nil
+	}
+	return ids
 }
 
 // ClearChatAPI clears all messages in a chat

@@ -476,7 +476,12 @@ textarea::placeholder,
    MESSAGE ATTACHMENTS
    ============================================ */
 .message-attachments {
-  margin-top: var(--space-sm);
+  /* Tightened from var(--space-sm) — 8px on top of the header's 4px
+     margin-bottom + the bubble's 8px padding-top created a ~20px gap
+     between sender/time and the first attachment, which looked noticeably
+     "taller" on bubbles that have no text content (file-only messages).
+     4px keeps a subtle separation without the extra air. */
+  margin-top: 4px;
   margin-left: calc(-1 * var(--space-md));
   margin-right: calc(-1 * var(--space-md));
   margin-bottom: calc(-1 * var(--space-sm));
@@ -1058,7 +1063,7 @@ textarea::placeholder,
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   font-size: 0.8rem;
 }
 

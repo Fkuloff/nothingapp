@@ -27,6 +27,17 @@ type PushPayload struct {
 	Tag    string `json:"tag,omitempty"`
 }
 
+// dismissPayload is the wire shape for a "close notifications for this chat"
+// signal. No title / body — the service worker (web) and the Capacitor
+// pushNotificationReceived handler (Android) branch on type=="dismiss" and
+// call getNotifications + close / removeDeliveredNotifications, without
+// showing anything new in the tray.
+type dismissPayload struct {
+	Type   string `json:"type"`
+	ChatID uint   `json:"chat_id"`
+	Tag    string `json:"tag"`
+}
+
 // PushNotificationService fans push notifications out to Web Push (VAPID) and FCM (mobile).
 type PushNotificationService struct {
 	logger          *zap.Logger
@@ -151,8 +162,77 @@ func (s *PushNotificationService) SendNotification(ctx context.Context, recipien
 	return nil
 }
 
+// dismissPushTTL caps how long the push provider should keep an undelivered
+// dismiss queued for an offline device. Short on purpose — a dismiss issued
+// at t=10 must NOT arrive at t=100 and close a notification for a fresh
+// message that arrived at t=50. If the device is offline > a minute, the
+// situation has drifted enough that the dismiss is stale; better to drop and
+// let the chat-open hook clean up when the user actually comes back online.
+const dismissPushTTL = 60
+
+// SendDismiss fans a "dismiss notifications for this chat" data-only push to
+// all of recipientUserID's Web Push subscriptions and FCM tokens. Triggered
+// when the user reads / opens / deletes their way to "no unread messages
+// remaining in chat X" on one device, so the same notification gets
+// cleared from the tray on every other device they have.
+//
+// Idempotent + safe to over-fire: getNotifications + close is a no-op when
+// nothing matches the tag (the receiving device might have already cleared
+// it via WS handler, OS click dismiss, etc).
+func (s *PushNotificationService) SendDismiss(ctx context.Context, recipientUserID, chatID uint) error {
+	// FCM fan-out (mobile) runs in parallel to VAPID (web).
+	if s.fcm != nil && s.fcm.IsEnabled() {
+		if err := s.fcm.SendDismiss(ctx, recipientUserID, chatID); err != nil {
+			s.logger.Warn("FCM dismiss fan-out failed", zap.Error(err), zap.Uint("user_id", recipientUserID))
+		}
+	}
+
+	if !s.enabled {
+		return nil
+	}
+
+	subs, err := s.pushSubRepo.GetByUser(ctx, recipientUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get push subscriptions: %w", err)
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+
+	payloadJSON, err := json.Marshal(dismissPayload{
+		Type:   "dismiss",
+		ChatID: chatID,
+		Tag:    fmt.Sprintf("chat-%d", chatID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal dismiss payload: %w", err)
+	}
+
+	s.logger.Debug("sending dismiss push",
+		zap.Uint("recipient_id", recipientUserID),
+		zap.Uint("chat_id", chatID),
+		zap.Int("subscription_count", len(subs)),
+	)
+
+	bgCtx := context.Background()
+	for _, sub := range subs {
+		// Short TTL on dismiss so the push provider drops it if the device
+		// has been offline more than a minute — see dismissPushTTL above
+		// for the race condition this avoids.
+		go s.sendToSubscriptionTTL(bgCtx, sub, payloadJSON, dismissPushTTL) //nolint:contextcheck // intentionally detached from caller context
+	}
+	return nil
+}
+
 // sendToSubscription sends push to a single subscription endpoint
+// with the default 24-hour TTL (regular messages).
 func (s *PushNotificationService) sendToSubscription(ctx context.Context, sub models.PushSubscription, payload []byte) {
+	s.sendToSubscriptionTTL(ctx, sub, payload, 86400)
+}
+
+// sendToSubscriptionTTL is the parameterized version — dismiss-pushes pass
+// a short TTL so a stale dismiss can't close a fresh-message notification.
+func (s *PushNotificationService) sendToSubscriptionTTL(ctx context.Context, sub models.PushSubscription, payload []byte, ttl int) {
 	subscription := &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys: webpush.Keys{
@@ -166,7 +246,7 @@ func (s *PushNotificationService) sendToSubscription(ctx context.Context, sub mo
 		Subscriber:      s.vapidSubject,
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,
-		TTL:             86400, // 24 hours
+		TTL:             ttl,
 		Urgency:         webpush.UrgencyHigh,
 	})
 	if err != nil {

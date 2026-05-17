@@ -44,6 +44,7 @@ type webSocketHandler struct {
 	groupService      *services.GroupService
 	attachmentService *services.AttachmentService
 	participantRepo   *repositories.ChatParticipantRepo
+	unreadMessageRepo *repositories.UnreadMessageRepo
 	logger            *zap.Logger
 	fileStorage       storage.Storage
 	clients           map[uint][]*wsClient // userID -> []clients
@@ -86,6 +87,13 @@ func (h *webSocketHandler) SetGroupService(gs *services.GroupService, pr *reposi
 // + envelope_iv) for any scheme=2 attachments queued offline.
 func (h *webSocketHandler) SetAttachmentService(as *services.AttachmentService) {
 	h.attachmentService = as
+}
+
+// SetUnreadMessageRepo injects the unread-messages repo so the auto-dismiss
+// path (handleDeleteMessage / handleClearChat etc.) can check per-recipient
+// "is unread still > 0 in this chat?" before firing a SendDismiss push.
+func (h *webSocketHandler) SetUnreadMessageRepo(repo *repositories.UnreadMessageRepo) {
+	h.unreadMessageRepo = repo
 }
 
 // Close drains all active WebSocket connections and stops the broadcast worker pool.
@@ -455,6 +463,8 @@ func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 		return h.handleDeleteMessage(ctx, userID, msgData)
 	case "mark_read":
 		return h.handleMarkRead(ctx, userID, msgData)
+	case "chat_opened":
+		return h.handleChatOpened(ctx, userID, msgData)
 	case actionCallOffer, actionCallAnswer, actionCallICE, actionCallHangup, actionCallReject:
 		return h.handleCallSignaling(ctx, userID, msg)
 	default:
