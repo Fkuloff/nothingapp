@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 
 import type { Attachment, Message } from '../../shared/api/types'
+import { useToast } from '../../shared/components/ToastContext'
 import { decryptFile, decryptMetadata, unwrapFileKey } from '../../shared/crypto/e2e'
 import { getChatKey } from '../../shared/crypto/peerKeys'
 import { downloadAttachmentNative } from '../../shared/downloadAttachment'
@@ -63,6 +64,7 @@ function bucketFromMime(mime: string): 'image' | 'video' | 'document' {
  */
 function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps) {
   const accountKeyCtx = useAccountKey()
+  const { showToast } = useToast()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [decryptedBlob, setDecryptedBlob] = useState<Blob | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -158,15 +160,21 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   const bucket = bucketFromMime(mimeType)
 
   // Native (Capacitor WebView) doesn't honour the `<a download>` attribute —
-  // tapping the link does nothing. Intercept here: write the decrypted blob
-  // to the app's cache directory and pop the native share sheet so the user
-  // can save it to Files / open with another app. On web we fall through
-  // and let the browser's download manager handle it as before.
+  // tapping the link does nothing. Intercept here: hand the decrypted blob
+  // to the helper which writes it straight into the public Documents/Messenger
+  // folder and tells us where it landed so we can surface a toast. On web we
+  // fall through and let the browser's download manager handle it as before.
   const handleDocClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (!isNative() || !decryptedBlob) return
     e.preventDefault()
-    void downloadAttachmentNative(decryptedBlob, fileName).catch((err) => {
-      console.warn('native download failed:', err)
+    void downloadAttachmentNative(decryptedBlob, fileName).then((res) => {
+      if (res.ok && res.savedTo === 'documents') {
+        showToast(`Сохранено: ${res.humanPath}`, 'success')
+      } else if (!res.ok) {
+        showToast('Не удалось скачать файл', 'error')
+        console.warn('native download failed:', res.error)
+      }
+      // savedTo === 'shared' → share sheet was shown; no extra toast needed.
     })
   }
 
