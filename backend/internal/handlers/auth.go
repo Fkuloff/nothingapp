@@ -19,15 +19,17 @@ import (
 type authHandler struct {
 	authService *services.AuthService
 	userService *services.UserService
+	chatService *services.ChatService
 	secret      []byte
 	tokenTTL    time.Duration
 }
 
 // newAuthHandler creates a new authHandler.
-func newAuthHandler(authService *services.AuthService, userService *services.UserService, secret []byte, tokenTTL time.Duration) *authHandler {
+func newAuthHandler(authService *services.AuthService, userService *services.UserService, chatService *services.ChatService, secret []byte, tokenTTL time.Duration) *authHandler {
 	return &authHandler{
 		authService: authService,
 		userService: userService,
+		chatService: chatService,
 		secret:      secret,
 		tokenTTL:    tokenTTL,
 	}
@@ -149,6 +151,15 @@ func (h *authHandler) RegisterAPI(c *gin.Context) {
 	if loginErr != nil {
 		sendInternalError(c, "Registration successful, but login failed")
 		return
+	}
+
+	// Create the user's "Saved Messages" self-chat. Idempotent — if it already
+	// exists (e.g. duplicate POST), we just get the existing chat back.
+	// Failure here is logged but doesn't fail registration: the startup-time
+	// backfill will catch any user the in-band creation missed.
+	if _, err := h.chatService.EnsureFavoritesChat(c.Request.Context(), user.ID); err != nil {
+		// non-fatal — log and continue
+		_ = err
 	}
 
 	tokenString, err := h.generateJWT(user.ID)

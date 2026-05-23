@@ -4,7 +4,7 @@ import { endpoints } from '../../shared/api/endpoints'
 import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
-import { PhoneIcon } from '../../shared/components/Icons'
+import { BookmarkIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { encryptMessage } from '../../shared/crypto/e2e'
 import type { GroupKeyStatus } from '../../shared/crypto/peerKeys'
@@ -48,6 +48,9 @@ type Props = {
   onBackToList?: () => void
   onClearChat?: (chatId: number) => void
   onDeleteChat?: (chatId: number) => void
+  // True for the user's Saved Messages self-chat — hides delete-chat (clear still allowed)
+  // and is used by the header/composer to render a localised title.
+  isFavorites?: boolean
   // Group props
   isGroup?: boolean
   groupName?: string
@@ -78,6 +81,7 @@ export function ChatWindow({
   onBackToList,
   onClearChat,
   onDeleteChat,
+  isFavorites = false,
   isGroup = false,
   groupName = '',
   groupMembers = NO_GROUP_MEMBERS,
@@ -658,6 +662,10 @@ export function ChatWindow({
   }
 
   const handleHeaderClick = () => {
+    if (isFavorites) {
+      // Self-chat header is informational only — there's no peer profile to show.
+      return
+    }
     if (isGroup) {
       setIsGroupInfoOpen(true)
     } else {
@@ -681,14 +689,26 @@ export function ChatWindow({
               type="button"
               className="chat-header__link"
               onClick={handleHeaderClick}
+              style={isFavorites ? { cursor: 'default' } : undefined}
             >
               <span className="avatar avatar-sm">
-                <img src={resolveApiUrl(displayAvatar) || '/img/default-avatar.svg'} alt="avatar" />
+                {isFavorites ? (
+                  <span
+                    className="d-flex align-items-center justify-content-center"
+                    style={{ background: 'var(--bs-primary, #2481cc)', color: '#fff', width: '100%', height: '100%', borderRadius: '50%' }}
+                  >
+                    <BookmarkIcon size={18} />
+                  </span>
+                ) : (
+                  <img src={resolveApiUrl(displayAvatar) || '/img/default-avatar.svg'} alt="avatar" />
+                )}
               </span>
               <div className="chat-header__info">
                 <span className="chat-peer">{displayName}</span>
                 <div className="chat-header__meta">
-                  {isGroup ? (
+                  {isFavorites ? (
+                    <span className="chat-subtitle">Сообщения только для вас</span>
+                  ) : isGroup ? (
                     <span className="chat-subtitle">{groupMembers.length} участник(ов)</span>
                   ) : (
                     <>
@@ -701,7 +721,7 @@ export function ChatWindow({
             </button>
           </div>
           <div className="chat-header__actions">
-            {!isGroup && otherUserId && (
+            {!isGroup && !isFavorites && otherUserId && (
               <button
                 className="chat-header__call-btn"
                 onClick={handleStartCall}
@@ -741,7 +761,7 @@ export function ChatWindow({
                     </svg>
                     Очистить чат
                   </button>
-                  {!isGroup && (
+                  {!isGroup && !isFavorites && (
                     <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                         <polyline points="3 6 5 6 21 6" />

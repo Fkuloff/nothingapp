@@ -72,6 +72,11 @@ type chatListItem struct {
 	OtherUserID   uint   `json:"other_user_id,omitempty"`
 	OtherUserName string `json:"other_user_name,omitempty"`
 
+	// IsFavorites is true for the user's "Saved Messages" self-chat
+	// (a 1-on-1 chat where user1_id == user2_id). Client uses it to render
+	// a special title + icon and to hide the delete button.
+	IsFavorites bool `json:"is_favorites,omitempty"`
+
 	// Group fields (omitted for 1-on-1)
 	GroupName   string `json:"group_name,omitempty"`
 	MemberCount int    `json:"member_count,omitempty"`

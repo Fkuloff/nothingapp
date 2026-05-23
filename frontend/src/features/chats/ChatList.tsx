@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { ChatItem } from '../../shared/api/types'
-import { GroupIcon } from '../../shared/components/Icons'
+import { BookmarkIcon, GroupIcon } from '../../shared/components/Icons'
 
 type Props = {
   chats: ChatItem[]
@@ -13,13 +13,21 @@ type Props = {
 }
 
 function getChatDisplayName(chat: ChatItem): string {
+  if (chat.is_favorites) return 'Избранное'
   if (chat.is_group) return chat.group_name || 'Группа'
   return chat.other_user_name || 'Чат'
 }
 
 export function ChatList({ chats, activeChatId, onSelect, loading, error }: Props) {
+  // Favorites is always pinned to the top regardless of last activity; remaining
+  // chats stay in updated_at-desc order (matches the server's bucketing).
   const sortedChats = useMemo(
-    () => [...chats].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+    () =>
+      [...chats].sort((a, b) => {
+        if (a.is_favorites && !b.is_favorites) return -1
+        if (!a.is_favorites && b.is_favorites) return 1
+        return b.updated_at.localeCompare(a.updated_at)
+      }),
     [chats]
   )
 
@@ -52,7 +60,16 @@ export function ChatList({ chats, activeChatId, onSelect, loading, error }: Prop
                   tabIndex={0}
                 >
                   <span className="avatar avatar-md">
-                    <img src={resolveApiUrl(chat.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" loading="lazy" />
+                    {chat.is_favorites ? (
+                      <span
+                        className="avatar avatar-md d-flex align-items-center justify-content-center"
+                        style={{ background: 'var(--bs-primary, #2481cc)', color: '#fff', width: '100%', height: '100%' }}
+                      >
+                        <BookmarkIcon size={22} />
+                      </span>
+                    ) : (
+                      <img src={resolveApiUrl(chat.avatar_url) || '/img/default-avatar.svg'} alt="Avatar" loading="lazy" />
+                    )}
                   </span>
                   <div className="chat-list-item-content">
                     <div className="chat-list-item__top">

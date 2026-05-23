@@ -109,6 +109,8 @@ func (*ChatService) prepareMessageBody(in SendMessageInput) (ciphertext, iv stri
 }
 
 // CreateChat creates a 1-on-1 chat between two users, returning the existing chat if one already exists.
+// Self-chats (user1==user2) are rejected here — use EnsureFavoritesChat instead, which is the
+// only sanctioned path for creating the special "Saved Messages" chat.
 func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*models.Chat, error) {
 	if user1ID == user2ID {
 		return nil, errors.New("cannot create chat with self")
@@ -145,6 +147,56 @@ func (s *ChatService) CreateChat(ctx context.Context, user1ID, user2ID uint) (*m
 		return nil, fmt.Errorf("create chat: %w", err)
 	}
 	return chat, nil
+}
+
+// EnsureFavoritesChat returns the user's "Saved Messages" chat, creating it if it doesn't
+// exist yet. The favorites chat is a 1-on-1 chat where user1_id == user2_id == userID;
+// the unique index on (user1_id, user2_id) guarantees idempotency — concurrent calls
+// land on the same row. Called on registration and on startup backfill.
+func (s *ChatService) EnsureFavoritesChat(ctx context.Context, userID uint) (*models.Chat, error) {
+	existing, err := s.chatRepo.FindByUsers(ctx, userID, userID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("check for favorites chat: %w", err)
+	}
+
+	chat := &models.Chat{
+		User1ID: &userID,
+		User2ID: &userID,
+	}
+	if err := s.chatRepo.Create(ctx, chat); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			raceChat, fetchErr := s.chatRepo.FindByUsers(ctx, userID, userID)
+			if fetchErr == nil {
+				return raceChat, nil
+			}
+			return nil, fmt.Errorf("fetch favorites chat after race: %w", fetchErr)
+		}
+		return nil, fmt.Errorf("create favorites chat: %w", err)
+	}
+	return chat, nil
+}
+
+// EnsureFavoritesChatsForAllUsers backfills the favorites chat for every existing user.
+// Run once at startup — idempotent thanks to the unique constraint. Errors per-user
+// are logged but don't abort the batch.
+func (s *ChatService) EnsureFavoritesChatsForAllUsers(ctx context.Context, userIDs []uint) {
+	for _, uid := range userIDs {
+		if _, err := s.EnsureFavoritesChat(ctx, uid); err != nil {
+			s.logger.Warn("backfill favorites chat failed", zap.Uint("user_id", uid), zap.Error(err))
+		}
+	}
+}
+
+// IsFavoritesChat reports whether a chat is a user's self-chat (Saved Messages).
+// For 1-on-1 chats only; group chats always return false (their user1/user2 are NULL).
+func IsFavoritesChat(chat *models.Chat) bool {
+	if chat.IsGroup {
+		return false
+	}
+	return chat.User1ID != nil && chat.User2ID != nil && *chat.User1ID == *chat.User2ID
 }
 
 // SendMessageAtomic sends a message and creates unread record atomically within a transaction
@@ -655,6 +707,9 @@ func (s *ChatService) DeleteChat(ctx context.Context, chatID, userID uint) error
 	}
 	if !chat.HasUser(userID) {
 		return errors.New("access denied")
+	}
+	if IsFavoritesChat(chat) {
+		return errors.New("favorites chat cannot be deleted, only cleared")
 	}
 
 	storageKeys, err := s.purgeChat(ctx, chatID)

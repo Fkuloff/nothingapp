@@ -6,8 +6,11 @@ WORKDIR /app
 # Copy package files first for better layer caching
 COPY package*.json ./
 
-# Install dependencies with clean cache
-RUN npm ci --no-audit --no-fund && npm cache clean --force
+# Install dependencies with clean cache.
+# --ignore-scripts skips the `sharp` (transitive dep of @capacitor/assets) native
+# postinstall, which fails on alpine without build tools. We don't need sharp for
+# `vite build` — it's only used to generate Android app icons via `cap assets`.
+RUN npm ci --no-audit --no-fund --ignore-scripts && npm cache clean --force
 
 # Copy source code
 COPY . .
