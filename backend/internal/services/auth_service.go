@@ -16,6 +16,10 @@ import (
 // ErrInvalidPassword is returned when the provided password does not match.
 var ErrInvalidPassword = errors.New("invalid password")
 
+// bcryptCost is the work factor for new password hashes. Existing hashes with
+// a lower cost are transparently rehashed on successful login.
+const bcryptCost = 12
+
 // AuthService handles user authentication (registration, login, lookup).
 type AuthService struct {
 	logger   *zap.Logger
@@ -32,7 +36,7 @@ func NewAuthService(logger *zap.Logger, userRepo *repositories.UserRepo) *AuthSe
 
 // Register creates a new user account with a hashed password.
 func (s *AuthService) Register(ctx context.Context, username, password, name string) error {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -66,7 +70,30 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*mo
 		return nil, fmt.Errorf("invalid password")
 	}
 
+	s.rehashIfStale(ctx, user, password)
+
 	return user, nil
+}
+
+// rehashIfStale upgrades a user's password hash to the current bcryptCost.
+// Called on successful login so users transparently move to the stronger cost.
+// Best-effort: failures are logged but do not fail the login.
+func (s *AuthService) rehashIfStale(ctx context.Context, user *models.User, plaintext string) {
+	cost, err := bcrypt.Cost([]byte(user.Password))
+	if err != nil || cost >= bcryptCost {
+		return
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcryptCost)
+	if err != nil {
+		s.logger.Warn("bcrypt rehash failed", zap.Uint("user_id", user.ID), zap.Error(err))
+		return
+	}
+	if err := s.userRepo.UpdatePassword(ctx, user.ID, string(newHash)); err != nil {
+		s.logger.Warn("bcrypt rehash persist failed", zap.Uint("user_id", user.ID), zap.Error(err))
+		return
+	}
+	user.Password = string(newHash)
+	s.logger.Info("bcrypt rehashed", zap.Uint("user_id", user.ID), zap.Int("old_cost", cost), zap.Int("new_cost", bcryptCost))
 }
 
 // ChangePassword validates the old password and updates to a new one.
@@ -80,7 +107,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, oldPasswo
 		return ErrInvalidPassword
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
