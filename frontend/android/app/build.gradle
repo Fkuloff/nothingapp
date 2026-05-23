@@ -17,10 +17,34 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
+    // CI-friendly signing. All four env vars must be present for the release
+    // signingConfig to be wired up; locally they're absent and `assembleRelease`
+    // produces an unsigned APK (same as before this change).
+    signingConfigs {
+        release {
+            def storePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            def storePass = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            def alias     = System.getenv("ANDROID_KEY_ALIAS")
+            def keyPass   = System.getenv("ANDROID_KEY_PASSWORD")
+            if (storePath && storePass && alias && keyPass) {
+                storeFile     file(storePath)
+                storePassword storePass
+                keyAlias      alias
+                keyPassword   keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Only attach the signingConfig when CI has provided the env vars.
+            // Otherwise Gradle would fail with "Keystore file not set" at task graph time.
+            if (System.getenv("ANDROID_KEYSTORE_PATH")) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
