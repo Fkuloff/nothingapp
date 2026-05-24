@@ -96,6 +96,21 @@ jobs:
           echo "After bump:"
           grep -E 'versionCode|versionName' build.gradle
 
+      # google-services.json is gitignored (per-environment Firebase keys); without
+      # it the com.google.gms.google-services gradle plugin doesn't apply and the
+      # FCM-backed @capacitor/push-notifications plugin throws
+      # "Default FirebaseApp is not initialized" at process start, killing the
+      # app the moment any code reaches into push registration. We restore the
+      # file from a base64 secret before `cap sync`, which is what bundles
+      # google-services.json into the Android build.
+      - name: Restore google-services.json
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d \
+            > frontend/android/app/google-services.json
+          # sanity check — non-empty + parseable JSON with the expected shape
+          test -s frontend/android/app/google-services.json
+          jq -e .project_info.project_id frontend/android/app/google-services.json > /dev/null
+
       - name: Install web deps + sync Android
         working-directory: frontend
         run: |
