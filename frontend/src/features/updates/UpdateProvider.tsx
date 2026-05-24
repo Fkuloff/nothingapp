@@ -200,33 +200,19 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     }
   }, [state])
 
-  // Set when install() is invoked. The next foreground transition compares
-  // the installed versionCode against this — if unchanged, the install was
-  // rejected (signature mismatch, user denied the system dialog, or unknown-
-  // sources permission missing). We surface that as an error so the user
-  // actually sees what happened instead of the banner silently reappearing.
-  const installAttemptRef = useRef<{
-    expectedVersionCode: number
-    previousVersionCode: number
-    mandatory: boolean
-  } | null>(null)
-
   const install = useCallback(async () => {
     if (state.status !== 'ready_to_install') return
     if (!isNative()) return
-    installAttemptRef.current = {
-      expectedVersionCode: state.release.version_code,
-      previousVersionCode: state.currentVersionCode,
-      mandatory: state.mandatory,
-    }
     try {
       await Updater.installApk({ path: state.path })
-      // Android takes over from here. On success the process is killed and
-      // restarted at the new versionCode; on rejection (signature mismatch /
-      // user denied / unknown-sources off) the app stays running and we'll
-      // detect it via the appStateChange listener below.
+      // Android takes over from here. We can't observe the install outcome
+      // — if it succeeds the process is killed and restarted; if it fails
+      // we stay at ready_to_install and the user can retry. A previous
+      // version of this code subscribed to App.appStateChange to detect
+      // rejected installs, but that import path crashed the app at boot on
+      // some devices (see v1.6 postmortem). Punted on retry-detection for
+      // now; manual retry is good enough.
     } catch (err) {
-      installAttemptRef.current = null
       setState({
         status: 'error',
         message: err instanceof Error ? err.message : String(err),
@@ -235,54 +221,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       })
     }
   }, [state])
-
-  // Detect "user came back from the Android installer dialog without the
-  // version actually changing" — that's how rejected installs manifest
-  // (signature mismatch is the most common one when migrating from a
-  // sideloaded debug-signed APK to CI-signed releases).
-  useEffect(() => {
-    if (!isNative()) return
-    let cleanup: (() => void) | undefined
-    void (async () => {
-      try {
-        const { App } = await import('@capacitor/app')
-        const handle = await App.addListener('appStateChange', (ev) => {
-          if (!ev.isActive) return
-          const attempt = installAttemptRef.current
-          if (!attempt) return
-          // Re-read the installed versionCode. If it bumped — Android
-          // succeeded and we'd already have been killed; this branch is
-          // a defensive no-op. If it didn't bump — install failed.
-          void Updater.getCurrentVersion()
-            .then((v) => {
-              if (v.version_code >= attempt.expectedVersionCode) {
-                installAttemptRef.current = null
-                return
-              }
-              installAttemptRef.current = null
-              setState({
-                status: 'error',
-                message:
-                  'Установка отклонена системой. Возможные причины: подпись APK не совпадает с установленной версией (тогда удалите приложение и поставьте новый APK с GitHub Releases вручную), либо не разрешена установка из неизвестных источников.',
-                currentVersionCode: attempt.previousVersionCode,
-                mandatory: attempt.mandatory,
-              })
-            })
-            .catch(() => {
-              installAttemptRef.current = null
-            })
-        })
-        cleanup = () => {
-          void handle.remove()
-        }
-      } catch (err) {
-        console.warn('failed to subscribe to appStateChange:', err)
-      }
-    })()
-    return () => {
-      cleanup?.()
-    }
-  }, [])
 
   return (
     <UpdateContext.Provider value={{ state, checkNow, dismiss, startDownload, install }}>
