@@ -32,6 +32,8 @@ secrets:
     file: /etc/messenger/secrets/db_url
   fcm_credentials:
     file: /etc/messenger/secrets/fcm_credentials.json
+  admin_api_key:
+    file: /etc/messenger/secrets/admin_api_key
 
 services:
   # Nginx Reverse Proxy with SSL
@@ -155,6 +157,7 @@ services:
       - minio_root_password
       - db_url
       - fcm_credentials
+      - admin_api_key
     environment:
       # Backend reads sensitive values from mounted secret files via the *_FILE
       # convention (see internal/secret/secret.go). The plain *_VALUE env vars are
@@ -164,6 +167,9 @@ services:
       VAPID_PRIVATE_KEY_FILE: /run/secrets/vapid_private_key
       STORAGE_S3_SECRET_KEY_FILE: /run/secrets/minio_root_password
       FCM_CREDENTIALS_PATH: /run/secrets/fcm_credentials
+      # Gates /api/admin/releases. If the file is missing the endpoint returns
+      # 503 — release pipeline will fail loud rather than silently no-op.
+      ADMIN_API_KEY_FILE: /run/secrets/admin_api_key
 
       PORT: 8080
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://nothingapp.ru,https://www.nothingapp.ru}
