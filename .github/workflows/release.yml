@@ -18,9 +18,9 @@
 #   DEPLOY_SSH_KEY            — private key authorized for vpmuser@<VM>
 #
 # Required variables (same UI, "Variables" tab — not secret):
-#   BACKEND_URL — e.g. https://nothingapp.ru
-#   DEPLOY_HOST — e.g. 176.108.243.65
-#   DEPLOY_USER — e.g. vpmuser
+#   BACKEND_URL — your backend's public URL, e.g. https://example.com
+#   DEPLOY_HOST — IP/hostname of the production VM
+#   DEPLOY_USER — SSH login on the VM (typically a non-root deploy user)
 #
 # Optional manual override: `gh workflow run release.yml -f min_supported=N` from
 # the workflow_dispatch trigger lets you mark this release as a hard requirement
