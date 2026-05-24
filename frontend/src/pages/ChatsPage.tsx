@@ -787,8 +787,9 @@ export default function ChatsPage() {
           chatId={activeChatId ?? undefined}
           messages={messages}
           otherUserId={activeChat?.other_user_id}
-          otherUsername={activeChat?.other_user_name}
+          otherUsername={activeChat?.is_favorites ? 'Избранное' : activeChat?.other_user_name}
           otherAvatar={activeChat?.avatar_url}
+          isFavorites={activeChat?.is_favorites}
           currentUserId={user?.id}
           loading={loadingMessages}
           error={messagesError}

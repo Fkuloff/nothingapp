@@ -1,0 +1,219 @@
+# End-to-end release pipeline. Triggered by `git tag v<version> && git push --tags`.
+#
+# What it does, in order:
+#   1. Bumps versionCode/versionName in build.gradle from the tag + GITHUB_RUN_NUMBER.
+#   2. Builds + signs the Android release APK using a keystore stored in secrets.
+#   3. Creates a GitHub Release with the APK + auto-generated changelog.
+#   4. Registers the release in the backend via POST /api/admin/releases — clients
+#      will see the update banner on their next cold start.
+#   5. Builds + pushes backend and frontend Docker images to GHCR.
+#   6. SSHes to the production VM and pulls + restarts both services.
+#
+# Required secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_BASE64   — `base64 -w0 release.jks` of your keystore file
+#   ANDROID_KEYSTORE_PASSWORD — keystore password
+#   ANDROID_KEY_ALIAS         — key alias inside the keystore
+#   ANDROID_KEY_PASSWORD      — password for that specific key
+#   ADMIN_API_KEY             — same value that's in /etc/messenger/secrets on the VM
+#   DEPLOY_SSH_KEY            — private key authorized for vpmuser@<VM>
+#
+# Required variables (same UI, "Variables" tab — not secret):
+#   BACKEND_URL — e.g. https://nothingapp.ru
+#   DEPLOY_HOST — e.g. 176.108.243.65
+#   DEPLOY_USER — e.g. vpmuser
+#
+# Optional manual override: `gh workflow run release.yml -f min_supported=N` from
+# the workflow_dispatch trigger lets you mark this release as a hard requirement
+# (everyone with version_code < N gets the mandatory upgrade screen, no dismiss).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      min_supported:
+        description: 'min_supported_version_code (default 1 = optional update)'
+        required: false
+        default: '1'
+
+permissions:
+  contents: write  # for creating the GitHub Release
+  packages: write  # for pushing images to ghcr.io
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need history for changelog derivation
+
+      - name: Parse version from tag
+        id: ver
+        run: |
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            TAG="${GITHUB_REF#refs/tags/v}"
+          else
+            # workflow_dispatch path — synthesize from HEAD
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$TAG (versionCode=$GITHUB_RUN_NUMBER)"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Decode signing keystore
+        run: |
+          mkdir -p "$RUNNER_TEMP/keystore"
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/keystore/release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
+
+      - name: Bump versionCode / versionName
+        run: |
+          cd frontend/android/app
+          # Regex-based so we don't depend on the previous value's exact text.
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ steps.ver.outputs.code }}/" build.gradle
+          sed -i -E 's/versionName "[^"]+"/versionName "${{ steps.ver.outputs.name }}"/' build.gradle
+          echo "After bump:"
+          grep -E 'versionCode|versionName' build.gradle
+
+      - name: Install web deps + sync Android
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm run sync:android
+
+      - name: Build signed APK
+        working-directory: frontend/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Compute SHA-256 + size, rename APK
+        id: apk
+        run: |
+          APK=frontend/android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::Signed APK not produced at $APK. Check keystore secrets." >&2
+            ls frontend/android/app/build/outputs/apk/release/ || true
+            exit 1
+          fi
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          SIZE=$(stat -c%s "$APK")
+          RENAMED="messenger-${{ steps.ver.outputs.name }}.apk"
+          cp "$APK" "$RENAMED"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "renamed=$RENAMED" >> "$GITHUB_OUTPUT"
+          echo "Built $RENAMED ($SIZE bytes, sha256=$SHA)"
+
+      - name: Generate changelog from commits since last tag
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            LOG=$(git log --pretty=format:"- %s" --no-merges "$PREV_TAG"..HEAD)
+          else
+            LOG=$(git log --pretty=format:"- %s" --no-merges HEAD | head -30)
+          fi
+          # Bound to 7 KB — backend cap is 8 KB on the changelog field.
+          LOG=$(echo "$LOG" | head -c 7000)
+          {
+            echo "log<<CHANGELOG_EOF"
+            echo "$LOG"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release + upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.ver.outputs.name }}
+          body: ${{ steps.changelog.outputs.log }}
+          files: ${{ steps.apk.outputs.renamed }}
+          fail_on_unmatched_files: true
+
+      - name: Register release in backend
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          ADMIN_KEY: ${{ secrets.ADMIN_API_KEY }}
+          MIN_SUPPORTED: ${{ github.event.inputs.min_supported || '1' }}
+          APK_URL: https://github.com/${{ github.repository }}/releases/download/v${{ steps.ver.outputs.name }}/${{ steps.apk.outputs.renamed }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg vn "${{ steps.ver.outputs.name }}" \
+            --argjson vc ${{ steps.ver.outputs.code }} \
+            --argjson ms "$MIN_SUPPORTED" \
+            --arg url "$APK_URL" \
+            --arg sha "${{ steps.apk.outputs.sha }}" \
+            --argjson sz ${{ steps.apk.outputs.size }} \
+            --arg cl "${{ steps.changelog.outputs.log }}" \
+            '{platform:"android", version_name:$vn, version_code:$vc, min_supported_version_code:$ms, url:$url, sha256:$sha, size_bytes:$sz, changelog:$cl}')
+          echo "Posting to $BACKEND_URL/api/admin/releases"
+          curl -fsSL -X POST "$BACKEND_URL/api/admin/releases" \
+            -H "X-Admin-Key: $ADMIN_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/messenger-backend:${{ steps.ver.outputs.name }}
+            ghcr.io/${{ github.repository_owner }}/messenger-backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build + push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/messenger-frontend:${{ steps.ver.outputs.name }}
+            ghcr.io/${{ github.repository_owner }}/messenger-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Deploy to production VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /home/vpmuser/nothing
+            docker compose -f docker-compose.prod.yml pull backend frontend
+            docker compose -f docker-compose.prod.yml up -d backend frontend
+            docker image prune -f

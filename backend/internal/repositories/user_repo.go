@@ -85,6 +85,14 @@ func (r *UserRepo) UpdateVault(ctx context.Context, userID uint, vaultSalt, encr
 		}).Error
 }
 
+// AllUserIDs returns the IDs of every user (excluding soft-deleted). Used by
+// the startup favorites-chat backfill; not exposed via any HTTP endpoint.
+func (r *UserRepo) AllUserIDs(ctx context.Context) ([]uint, error) {
+	var ids []uint
+	err := r.db.WithContext(ctx).Model(&models.User{}).Pluck("id", &ids).Error
+	return ids, err
+}
+
 // SearchByUsernameOrName searches users by username or name (case-insensitive, infix match).
 // The caller's own user_id is excluded from the results.
 //

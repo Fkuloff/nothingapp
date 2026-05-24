@@ -74,3 +74,6 @@ backend/uploads/*.sql
 
 # Local docker-compose overrides (e.g. for binding postgres port to host)
 docker-compose.override.yml
+
+# Hand-built APKs in repo root (release builds copied out of frontend/android/app/build/)
+*.apk

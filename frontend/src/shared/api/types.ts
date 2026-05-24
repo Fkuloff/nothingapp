@@ -60,6 +60,11 @@ export type ChatItem = {
   other_user_id?: number
   other_user_name?: string
 
+  // True for the user's "Saved Messages" self-chat. Client renders a
+  // bookmark icon + the localised title "Избранное" and hides the
+  // delete-chat affordance; clear-chat is still allowed.
+  is_favorites?: boolean
+
   // Group fields (omitted for 1-on-1)
   group_name?: string
   member_count?: number

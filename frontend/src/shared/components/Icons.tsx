@@ -163,6 +163,15 @@ export function LockIcon({ className, size = 24 }: IconProps) {
   )
 }
 
+/** Bookmark icon — used as the avatar overlay for the Saved Messages self-chat. */
+export function BookmarkIcon({ className, size = 24 }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
+  )
+}
+
 /** Arrow-left icon — used for back navigation */
 export function ArrowLeftIcon({ className, size = 24 }: IconProps) {
   return (

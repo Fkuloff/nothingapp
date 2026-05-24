@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"messenger/internal/models"
@@ -377,11 +378,21 @@ func (h *chatHandler) ListChatsAPI(c *gin.Context) {
 			otherUser, otherUserID := chat.GetOtherUser(userID)
 			h.userService.RefreshUserAvatarURL(otherUser)
 
+			isFav := services.IsFavoritesChat(&chat)
+			// For the self-chat we keep OtherUserID/AvatarURL pointing at the
+			// current user (the math is the same) but blank the name — the client
+			// renders "Избранное" + a special icon based on the IsFavorites flag.
+			displayName := otherUser.GetDisplayName()
+			if isFav {
+				displayName = ""
+			}
+
 			items = append(items, chatListItem{
 				ID:                    chat.ID,
 				IsGroup:               false,
 				OtherUserID:           otherUserID,
-				OtherUserName:         otherUser.GetDisplayName(),
+				OtherUserName:         displayName,
+				IsFavorites:           isFav,
 				AvatarURL:             otherUser.AvatarURL,
 				LastMessage:           lastMessageText,
 				LastMessageScheme:     lmScheme,
@@ -393,6 +404,12 @@ func (h *chatHandler) ListChatsAPI(c *gin.Context) {
 			})
 		}
 	}
+
+	// Pin favorites to the top regardless of last activity. Within each bucket
+	// the source order (updated_at DESC) is preserved by sort.SliceStable.
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].IsFavorites && !items[j].IsFavorites
+	})
 
 	sendSuccess(c, gin.H{"chats": items})
 }

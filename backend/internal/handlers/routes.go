@@ -58,7 +58,16 @@ func SetupRoutes(
 	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
 
 	// Initialize handlers
-	authH := newAuthHandler(authService, userService, secret, tokenTTL)
+	// Backfill the "Saved Messages" self-chat for every existing user. Idempotent
+	// thanks to the (user1_id, user2_id) unique constraint: re-runs do nothing.
+	// Runs synchronously at startup; for our user base (<10k) it's instant.
+	if userIDs, err := userRepo.AllUserIDs(context.Background()); err != nil {
+		logger.Warn("favorites backfill: failed to enumerate users", zap.Error(err))
+	} else {
+		chatService.EnsureFavoritesChatsForAllUsers(context.Background(), userIDs)
+	}
+
+	authH := newAuthHandler(authService, userService, chatService, secret, tokenTTL)
 	chatH := newChatHandler(chatService, userService, fileStorage)
 	chatH.SetGroupService(groupService)
 	chatH.SetAttachmentService(attachmentService)
