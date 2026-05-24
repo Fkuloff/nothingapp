@@ -32,7 +32,7 @@ Real-time messenger with a React frontend and a Go backend.
 
 ```bash
 # Clone
-git clone https://github.com/fkuloff/messenger.git
+git clone https://github.com/Fkuloff/messenger.git
 cd messenger
 
 # Configure .env
@@ -235,4 +235,6 @@ Production stack: Nginx (reverse proxy + Let's Encrypt SSL) → Frontend (Nginx)
 
 ## License
 
-MIT
+[GNU AGPL v3.0](LICENSE). The Affero clause means anyone who runs this
+code as a network service must offer their modified source to its users.
+If you fork the backend and host it for others, you owe them your patches.
