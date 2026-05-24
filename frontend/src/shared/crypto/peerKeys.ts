@@ -76,6 +76,23 @@ export function clearPeerKeyCache(): void {
 }
 
 /**
+ * Pre-populate the cache from an already-known (user_id, public_key) pair —
+ * primarily the current user's own pubkey, derived locally from accountKey.
+ *
+ * Without this seed, opening the "Saved Messages" self-chat (user1==user2)
+ * would round-trip /api/profile/<myId> on every cold start; on a flaky
+ * network that fetch fails and the chat renders the "peer hasn't set up
+ * encryption" banner against *yourself*. With it seeded, self-chat works
+ * fully offline since the chat_key derives from local material end-to-end.
+ *
+ * No-op for falsy inputs so callers can pass `seedPeerPublicKey(user?.id, key)`
+ * without a guard.
+ */
+export function seedPeerPublicKey(userId: number | null | undefined, publicKey: string | null | undefined): void {
+  if (userId && publicKey) cache.set(userId, publicKey)
+}
+
+/**
  * Compose the full path from "the other user in a 1-on-1 chat" to "an AES-GCM
  * key shared with that user". Pass null/0 for `peerUserId` (i.e. group chats
  * or unknown peer) and the function returns null, signalling "fall back to

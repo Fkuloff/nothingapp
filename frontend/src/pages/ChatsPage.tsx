@@ -14,7 +14,8 @@ import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
 import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEnvelope, WSEvent } from '../shared/api/types'
 import { decryptIncomingText } from '../shared/crypto/decryptIncoming'
-import { getChatKey } from '../shared/crypto/peerKeys'
+import { publicKeyBase64 } from '../shared/crypto/e2e'
+import { getChatKey, seedPeerPublicKey } from '../shared/crypto/peerKeys'
 import { dismissChatNotifications } from '../shared/dismissChatNotifications'
 
 // selectScheme2Payload picks (ciphertext, iv) for a scheme=2 WS broadcast. For
@@ -75,6 +76,31 @@ export default function ChatsPage() {
     accountKeyRef.current =
       accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
   }, [accountKeyCtx.state])
+
+  // Seed the peer-key cache with the current user's own public_key, derived
+  // locally from accountKey. Without this, opening the Saved Messages
+  // self-chat triggers a /api/profile/<myId> round-trip just to look up our
+  // own public_key — on a flaky network that fetch fails and the composer
+  // renders "Избранное не настроил(а) шифрование" against ourselves. Seeded
+  // value lets `getPeerPublicKey(myId)` return synchronously, so self-chat
+  // E2E works fully offline.
+  useEffect(() => {
+    if (!user?.id) return
+    if (accountKeyCtx.state.status !== 'ready') return
+    const key = accountKeyCtx.state.key
+    let cancelled = false
+    void (async () => {
+      try {
+        const pub = await publicKeyBase64(key)
+        if (!cancelled) seedPeerPublicKey(user.id, pub)
+      } catch (err) {
+        console.warn('failed to seed self pubkey into peer cache:', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id, accountKeyCtx.state])
   const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
