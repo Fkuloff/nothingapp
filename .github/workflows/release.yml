@@ -35,9 +35,9 @@ on:
   workflow_dispatch:
     inputs:
       min_supported:
-        description: 'min_supported_version_code (default 1 = optional update)'
+        description: 'min_supported_version_code (omit = set to this build''s version_code, making it mandatory for all older installs)'
         required: false
-        default: '1'
+        default: ''
 
 permissions:
   contents: write  # for creating the GitHub Release
@@ -160,12 +160,19 @@ jobs:
         env:
           BACKEND_URL: ${{ vars.BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.ADMIN_API_KEY }}
-          MIN_SUPPORTED: ${{ github.event.inputs.min_supported || '1' }}
+          # Default policy: every release is mandatory for older installs.
+          # min_supported = version_code means anyone running < this build sees
+          # the unblockable update screen. Override via workflow_dispatch input
+          # if you want an optional release (e.g. min_supported=1).
+          MIN_SUPPORTED_INPUT: ${{ github.event.inputs.min_supported }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
           APK_URL: https://github.com/${{ github.repository }}/releases/download/v${{ steps.ver.outputs.name }}/${{ steps.apk.outputs.renamed }}
         run: |
+          MIN_SUPPORTED="${MIN_SUPPORTED_INPUT:-$VERSION_CODE}"
+          echo "version_code=$VERSION_CODE  min_supported=$MIN_SUPPORTED"
           PAYLOAD=$(jq -n \
             --arg vn "${{ steps.ver.outputs.name }}" \
-            --argjson vc ${{ steps.ver.outputs.code }} \
+            --argjson vc "$VERSION_CODE" \
             --argjson ms "$MIN_SUPPORTED" \
             --arg url "$APK_URL" \
             --arg sha "${{ steps.apk.outputs.sha }}" \

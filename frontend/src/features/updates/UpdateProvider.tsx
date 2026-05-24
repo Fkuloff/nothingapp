@@ -200,18 +200,33 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     }
   }, [state])
 
+  // Set when install() is invoked. The next foreground transition compares
+  // the installed versionCode against this — if unchanged, the install was
+  // rejected (signature mismatch, user denied the system dialog, or unknown-
+  // sources permission missing). We surface that as an error so the user
+  // actually sees what happened instead of the banner silently reappearing.
+  const installAttemptRef = useRef<{
+    expectedVersionCode: number
+    previousVersionCode: number
+    mandatory: boolean
+  } | null>(null)
+
   const install = useCallback(async () => {
     if (state.status !== 'ready_to_install') return
     if (!isNative()) return
+    installAttemptRef.current = {
+      expectedVersionCode: state.release.version_code,
+      previousVersionCode: state.currentVersionCode,
+      mandatory: state.mandatory,
+    }
     try {
       await Updater.installApk({ path: state.path })
-      // Note: Android takes over from here. If the user denies the install
-      // prompt we'll never know — but the next foreground event will trigger
-      // a fresh getCurrentVersion, and if the version didn't change we'll
-      // re-offer the update from `state.available`. For now, leave the
-      // state at ready_to_install so the UI's "install" button can be
-      // re-tapped.
+      // Android takes over from here. On success the process is killed and
+      // restarted at the new versionCode; on rejection (signature mismatch /
+      // user denied / unknown-sources off) the app stays running and we'll
+      // detect it via the appStateChange listener below.
     } catch (err) {
+      installAttemptRef.current = null
       setState({
         status: 'error',
         message: err instanceof Error ? err.message : String(err),
@@ -220,6 +235,54 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       })
     }
   }, [state])
+
+  // Detect "user came back from the Android installer dialog without the
+  // version actually changing" — that's how rejected installs manifest
+  // (signature mismatch is the most common one when migrating from a
+  // sideloaded debug-signed APK to CI-signed releases).
+  useEffect(() => {
+    if (!isNative()) return
+    let cleanup: (() => void) | undefined
+    void (async () => {
+      try {
+        const { App } = await import('@capacitor/app')
+        const handle = await App.addListener('appStateChange', (ev) => {
+          if (!ev.isActive) return
+          const attempt = installAttemptRef.current
+          if (!attempt) return
+          // Re-read the installed versionCode. If it bumped — Android
+          // succeeded and we'd already have been killed; this branch is
+          // a defensive no-op. If it didn't bump — install failed.
+          void Updater.getCurrentVersion()
+            .then((v) => {
+              if (v.version_code >= attempt.expectedVersionCode) {
+                installAttemptRef.current = null
+                return
+              }
+              installAttemptRef.current = null
+              setState({
+                status: 'error',
+                message:
+                  'Установка отклонена системой. Возможные причины: подпись APK не совпадает с установленной версией (тогда удалите приложение и поставьте новый APK с GitHub Releases вручную), либо не разрешена установка из неизвестных источников.',
+                currentVersionCode: attempt.previousVersionCode,
+                mandatory: attempt.mandatory,
+              })
+            })
+            .catch(() => {
+              installAttemptRef.current = null
+            })
+        })
+        cleanup = () => {
+          void handle.remove()
+        }
+      } catch (err) {
+        console.warn('failed to subscribe to appStateChange:', err)
+      }
+    })()
+    return () => {
+      cleanup?.()
+    }
+  }, [])
 
   return (
     <UpdateContext.Provider value={{ state, checkNow, dismiss, startDownload, install }}>
