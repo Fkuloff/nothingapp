@@ -15,6 +15,28 @@ export function UpdateBanner() {
   const { state, startDownload, install, dismiss } = useUpdate()
   const [expanded, setExpanded] = useState(false)
 
+  // Render error state inline so the user can actually see what failed
+  // (download timeout, sha mismatch, install permission, etc.) instead of
+  // the banner silently disappearing. Mandatory-update errors keep flowing
+  // through UpdateMandatoryScreen instead.
+  if (state.status === 'error' && !state.mandatory) {
+    return (
+      <div className="update-banner" role="region" aria-label="Ошибка обновления">
+        <div className="update-banner__row">
+          <div className="update-banner__text">
+            <span className="update-banner__icon" aria-hidden="true">⚠️</span>
+            <div className="update-banner__copy">
+              <span className="update-banner__title">Не удалось обновиться</span>
+              <span className="update-banner__meta" style={{ whiteSpace: 'normal' }}>
+                {state.message || 'неизвестная ошибка'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Only render in soft-update flow states. Mandatory + everything outside
   // the update-pending statuses fall through to null.
   if (
