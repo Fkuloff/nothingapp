@@ -221,6 +221,20 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
+      # Push the current docker-compose.prod.yml + nginx config to the VM so
+      # service-level config changes (new secrets, env wiring, etc.) land
+      # together with the new images. The VM holds a hand-managed copy of
+      # these files, not a git checkout.
+      - name: Sync compose + nginx config to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "docker-compose.prod.yml,nginx-proxy/"
+          target: /home/vpmuser/nothing
+          overwrite: true
+
       - name: Deploy to production VM
         uses: appleboy/ssh-action@v1
         with:
@@ -231,4 +245,5 @@ jobs:
             cd /home/vpmuser/nothing
             docker compose -f docker-compose.prod.yml pull backend frontend
             docker compose -f docker-compose.prod.yml up -d backend frontend
+            docker compose -f docker-compose.prod.yml exec -T nginx-proxy nginx -s reload || true
             docker image prune -f
