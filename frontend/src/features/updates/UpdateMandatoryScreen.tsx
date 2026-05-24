@@ -11,24 +11,60 @@ import { useUpdate } from './UpdateContext'
  * which kills our process and Android brings up the new version.
  */
 export function UpdateMandatoryScreen({ children }: { children: ReactNode }) {
-  const { state, startDownload, install } = useUpdate()
+  const { state, startDownload, install, checkNow } = useUpdate()
 
+  // Error state also has a `mandatory` flag — if a mandatory download fails,
+  // we still need to keep blocking the rest of the UI. Previously this state
+  // wasn't in the matched set, so the screen disappeared and let the user
+  // into the (still-blocked) app; on next cold start performCheck would
+  // re-derive mandatory and the loop repeated.
   const mandatory =
     (state.status === 'available' ||
       state.status === 'downloading' ||
-      state.status === 'ready_to_install') &&
+      state.status === 'ready_to_install' ||
+      state.status === 'error') &&
     state.mandatory
 
   if (!mandatory) return <>{children}</>
 
+  // Error state: show the message + a Retry button, no release fields available.
+  if (state.status === 'error') {
+    return (
+      <div className="update-mandatory">
+        <div className="update-mandatory__card">
+          <div className="update-mandatory__icon" aria-hidden="true">⚠️</div>
+          <h2 className="update-mandatory__title">Не удалось обновиться</h2>
+          <p className="update-mandatory__message" style={{ whiteSpace: 'pre-wrap' }}>
+            {state.message || 'неизвестная ошибка'}
+          </p>
+          <p className="update-mandatory__meta">
+            Проверьте подключение к сети и попробуйте снова. Если не помогает —
+            скачайте APK вручную:{' '}
+            <a
+              href="https://github.com/Fkuloff/messenger/releases/latest"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              GitHub Releases
+            </a>
+          </p>
+          <div className="update-mandatory__action">
+            <button
+              type="button"
+              className="update-mandatory__btn"
+              onClick={() => void checkNow()}
+            >
+              Повторить
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Now we know we're in one of the mandatory-flagged states. Pull out the
   // release (always present in those states) for display.
-  const release =
-    state.status === 'available' || state.status === 'downloading' || state.status === 'ready_to_install'
-      ? state.release
-      : null
-  if (!release) return <>{children}</>
-
+  const release = state.release
   const fileSizeMb = (release.size_bytes / (1024 * 1024)).toFixed(1)
 
   return (
