@@ -16,6 +16,8 @@ Real-time messenger with a React frontend and a Go backend.
 - ✏️ Message editing and deletion
 - 💬 Message replies (threading)
 - 👥 Group chats with roles (owner / admin / member), contact management
+- 🔖 "Saved Messages" self-chat (auto-created on registration, pinned to top, cannot be deleted — only cleared)
+- 🚀 In-app self-update for Android (CI-signed APK with SHA-256 verification + mandatory / optional release policy)
 - 🌗 Light / dark theme
 
 ## Stack
@@ -158,6 +160,19 @@ POST   /api/push/fcm/register     POST /api/push/fcm/unregister
 WS     /ws
 ```
 
+**Self-update (public):**
+```
+GET    /api/updates/latest?platform=android   # 200 + JSON release row, or 204 if none
+```
+Android client polls this on cold start; compares `version_code` against the
+installed APK. If newer → banner; if installed < `min_supported_version_code`
+→ unblockable mandatory upgrade screen.
+
+**Admin** (X-Admin-Key header, constant-time compared; 503 if `ADMIN_API_KEY` unset):
+```
+POST   /api/admin/releases        # called only by the release CI workflow
+```
+
 ## Development
 
 ```bash
@@ -188,15 +203,36 @@ npm test                               # Vitest (includes E2E crypto roundtrip s
 
 ## CI/CD
 
-GitHub Actions pipeline (push / PR to `main`):
+Two workflows in `.github/workflows/`:
+
+**`ci.yml`** — runs on every push / PR to `main`:
 
 1. **Lint** — golangci-lint (backend) + ESLint (frontend)
 2. **Test** — `go test -race -coverprofile` with PostgreSQL; Vitest on frontend
 3. **Build** — Go binary + `npm run build`
 4. **Docker** — build and push to GHCR (linux/amd64)
-5. **Deploy** — SSH deploy to the server, `docker compose pull && up -d`, then `nginx -s reload`
 
-Docker push + deploy only fire on `push` to `main`.
+No deploy here — pushing to `main` does not touch production.
+
+**`release.yml`** — runs on `git tag v*`:
+
+1. Bump `versionCode` / `versionName` in `frontend/android/app/build.gradle`
+2. Build a **signed** Android release APK (keystore stored as base64 secret)
+3. Compute SHA-256 + size, rename to `messenger-<version>.apk`
+4. Create a GitHub Release with the APK as a public asset
+5. POST the release metadata to `/api/admin/releases` so connected clients
+   pick up the update banner on their next cold start
+6. Build + push `messenger-backend:<version>` and `messenger-frontend:<version>`
+   Docker images to GHCR (plus `latest`)
+7. `scp docker-compose.prod.yml + nginx-proxy/` to the production VM,
+   then SSH-deploy: `docker compose pull && up -d && nginx -s reload`
+
+Default policy: `min_supported_version_code = version_code` for the new release,
+making every release a mandatory upgrade for older installs. Override for an
+optional release: `gh workflow run release.yml -f min_supported=1`.
+
+Required secrets / variables are documented in the header of `release.yml`
+and in `CLAUDE.md`.
 
 ## Deployment (Production)
 
