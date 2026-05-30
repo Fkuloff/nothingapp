@@ -335,7 +335,7 @@ export default function ChatsPage() {
 
             const updatedChats = [...prevChats]
             const chat = { ...updatedChats[chatIndex] }
-            chat.last_message = text.trim() || '[Вложение]'
+            chat.last_message = text.trim() || '📎 Вложение'
             chat.updated_at = event.created_at
 
             // Don't bump unread for system messages (e.g. missed-call): the

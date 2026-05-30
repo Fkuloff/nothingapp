@@ -34,6 +34,26 @@ func TestFormatLastMessage_SchemeClientSideRendersPlaceholder(t *testing.T) {
 	}
 }
 
+// A scheme=2 message that carries files shows a generic "📎 Вложение" hint
+// rather than the lock placeholder — the server can't read the text but it can
+// see there's an attachment. The client overrides this with the decrypted text
+// when the message also has text.
+func TestFormatLastMessage_SchemeClientSideWithAttachment(t *testing.T) {
+	msg := &models.Message{
+		Text:        "AAAAAAciphertext",
+		Scheme:      models.SchemeClientSide,
+		Attachments: []models.Attachment{{}},
+	}
+
+	got := formatLastMessage(msg, nil)
+	if !strings.Contains(got, "Вложение") {
+		t.Fatalf("scheme=2 with attachments should hint an attachment, got %q", got)
+	}
+	if strings.Contains(got, "AAAAAA") {
+		t.Fatalf("preview leaked ciphertext: %q", got)
+	}
+}
+
 func TestFormatLastMessage_SchemeServerSideShowsText(t *testing.T) {
 	msg := &models.Message{
 		Text:   "Привет, это обычное сообщение",

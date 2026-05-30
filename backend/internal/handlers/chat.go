@@ -274,6 +274,12 @@ func formatLastMessage(lastMsg *models.Message, err error) string {
 	}
 
 	if lastMsg.Scheme == models.SchemeClientSide {
+		// Server can't decrypt scheme=2 text. If the message carries files, hint
+		// that with a generic attachment label instead of the lock placeholder;
+		// the client overrides it with the decrypted text when there is text.
+		if len(lastMsg.Attachments) > 0 {
+			return "📎 Вложение"
+		}
 		return "🔒 Зашифрованное сообщение"
 	}
 

@@ -100,6 +100,7 @@ func (r *MessageRepo) GetLastNonDeletedByChatID(ctx context.Context, chatID uint
 		Where("chat_id = ? AND is_deleted = ?", chatID, false).
 		Order("created_at desc").
 		Limit(1).
+		Preload("Attachments"). // lets the chat-list preview show "📎 Вложение"
 		First(&msg).Error
 	if err != nil {
 		return nil, err
