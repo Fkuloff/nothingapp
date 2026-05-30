@@ -207,6 +207,95 @@ func (s *FCMService) sendDismissToToken(ctx context.Context, t models.FCMToken, 
 	}
 }
 
+// callPushTTL caps how long FCM keeps an undelivered call doorbell queued. Kept
+// short — slightly under the caller's ring window — so a stale doorbell can't
+// ring the callee long after the caller gave up.
+const callPushTTL = 30 * time.Second
+
+// SendCallPush delivers an "incoming call" doorbell notification to every token
+// of recipientUserID, high-priority (wakes the device from Doze) with a distinct
+// call-<callID> tag so it's never swept by the chat-<id> dismiss handlers.
+// Carries no SDP — it only wakes the callee so the re-offer handshake can run
+// over WebSocket once the app is open.
+func (s *FCMService) SendCallPush(ctx context.Context, recipientUserID uint, callerName, callID string, chatID, callerID uint) error {
+	if !s.enabled {
+		return nil
+	}
+	tokens, err := s.tokenRepo.GetByUser(ctx, recipientUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get FCM tokens: %w", err)
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	s.logger.Info("sending FCM call push",
+		zap.Uint("recipient_id", recipientUserID),
+		zap.String("call_id", callID),
+		zap.Int("token_count", len(tokens)),
+	)
+
+	bgCtx := context.Background()
+	for _, t := range tokens {
+		go s.sendCallToToken(bgCtx, t, callerName, callID, chatID, callerID) //nolint:contextcheck // detached from caller
+	}
+	return nil
+}
+
+// sendCallToToken sends one call doorbell and prunes invalid tokens.
+func (s *FCMService) sendCallToToken(ctx context.Context, t models.FCMToken, callerName, callID string, chatID, callerID uint) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("panic in FCM call goroutine", zap.Any("panic", r))
+		}
+	}()
+
+	ttl := callPushTTL
+	tag := fmt.Sprintf("call-%s", callID)
+	msg := &messaging.Message{
+		Token: t.Token,
+		Notification: &messaging.Notification{
+			Title: "Входящий звонок",
+			Body:  callerName,
+		},
+		Data: map[string]string{
+			"type":      "call",
+			"call_id":   callID,
+			"chat_id":   strconv.FormatUint(uint64(chatID), 10),
+			"caller_id": strconv.FormatUint(uint64(callerID), 10),
+			"tag":       tag,
+		},
+		Android: &messaging.AndroidConfig{
+			Priority: "high",
+			TTL:      &ttl,
+			Notification: &messaging.AndroidNotification{
+				Tag: tag,
+				// Reuse the known-good "messages" channel rather than a dedicated
+				// "calls" one: the app registers no channels, so an unknown
+				// channel id would fall back to *default* importance on Android
+				// O+ (no heads-up). "messages" is what working notifications use.
+				// A dedicated high-importance calls channel is a follow-up that
+				// needs native createChannel registration first.
+				ChannelID: "messages",
+			},
+		},
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, fcmSendTimeout)
+	defer cancel()
+
+	if _, err := s.client.Send(sendCtx, msg); err != nil {
+		if messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err) {
+			s.logger.Info("FCM token invalid on call push, removing", zap.Uint("user_id", t.UserID))
+			if delErr := s.tokenRepo.DeleteByTokenGlobal(ctx, t.Token); delErr != nil {
+				s.logger.Error("failed to prune invalid FCM token", zap.Error(delErr))
+			}
+			return
+		}
+		s.logger.Warn("FCM call push failed", zap.Error(err), zap.Uint("user_id", t.UserID))
+	}
+}
+
 // sendToToken delivers to a single device token and prunes on permanent failure.
 func (s *FCMService) sendToToken(ctx context.Context, t models.FCMToken, payload PushPayload) {
 	defer func() {

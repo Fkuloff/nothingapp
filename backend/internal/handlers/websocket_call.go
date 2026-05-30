@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"messenger/internal/models"
+
 	"go.uber.org/zap"
 )
 
@@ -39,7 +41,20 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 	}
 
 	if ca.Action == actionCallOffer && !h.presenceService.IsUserOnline(otherUserID) {
-		return &wsError{message: "User is offline"}
+		// Callee offline: register the call, fire a doorbell push, and keep the
+		// caller ringing (return nil, not an error). The SDP is intentionally
+		// NOT relayed — when the callee taps the push, opens the app and emits
+		// call_ready, the caller mints a fresh offer (see handleCallSignaling's
+		// call_ready relay + the frontend re-offer flow). This avoids shipping a
+		// stale SDP through the ring window.
+		h.registerCall(userID, otherUserID, ca.CallID, ca.ChatID)
+		go h.sendCallPush(context.Background(), userID, otherUserID, ca.CallID, ca.ChatID) //nolint:contextcheck // detached on purpose
+		h.logger.Debug("callee offline — sent call doorbell push",
+			zap.Uint("caller", userID),
+			zap.Uint("callee", otherUserID),
+			zap.String("call_id", ca.CallID),
+		)
+		return nil
 	}
 
 	// Track active calls for disconnect notification
@@ -78,5 +93,81 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 		zap.String("call_id", ca.CallID),
 	)
 
+	return nil
+}
+
+// sendCallPush delivers the "incoming call" doorbell to an offline callee, over
+// both FCM (mobile) and Web Push (web fallback). Best-effort and detached — the
+// caller's ring window is the real timeout. The push carries no SDP; it only
+// wakes the callee so the re-offer handshake can run.
+func (h *webSocketHandler) sendCallPush(ctx context.Context, callerID, calleeID uint, callID string, chatID uint) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.logger.Error("panic in call-push goroutine", zap.Any("panic", r))
+		}
+	}()
+	if h.pushService == nil || !h.pushService.IsEnabled() {
+		return
+	}
+	callerName := "Входящий вызов"
+	if h.userService != nil {
+		if u, err := h.userService.GetUserByID(ctx, callerID); err == nil && u != nil {
+			if name := u.GetDisplayName(); name != "" {
+				callerName = name
+			}
+		}
+	}
+	if err := h.pushService.SendCallPush(ctx, calleeID, callerName, callID, chatID, callerID); err != nil {
+		h.logger.Warn("call push failed", zap.Error(err), zap.Uint("callee", calleeID))
+	}
+}
+
+// handleCallMissed posts the "Пропущенный звонок" system message when the
+// caller's ring window expires. Guarded by activeCalls: only the registered
+// caller for this exact call_id may post it, so a client can't spam system
+// messages into arbitrary chats.
+func (h *webSocketHandler) handleCallMissed(ctx context.Context, userID uint, rawMsg []byte) error {
+	var ca callAction
+	if err := json.Unmarshal(rawMsg, &ca); err != nil {
+		return &wsError{message: "Invalid call format"}
+	}
+	if ca.ChatID == 0 || ca.CallID == "" {
+		return &wsError{message: "chat_id and call_id are required"}
+	}
+
+	// call_id guard: the sender must be the registered caller for this call.
+	h.callsMu.Lock()
+	info, ok := h.activeCalls[userID]
+	h.callsMu.Unlock()
+	if !ok || info.callID != ca.CallID || info.chatID != ca.ChatID {
+		return &wsError{message: "no matching active call"}
+	}
+	calleeID := info.peerUserID
+	h.unregisterCall(userID)
+
+	recipientOffline := !h.presenceService.IsUserOnline(calleeID)
+	msg, err := h.chatService.PostCallSystemMessage(ctx, ca.ChatID, calleeID, callMissedText, recipientOffline)
+	if err != nil {
+		h.logger.Warn("failed to post missed-call message", zap.Error(err), zap.Uint("chat_id", ca.ChatID))
+		return nil // best-effort
+	}
+
+	broadcastData := map[string]any{
+		"action":     "new",
+		"chat_id":    ca.ChatID,
+		"user_id":    uint(0),
+		"text":       msg.Text,
+		"type":       string(models.MessageTypeSystem),
+		"id":         msg.ID,
+		"created_at": msg.CreatedAt,
+		"is_deleted": false,
+	}
+	msgJSON, err := json.Marshal(broadcastData)
+	if err != nil {
+		return &wsError{message: "Server error"}
+	}
+	if err := h.broadcastToChat(ctx, ca.ChatID, msgJSON); err != nil {
+		h.logger.Warn("failed to broadcast missed-call message", zap.Error(err), zap.Uint("chat_id", ca.ChatID))
+	}
 	return nil
 }

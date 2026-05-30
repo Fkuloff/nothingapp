@@ -89,6 +89,8 @@ export type Message = {
   text: string
   type?: 'user' | 'system'
   reply_to_id?: number | null
+  // Original author's user id when this message was forwarded from another chat.
+  forwarded_from_user_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
   created_at: string
@@ -201,6 +203,9 @@ export type WSMessageSend = {
   chat_id: number
   text: string
   reply_to_id?: number
+  // Set when forwarding: the original author's user id (attribution only — the
+  // body is re-encrypted for this chat).
+  forwarded_from_user_id?: number
   // For E2E (scheme=2) sends in 1-on-1: text is ciphertext, iv is the GCM nonce, scheme is 2.
   // For group scheme=2: text & iv are empty, envelopes carries one per recipient.
   // For legacy sends: omit all four; server defaults to scheme=1 server-side encryption.
@@ -228,6 +233,17 @@ export type WSMessageDelete = {
 export type WSMessageMarkRead = {
   action: 'mark_read'
   chat_id: number
+  // Highest message id the client has read — advances the read-receipt pointer.
+  up_to_message_id?: number
+}
+
+// Delivery acknowledgement: the client received message_id in a chat it isn't
+// currently viewing. Advances the peer's delivered pointer so the author's
+// bubbles show ✓✓ (delivered). 1-on-1 only on the server side.
+export type WSMessageDelivered = {
+  action: 'delivered'
+  chat_id: number
+  message_id: number
 }
 
 // Call signaling (client -> server)
@@ -266,9 +282,25 @@ export type WSCallReject = {
   call_id: string
 }
 
+// Callee → server: "I'm online now (via the doorbell push) and ready for a
+// fresh offer." Relayed to the caller, who re-offers.
+export type WSCallReady = {
+  action: 'call_ready'
+  chat_id: number
+  call_id: string
+}
+
+// Caller → server: ring window expired with no answer. Server posts the
+// "Пропущенный звонок" system message (guarded against the registered caller).
+export type WSCallMissed = {
+  action: 'call_missed'
+  chat_id: number
+  call_id: string
+}
+
 export type WSMessageAction =
-  | WSMessageSend | WSMessageEdit | WSMessageDelete | WSMessageMarkRead
-  | WSCallOffer | WSCallAnswer | WSCallIce | WSCallHangup | WSCallReject
+  | WSMessageSend | WSMessageEdit | WSMessageDelete | WSMessageMarkRead | WSMessageDelivered
+  | WSCallOffer | WSCallAnswer | WSCallIce | WSCallHangup | WSCallReject | WSCallReady | WSCallMissed
 
 // WebSocket events (server -> client)
 export type WSEventNew = {
@@ -277,7 +309,11 @@ export type WSEventNew = {
   chat_id: number
   user_id: number
   text: string
+  // Present for server-generated system messages (e.g. "Пропущенный звонок").
+  // Absent/"user" for normal messages.
+  type?: 'user' | 'system'
   reply_to_id?: number | null
+  forwarded_from_user_id?: number | null
   edited_at?: string | null
   is_deleted: boolean
   created_at: string
@@ -321,12 +357,24 @@ export type WSEventPresenceChanged = {
   action: 'presence_changed'
   user_id: number
   is_online: boolean
+  last_seen?: string
 }
 
 export type WSEventChatCleared = {
   action: 'chat_cleared'
   chat_id: number
   user_id: number
+}
+
+// Read-receipt update (1-on-1). The peer (user_id) has delivered or read every
+// message up to up_to_message_id; the author bumps its per-chat pointer so sent
+// bubbles flip ✓ → ✓✓ (grey delivered) → ✓✓ (blue read).
+export type WSEventMessageStatus = {
+  action: 'message_status'
+  chat_id: number
+  user_id: number
+  status: 'delivered' | 'read'
+  up_to_message_id: number
 }
 
 export type WSEventChatDeleted = {
@@ -441,6 +489,14 @@ export type WSEventCallReject = {
   user_id: number
 }
 
+// Server → caller: the callee came online and is ready for a fresh offer.
+export type WSEventCallReady = {
+  action: 'call_ready'
+  chat_id: number
+  call_id: string
+  user_id: number
+}
+
 export type WSEvent =
   | WSEventNew
   | WSEventEdit
@@ -449,6 +505,7 @@ export type WSEvent =
   | WSEventPresenceChanged
   | WSEventChatCleared
   | WSEventChatDeleted
+  | WSEventMessageStatus
   | WSEventMemberAdded
   | WSEventMemberRemoved
   | WSEventMemberLeft
@@ -462,4 +519,5 @@ export type WSEvent =
   | WSEventCallIce
   | WSEventCallHangup
   | WSEventCallReject
+  | WSEventCallReady
   | ApiError

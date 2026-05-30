@@ -90,16 +90,21 @@ func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	if message.ReplyToID != nil {
 		replyToIDVal = *message.ReplyToID
 	}
+	forwardedFromVal := uint(0)
+	if message.ForwardedFromUserID != nil {
+		forwardedFromVal = *message.ForwardedFromUserID
+	}
 
 	broadcastData := map[string]any{
-		"action":      "new",
-		"chat_id":     msgData.ChatID,
-		"user_id":     userID,
-		"text":        msgData.Text,
-		"reply_to_id": replyToIDVal,
-		"id":          message.ID,
-		"created_at":  message.CreatedAt,
-		"is_deleted":  false,
+		"action":                 "new",
+		"chat_id":                msgData.ChatID,
+		"user_id":                userID,
+		"text":                   msgData.Text,
+		"reply_to_id":            replyToIDVal,
+		"forwarded_from_user_id": forwardedFromVal,
+		"id":                     message.ID,
+		"created_at":             message.CreatedAt,
+		"is_deleted":             false,
 	}
 	addE2EFieldsToBroadcast(broadcastData, message.Scheme, message.IV, msgData.Envelopes)
 	msgJSON, err := json.Marshal(broadcastData)
@@ -136,10 +141,11 @@ func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID u
 	isRecipientOffline := !h.presenceService.IsUserOnline(otherUserID)
 
 	msg, err := h.chatService.SendMessageAtomic(ctx, msgData.ChatID, userID, otherUserID, services.SendMessageInput{
-		Text:      msgData.Text,
-		IV:        msgData.IV,
-		Scheme:    msgData.Scheme,
-		ReplyToID: msgData.ReplyToID,
+		Text:                msgData.Text,
+		IV:                  msgData.IV,
+		Scheme:              msgData.Scheme,
+		ReplyToID:           msgData.ReplyToID,
+		ForwardedFromUserID: msgData.ForwardedFromUserID,
 	}, isRecipientOffline)
 	if err != nil {
 		h.logger.Error("error sending message",
@@ -150,8 +156,10 @@ func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID u
 		return nil, &wsError{message: "Failed to send message"}
 	}
 
-	// Push notification for direct message
-	if h.pushService != nil && h.pushService.IsEnabled() {
+	// Push notification for direct message. Skip self-chat ("Saved Messages"):
+	// the recipient is the sender, so a push would notify the author's own
+	// other devices about their own message.
+	if otherUserID != userID && h.pushService != nil && h.pushService.IsEnabled() {
 		go h.sendPushNotification(userID, otherUserID, msgData.ChatID, pushBodyFromMessage(msgData))
 	}
 
@@ -184,11 +192,12 @@ func (h *webSocketHandler) handleSendGroupMessage(ctx context.Context, userID ui
 	}
 
 	msg, err := h.chatService.SendMessageAtomicGroup(ctx, msgData.ChatID, userID, offlineUserIDs, services.SendMessageInput{
-		Text:      msgData.Text,
-		IV:        msgData.IV,
-		Scheme:    msgData.Scheme,
-		ReplyToID: msgData.ReplyToID,
-		Envelopes: toServiceEnvelopes(msgData.Envelopes),
+		Text:                msgData.Text,
+		IV:                  msgData.IV,
+		Scheme:              msgData.Scheme,
+		ReplyToID:           msgData.ReplyToID,
+		ForwardedFromUserID: msgData.ForwardedFromUserID,
+		Envelopes:           toServiceEnvelopes(msgData.Envelopes),
 	})
 	if err != nil {
 		h.logger.Error("error sending group message",
@@ -437,7 +446,93 @@ func (h *webSocketHandler) handleMarkRead(ctx context.Context, userID uint, msgD
 	// dismiss any push notifications still sitting on their other devices.
 	h.fireDismissPush(ctx, userID, msgData.ChatID)
 
+	// Read receipt (1-on-1 only for v1): advance the durable read pointer and
+	// notify the message author so their sent bubbles flip to ✓✓ (read). The
+	// client sends up_to_message_id = highest message it has read.
+	if msgData.UpToMessageID > 0 {
+		h.recordReadReceipt(ctx, userID, msgData.ChatID, msgData.UpToMessageID)
+	}
+
 	return nil
+}
+
+// recordReadReceipt advances userID's read pointer in a 1-on-1 chat and notifies
+// the message author (✓✓ read). Best-effort and 1-on-1 only — a no-op for groups
+// or on any error, so it never fails the mark_read it's called from.
+func (h *webSocketHandler) recordReadReceipt(ctx context.Context, userID, chatID, upToMessageID uint) {
+	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
+	if err != nil || chat.IsGroup {
+		return
+	}
+	if err := h.chatService.MarkReadReceipt(ctx, chatID, userID, upToMessageID); err != nil {
+		h.logger.Warn("failed to upsert read receipt",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.Uint("chat_id", chatID),
+		)
+		return
+	}
+	h.emitMessageStatus(ctx, chat, userID, "read", upToMessageID)
+}
+
+// handleMarkDelivered records that userID received messages up to MessageID in
+// the chat and notifies the message author so their sent bubbles flip to ✓✓
+// (delivered). 1-on-1 only for v1 — group receipts would need per-recipient
+// aggregation before a sender could show a single delivered/read state.
+func (h *webSocketHandler) handleMarkDelivered(ctx context.Context, userID uint, msgData messageAction) error {
+	if msgData.ChatID == 0 || msgData.MessageID == 0 {
+		return &wsError{message: "chat_id and message_id are required"}
+	}
+	// Access guard: the caller must be a participant. Also prevents a malicious
+	// client from probing arbitrary chat_ids.
+	if err := h.checkWSChatAccess(ctx, msgData.ChatID, userID); err != nil {
+		return err
+	}
+	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
+	if err != nil {
+		return &wsError{message: "chat not found"}
+	}
+	if chat.IsGroup {
+		return nil // v1: no group receipts
+	}
+	if err := h.chatService.MarkDelivered(ctx, msgData.ChatID, userID, msgData.MessageID); err != nil {
+		h.logger.Warn("failed to upsert delivered receipt",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.Uint("chat_id", msgData.ChatID),
+		)
+		return nil // best-effort
+	}
+	h.emitMessageStatus(ctx, chat, userID, "delivered", msgData.MessageID)
+	return nil
+}
+
+// emitMessageStatus notifies the *other* party in a 1-on-1 chat that actorID has
+// delivered/read messages up to upToMessageID. Routed only to the peer (the
+// message author) via broadcastToUser, which is best-effort — if the author has
+// no live socket the update is simply re-derived on their next chat open from
+// the persisted receipt. Gated to 1-on-1 for v1.
+func (h *webSocketHandler) emitMessageStatus(ctx context.Context, chat *models.Chat, actorID uint, status string, upToMessageID uint) {
+	if chat.IsGroup {
+		return
+	}
+	payload := map[string]interface{}{
+		"action":           "message_status",
+		"chat_id":          chat.ID,
+		"user_id":          actorID,
+		"status":           status,
+		"up_to_message_id": upToMessageID,
+	}
+	msgJSON, err := json.Marshal(payload)
+	if err != nil {
+		h.logger.Error("failed to marshal message_status", zap.Error(err))
+		return
+	}
+	for _, recipientID := range h.getChatRecipients(ctx, chat, actorID) {
+		if h.presenceService.IsUserOnline(recipientID) {
+			h.broadcastToUser(recipientID, msgJSON)
+		}
+	}
 }
 
 // handleChatOpened is the "I'm in this chat right now" signal — fires when

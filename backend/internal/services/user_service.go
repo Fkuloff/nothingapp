@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"strings"
+	"time"
 
 	"messenger/internal/models"
 	"messenger/internal/repositories"
@@ -184,6 +185,13 @@ func (s *UserService) SearchUsers(ctx context.Context, query string, excludeUser
 		return nil, fmt.Errorf("failed to search users: %w", err)
 	}
 	return users, nil
+}
+
+// UpdateLastSeen persists the moment a user went offline so "last seen" survives
+// a server restart or presence-cache eviction. Best-effort: the caller logs and
+// continues on error.
+func (s *UserService) UpdateLastSeen(ctx context.Context, userID uint, lastSeen time.Time) error {
+	return s.userRepo.UpdateLastSeen(ctx, userID, lastSeen)
 }
 
 // UpdateProfile updates user's display name

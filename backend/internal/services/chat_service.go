@@ -41,23 +41,34 @@ type MessageEnvelopeInput struct {
 //     on the persisted message row are empty by convention; per-recipient
 //     ciphertexts live in the message_envelopes table.
 type SendMessageInput struct {
-	Text      string
-	IV        string
-	Scheme    uint8
-	ReplyToID uint
-	Envelopes []MessageEnvelopeInput
+	Text                string
+	IV                  string
+	Scheme              uint8
+	ReplyToID           uint
+	ForwardedFromUserID uint
+	Envelopes           []MessageEnvelopeInput
+}
+
+// forwardedFromPtr maps a zero id to nil so non-forwarded messages leave the
+// column NULL, mirroring how ReplyToID is stored as a nullable pointer.
+func forwardedFromPtr(id uint) *uint {
+	if id == 0 {
+		return nil
+	}
+	return &id
 }
 
 // ChatService handles business logic for chats, messages, and unread tracking.
 type ChatService struct {
-	db                *gorm.DB
-	logger            *zap.Logger
-	chatRepo          *repositories.ChatRepo
-	participantRepo   *repositories.ChatParticipantRepo
-	messageRepo       *repositories.MessageRepo
-	envelopeRepo      *repositories.MessageEnvelopeRepo
-	unreadMessageRepo *repositories.UnreadMessageRepo
-	fileStorage       storage.Storage
+	db                 *gorm.DB
+	logger             *zap.Logger
+	chatRepo           *repositories.ChatRepo
+	participantRepo    *repositories.ChatParticipantRepo
+	messageRepo        *repositories.MessageRepo
+	envelopeRepo       *repositories.MessageEnvelopeRepo
+	unreadMessageRepo  *repositories.UnreadMessageRepo
+	messageReceiptRepo *repositories.MessageReceiptRepo
+	fileStorage        storage.Storage
 }
 
 // NewChatService creates a new ChatService.
@@ -69,18 +80,41 @@ func NewChatService(
 	messageRepo *repositories.MessageRepo,
 	envelopeRepo *repositories.MessageEnvelopeRepo,
 	unreadMessageRepo *repositories.UnreadMessageRepo,
+	messageReceiptRepo *repositories.MessageReceiptRepo,
 	fileStorage storage.Storage,
 ) *ChatService {
 	return &ChatService{
-		db:                db,
-		logger:            logger,
-		chatRepo:          chatRepo,
-		participantRepo:   participantRepo,
-		messageRepo:       messageRepo,
-		envelopeRepo:      envelopeRepo,
-		unreadMessageRepo: unreadMessageRepo,
-		fileStorage:       fileStorage,
+		db:                 db,
+		logger:             logger,
+		chatRepo:           chatRepo,
+		participantRepo:    participantRepo,
+		messageRepo:        messageRepo,
+		envelopeRepo:       envelopeRepo,
+		unreadMessageRepo:  unreadMessageRepo,
+		messageReceiptRepo: messageReceiptRepo,
+		fileStorage:        fileStorage,
 	}
+}
+
+// MarkDelivered records that userID (a recipient) has received messages up to
+// messageID in chatID. The pointer never regresses. Used by the WS `delivered`
+// ack so the message author's bubbles can flip to ✓✓ (delivered).
+func (s *ChatService) MarkDelivered(ctx context.Context, chatID, userID, messageID uint) error {
+	return s.messageReceiptRepo.UpsertDelivered(ctx, chatID, userID, messageID)
+}
+
+// MarkReadReceipt records that userID has read messages up to messageID (and,
+// implicitly, received them). Distinct from MarkChatAsRead, which drains the
+// offline-replay queue — this maintains the durable read pointer for receipts.
+func (s *ChatService) MarkReadReceipt(ctx context.Context, chatID, userID, messageID uint) error {
+	return s.messageReceiptRepo.UpsertRead(ctx, chatID, userID, messageID)
+}
+
+// GetPeerReceipt returns peerUserID's delivered/read pointers in chatID, or nil
+// if the peer has no receipt yet. Used on chat open to render checkmarks before
+// any live message_status event arrives.
+func (s *ChatService) GetPeerReceipt(ctx context.Context, chatID, peerUserID uint) (*models.MessageReceipt, error) {
+	return s.messageReceiptRepo.GetPeerReceipt(ctx, chatID, peerUserID)
 }
 
 // prepareMessageBody normalizes a SendMessageInput into the (ciphertext, iv,
@@ -234,12 +268,13 @@ func (s *ChatService) SendMessageAtomic(ctx context.Context, chatID, userID, rec
 
 		// Create the message
 		message = &models.Message{
-			ChatID:    chatID,
-			UserID:    userID,
-			Text:      ciphertext,
-			IV:        storedIV,
-			Scheme:    effectiveScheme,
-			ReplyToID: replyPtr,
+			ChatID:              chatID,
+			UserID:              userID,
+			Text:                ciphertext,
+			IV:                  storedIV,
+			Scheme:              effectiveScheme,
+			ReplyToID:           replyPtr,
+			ForwardedFromUserID: forwardedFromPtr(in.ForwardedFromUserID),
 		}
 
 		if err := messageRepo.Create(ctx, message); err != nil {
@@ -311,6 +346,32 @@ func (s *ChatService) validateReplyMessage(ctx context.Context, messageRepo *rep
 	}
 
 	return &replyToID, nil
+}
+
+// PostCallSystemMessage creates a plaintext "missed call" system message in a
+// 1-on-1 chat (UserID 0, Type system). If the recipient who missed the call is
+// offline, it's queued to their unread-replay so they see it on reconnect. The
+// row is returned so the WS handler can broadcast a normal `new` event for any
+// online participant. Never E2E-encrypted — system messages are plaintext by
+// design, like the group join/leave notices.
+func (s *ChatService) PostCallSystemMessage(ctx context.Context, chatID, recipientID uint, text string, recipientOffline bool) (*models.Message, error) {
+	msg := &models.Message{
+		ChatID: chatID,
+		UserID: 0,
+		Text:   text,
+		Type:   models.MessageTypeSystem,
+	}
+	if err := s.messageRepo.Create(ctx, msg); err != nil {
+		return nil, fmt.Errorf("create call system message: %w", err)
+	}
+	if err := s.createUnreadIfNeeded(ctx, s.unreadMessageRepo, recipientOffline, recipientID, msg.ID, chatID); err != nil {
+		s.logger.Warn("failed to queue missed-call unread",
+			zap.Error(err),
+			zap.Uint("recipient_id", recipientID),
+			zap.Uint("chat_id", chatID),
+		)
+	}
+	return msg, nil
 }
 
 // createUnreadIfNeeded creates an unread message record if recipient is offline
@@ -819,13 +880,14 @@ func (s *ChatService) persistGroupMessage(ctx context.Context, tx *gorm.DB, a pe
 		return err
 	}
 	message := &models.Message{
-		ChatID:    a.chatID,
-		UserID:    a.userID,
-		Text:      a.ciphertext,
-		IV:        a.storedIV,
-		Scheme:    a.effectiveScheme,
-		ReplyToID: replyPtr,
-		Type:      models.MessageTypeUser,
+		ChatID:              a.chatID,
+		UserID:              a.userID,
+		Text:                a.ciphertext,
+		IV:                  a.storedIV,
+		Scheme:              a.effectiveScheme,
+		ReplyToID:           replyPtr,
+		ForwardedFromUserID: forwardedFromPtr(a.in.ForwardedFromUserID),
+		Type:                models.MessageTypeUser,
 	}
 	if err := messageRepo.Create(ctx, message); err != nil {
 		return fmt.Errorf("create message: %w", err)

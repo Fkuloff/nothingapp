@@ -35,7 +35,16 @@ const (
 	actionCallICE    = "call_ice"
 	actionCallHangup = "call_hangup"
 	actionCallReject = "call_reject"
+	// actionCallReady: callee came online (via doorbell push) and is ready to
+	// receive a fresh offer. Relayed to the caller, who re-offers.
+	actionCallReady = "call_ready"
+	// actionCallMissed: caller's ring window expired with no answer. Posts the
+	// "Пропущенный звонок" system message.
+	actionCallMissed = "call_missed"
 )
+
+// callMissedText is the plaintext body of the missed-call system message.
+const callMissedText = "Пропущенный звонок"
 
 // Multipart form parse limits.
 const (

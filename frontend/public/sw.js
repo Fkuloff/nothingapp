@@ -47,6 +47,25 @@ self.addEventListener('push', (event) => {
     return
   }
 
+  // Call doorbell (web fallback, Tier A): show a high-priority notification
+  // tagged call-<call_id> (never chat-<id>, so the dismiss sweep can't close
+  // it). Clicking opens the chat. No live ring on web — this is the wake-up.
+  if (payload.type === 'call' && payload.call_id) {
+    const tag = payload.tag || `call-${payload.call_id}`
+    event.waitUntil(
+      self.registration.showNotification(payload.title || 'Входящий звонок', {
+        body: payload.body || '',
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+        tag,
+        renotify: true,
+        requireInteraction: true,
+        data: { chat_id: payload.chat_id, call_id: payload.call_id, type: 'call' },
+      }),
+    )
+    return
+  }
+
   const options = {
     body: payload.body || '',
     icon: '/favicon.svg',

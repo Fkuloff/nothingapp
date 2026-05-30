@@ -23,10 +23,25 @@ export async function clearChat(chatId: number): Promise<void> {
   await httpPost(endpoints.chats.clear(chatId), {})
 }
 
-// Fetch messages of a chat
-export async function getChatMessages(chatId: number): Promise<Message[]> {
-  const response = await httpGet<MessagesResponse>(endpoints.chats.messages(chatId))
-  return response.messages || []
+// Receipt pointers returned alongside a 1-on-1 chat's messages: the highest
+// message ids the peer has been delivered / has read. Both 0 for groups or when
+// the peer has no receipt yet.
+type ChatMessagesResult = {
+  messages: Message[]
+  lastDelivered: number
+  lastRead: number
+}
+
+// Fetch messages of a chat (+ the peer's read-receipt pointers for 1-on-1)
+export async function getChatMessages(chatId: number): Promise<ChatMessagesResult> {
+  const response = await httpGet<MessagesResponse & { last_delivered?: number; last_read?: number }>(
+    endpoints.chats.messages(chatId),
+  )
+  return {
+    messages: response.messages || [],
+    lastDelivered: response.last_delivered ?? 0,
+    lastRead: response.last_read ?? 0,
+  }
 }
 
 // Pin a message in a chat

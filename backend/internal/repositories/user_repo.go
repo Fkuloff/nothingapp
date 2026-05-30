@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"strings"
+	"time"
 
 	"messenger/internal/models"
 
@@ -52,6 +53,11 @@ func (r *UserRepo) UpdateAvatar(ctx context.Context, userID uint, avatarURL *str
 // UpdateName updates a user's display name
 func (r *UserRepo) UpdateName(ctx context.Context, userID uint, name string) error {
 	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("name", name).Error
+}
+
+// UpdateLastSeen persists the moment a user went offline.
+func (r *UserRepo) UpdateLastSeen(ctx context.Context, userID uint, lastSeen time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).Update("last_seen_at", lastSeen).Error
 }
 
 // UpdatePassword updates a user's hashed password.

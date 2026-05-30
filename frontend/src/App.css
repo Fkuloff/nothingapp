@@ -1061,6 +1061,18 @@ textarea::placeholder,
   color: rgba(255, 255, 255, 0.75);
 }
 
+.message .forwarded-label {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+  opacity: 0.85;
+}
+
+.message-self .forwarded-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .message__header {
   display: flex;
   align-items: center;
@@ -1079,6 +1091,24 @@ textarea::placeholder,
   color: var(--text-tertiary);
 }
 
+/* Read-receipt ticks on our own sent bubbles (1-on-1). ✓ sent, ✓✓ delivered
+   (muted), ✓✓ read (bright accent). Inherits currentColor from the class. */
+.message-receipt {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  line-height: 1;
+}
+
+.message-receipt--sent,
+.message-receipt--delivered {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.message-receipt--read {
+  color: #4fc3f7;
+}
+
 .message__content {
   line-height: 1.5;
 }
@@ -1088,6 +1118,18 @@ textarea::placeholder,
   line-height: 1.45;
   font-size: 1rem;
   word-break: break-word;
+}
+
+/* Inline links inside message bubbles */
+.message-text a {
+  color: var(--accent-primary, #2481cc);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+/* Self-bubble text is light on an accent background — match it, keep underline */
+.message-self .message-text a {
+  color: inherit;
 }
 
 /* Emoji-only messages (stickers) — no bubble, large emoji */

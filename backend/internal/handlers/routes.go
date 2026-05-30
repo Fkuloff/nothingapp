@@ -41,7 +41,7 @@ func SetupRoutes(
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
-	chatService := services.NewChatService(db, logger, chatRepo, participantRepo, messageRepo, envelopeRepo, unreadMessageRepo, fileStorage)
+	chatService := services.NewChatService(db, logger, chatRepo, participantRepo, messageRepo, envelopeRepo, unreadMessageRepo, repositories.NewMessageReceiptRepo(db), fileStorage)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(db, logger, attachmentRepo, attachmentEnvelopeRepo, messageRepo, chatRepo, participantRepo, fileStorage)
 	userService := services.NewUserService(logger, userRepo, fileStorage)

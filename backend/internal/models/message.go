@@ -47,8 +47,13 @@ type Message struct {
 	// the live deployment (existing 177-ish rows in prod are server-encrypted).
 	Scheme uint8 `gorm:"type:smallint;not null;default:1"`
 
-	ReplyToID   *uint        `gorm:"index:idx_reply_to"`
-	EditedAt    *time.Time   `gorm:"default:null"`
-	ReplyTo     *Message     `gorm:"foreignKey:ReplyToID"`
-	Attachments []Attachment `gorm:"foreignKey:MessageID" json:"attachments,omitempty"`
+	ReplyToID *uint      `gorm:"index:idx_reply_to"`
+	EditedAt  *time.Time `gorm:"default:null"`
+	// ForwardedFromUserID is the original author when this message was forwarded
+	// from another chat. Only attribution metadata is server-visible — the body is
+	// re-encrypted client-side for this chat, so the server still never sees the
+	// plaintext. Nullable: non-forwarded messages leave it NULL.
+	ForwardedFromUserID *uint        `gorm:"index:idx_forwarded_from"`
+	ReplyTo             *Message     `gorm:"foreignKey:ReplyToID"`
+	Attachments         []Attachment `gorm:"foreignKey:MessageID" json:"attachments,omitempty"`
 }

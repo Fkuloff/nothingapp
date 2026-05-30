@@ -37,7 +37,7 @@ export function ChatSearch({ chatId, onResultClick, onClose }: Props) {
 
       try {
         // Load all messages for this chat
-        const messages = await getChatMessages(chatId)
+        const { messages } = await getChatMessages(chatId)
         const q = searchQuery.toLowerCase()
         const found: SearchResult[] = []
 

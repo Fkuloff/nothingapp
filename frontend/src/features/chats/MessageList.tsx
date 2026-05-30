@@ -12,11 +12,17 @@ type Props = {
   groupMembers?: GroupMember[]
   loading?: boolean
   error?: string | null
+  // Self-chat (Saved Messages): suppress read receipts — talking to yourself.
+  isFavorites?: boolean
+  // Peer's read-receipt pointers (1-on-1): highest message id delivered / read.
+  deliveredUpTo?: number
+  readUpTo?: number
   pinnedMessageIds?: Set<number>
   canPin?: boolean
   onReply: (msgId: number) => void
   onEdit: (msgId: number, text: string) => void
   onDelete: (msgId: number) => void
+  onForward: (msgId: number) => void
   onPin?: (msgId: number) => void
   onUnpin?: (msgId: number) => void
 }
@@ -55,11 +61,15 @@ export function MessageList({
   groupMembers = [],
   loading,
   error,
+  isFavorites = false,
+  deliveredUpTo = 0,
+  readUpTo = 0,
   pinnedMessageIds,
   canPin,
   onReply,
   onEdit,
   onDelete,
+  onForward,
   onPin,
   onUnpin,
 }: Props) {
@@ -118,6 +128,13 @@ export function MessageList({
         ? messages.find((m) => m.id === message.reply_to_id)
         : null
 
+      // Read-receipt tick state for our own 1-on-1 messages. Monotonic ids mean
+      // "read up to N" covers everything earlier. Undefined elsewhere (incoming,
+      // groups, self-chat) so the memoised MessageItem skips re-rendering those.
+      const receiptStatus = isOwn && !isGroup && !isFavorites
+        ? (message.id <= readUpTo ? 'read' : message.id <= deliveredUpTo ? 'delivered' : 'sent')
+        : undefined
+
       return (
         <MessageItem
           key={message.id}
@@ -125,12 +142,15 @@ export function MessageList({
           isOwn={isOwn}
           senderName={senderName}
           senderColor={isGroup && !isOwn ? getSenderColor(message.user_id) : undefined}
+          currentUserId={currentUserId}
+          receiptStatus={receiptStatus}
           replyToMessage={replyToMessage}
           isPinned={pinnedMessageIds?.has(message.id)}
           canPin={canPin}
           onReply={onReply}
           onEdit={onEdit}
           onDelete={onDelete}
+          onForward={onForward}
           onPin={onPin}
           onUnpin={onUnpin}
         />

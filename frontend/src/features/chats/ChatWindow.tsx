@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
-import type { GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
+import type { ChatItem, GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { BookmarkIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
@@ -16,11 +16,13 @@ import {
   prepareAttachmentForUpload,
   resolveAttachmentRecipients,
 } from '../../shared/crypto/peerKeys'
+import { formatLastSeen } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
 import { useCallContext } from '../calls/CallContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
 import { ChatSearch } from './ChatSearch'
 import { EmojiPicker } from './EmojiPicker'
+import { ForwardModal } from './ForwardModal'
 import { GroupInfoPanel } from './GroupInfoPanel'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
@@ -43,6 +45,12 @@ type Props = {
   error?: string | null
   isConnected: boolean
   isOtherUserOnline?: boolean
+  // RFC3339 timestamp of the peer's last offline transition (1-on-1 only).
+  otherUserLastSeen?: string
+  // Peer's read-receipt pointers (1-on-1): highest message id delivered / read.
+  // Drive ✓/✓✓ on our own sent bubbles.
+  deliveredUpTo?: number
+  readUpTo?: number
   send: (data: WSMessageAction) => boolean
   isMobile?: boolean
   onBackToList?: () => void
@@ -76,6 +84,9 @@ export function ChatWindow({
   error,
   isConnected,
   isOtherUserOnline = false,
+  otherUserLastSeen,
+  deliveredUpTo = 0,
+  readUpTo = 0,
   send,
   isMobile,
   onBackToList,
@@ -111,6 +122,10 @@ export function ChatWindow({
     | { kind: 'delete-message'; messageId: number }
     | null
   >(null)
+  // The message currently being forwarded (snapshot taken at context-menu time),
+  // and whether the encrypt+send is in flight. Drives the ForwardModal.
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null)
+  const [forwarding, setForwarding] = useState(false)
   // E2E readiness for the active chat. Strict mode: composer is active only
   // when every recipient (including ourselves) has a published public_key.
   // Lazy-vault-bootstrap modal in App.tsx guarantees logged-in users always
@@ -132,6 +147,12 @@ export function ChatWindow({
   // the value at effect-run time, not the latest user input).
   const messageTextRef = useRef(messageText)
   useEffect(() => { messageTextRef.current = messageText }, [messageText])
+
+  // Latest messages snapshot for the forward action — lets handleForward stay
+  // stable (empty deps) so the memoised MessageItem list isn't re-rendered on
+  // every incoming message just because the forward callback changed identity.
+  const messagesForwardRef = useRef(messages)
+  useEffect(() => { messagesForwardRef.current = messages }, [messages])
 
   // Per-chat draft persistence (localStorage). On chat-enter: restore the
   // saved draft (or empty string). On send: cleared explicitly elsewhere.
@@ -167,6 +188,8 @@ export function ChatWindow({
     setIsMenuOpen(false)
     setIsGroupInfoOpen(false)
     setConfirmAction(null)
+    setForwardingMessage(null)
+    setForwarding(false)
     setE2EStatus({ kind: 'loading' })
     pendingUploadRef.current = null
 
@@ -598,6 +621,86 @@ export function ChatWindow({
     setConfirmAction({ kind: 'delete-message', messageId: msgId })
   }, [chatId])
 
+  // Open the forward picker with a snapshot of the chosen message. Read from a
+  // ref so this callback stays stable (keeps the memoised MessageItem list from
+  // re-rendering on every incoming message).
+  const handleForward = useCallback((msgId: number) => {
+    const msg = messagesForwardRef.current.find((m) => m.id === msgId)
+    if (msg) setForwardingMessage(msg)
+  }, [])
+
+  // Re-encrypt the forwarded message's plaintext for the destination chat and
+  // send it as a normal scheme=2 message tagged with the original author. E2E
+  // means the server has no plaintext: the body the user sees in state is
+  // already decrypted, so forwarding = decrypt-here → encrypt-for-there.
+  const handleForwardToChat = useCallback(async (dest: ChatItem) => {
+    if (!forwardingMessage) return
+    const text = forwardingMessage.text.trim()
+    if (!text) {
+      showToast('Пока можно пересылать только текстовые сообщения.', 'warning')
+      return
+    }
+    const accountKey =
+      accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
+    if (!accountKey || !currentUserId) {
+      showToast('Шифрование не настроено. Перелогиньтесь, чтобы активировать.', 'error')
+      return
+    }
+    // Preserve the original author across re-forwards (chains collapse to the
+    // first author, like Telegram).
+    const forwardedFrom = forwardingMessage.forwarded_from_user_id ?? forwardingMessage.user_id
+    setForwarding(true)
+    try {
+      let outgoing: WSMessageAction
+      if (dest.is_group) {
+        const status = await getGroupKeyStatus(dest.id)
+        if (!status || status.missingUserIds.length > 0) {
+          showToast('Нельзя переслать — не все участники настроили шифрование.', 'warning')
+          return
+        }
+        const envelopes = await encryptGroupMessage(text, status, accountKey, currentUserId)
+        outgoing = {
+          action: 'send',
+          chat_id: dest.id,
+          text: '',
+          scheme: 2,
+          envelopes,
+          forwarded_from_user_id: forwardedFrom,
+        }
+      } else if (dest.other_user_id) {
+        const chatKey = await getChatKey(accountKey, dest.other_user_id)
+        if (!chatKey) {
+          showToast('Получатель не настроил шифрование. Нельзя переслать.', 'warning')
+          return
+        }
+        const { ciphertext, iv } = await encryptMessage(text, chatKey)
+        outgoing = {
+          action: 'send',
+          chat_id: dest.id,
+          text: ciphertext,
+          iv,
+          scheme: 2,
+          forwarded_from_user_id: forwardedFrom,
+        }
+      } else {
+        showToast('Не удалось определить получателя.', 'error')
+        return
+      }
+      const success = send(outgoing)
+      if (success) {
+        setForwardingMessage(null)
+        showToast('Переслано', 'success')
+      } else {
+        showToast('Не удалось переслать сообщение, повторите.', 'error')
+      }
+    } catch (err) {
+      console.error('Forward failed:', err)
+      showToast('Не удалось зашифровать сообщение для пересылки.', 'error')
+    } finally {
+      setForwarding(false)
+    }
+  }, [forwardingMessage, accountKeyCtx.state, currentUserId, send, showToast])
+
   const handleCancelDraft = () => {
     setReplyToId(null)
     setEditingMessageId(null)
@@ -713,7 +816,9 @@ export function ChatWindow({
                   ) : (
                     <>
                       <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
-                      <span className="chat-subtitle">{isOtherUserOnline ? 'В сети' : 'Не в сети'}</span>
+                      <span className="chat-subtitle">
+                        {isOtherUserOnline ? 'В сети' : formatLastSeen(otherUserLastSeen) || 'Не в сети'}
+                      </span>
                     </>
                   )}
                 </div>
@@ -806,9 +911,13 @@ export function ChatWindow({
           groupMembers={groupMembers}
           loading={loading}
           error={error}
+          isFavorites={isFavorites}
+          deliveredUpTo={deliveredUpTo}
+          readUpTo={readUpTo}
           onReply={handleReply}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onForward={handleForward}
           pinnedMessageIds={pinnedMessageIds}
           canPin={canPin}
           onPin={handlePin}
@@ -883,6 +992,14 @@ export function ChatWindow({
           onGroupLeft={() => { setIsGroupInfoOpen(false); onGroupLeft?.() }}
         />
       )}
+
+      <ForwardModal
+        isOpen={forwardingMessage !== null}
+        onClose={() => setForwardingMessage(null)}
+        currentChatId={chatId}
+        busy={forwarding}
+        onSelect={handleForwardToChat}
+      />
 
       <ConfirmDialog
         isOpen={confirmAction !== null}

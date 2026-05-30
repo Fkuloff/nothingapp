@@ -463,10 +463,14 @@ func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 		return h.handleDeleteMessage(ctx, userID, msgData)
 	case "mark_read":
 		return h.handleMarkRead(ctx, userID, msgData)
+	case "delivered":
+		return h.handleMarkDelivered(ctx, userID, msgData)
 	case "chat_opened":
 		return h.handleChatOpened(ctx, userID, msgData)
-	case actionCallOffer, actionCallAnswer, actionCallICE, actionCallHangup, actionCallReject:
+	case actionCallOffer, actionCallAnswer, actionCallICE, actionCallHangup, actionCallReject, actionCallReady:
 		return h.handleCallSignaling(ctx, userID, msg)
+	case actionCallMissed:
+		return h.handleCallMissed(ctx, userID, msg)
 	default:
 		return &wsError{message: "Unknown action: " + msgData.Action}
 	}
@@ -629,6 +633,23 @@ func (h *webSocketHandler) getChatRecipients(ctx context.Context, chat *models.C
 func (h *webSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 	ctx := context.Background()
 
+	// LastSeen as tracked in-memory: the disconnect moment for a graceful drop, or
+	// the last heartbeat for a cleanup-driven timeout. Either way it's the right
+	// "last seen" value to show and persist.
+	lastSeen := h.presenceService.GetUserStatus(userID).LastSeen
+
+	// Persist last-seen on the offline transition so it survives a restart or the
+	// 1-hour presence eviction. Best-effort — a failed write just means the header
+	// falls back to "Не в сети" until the next offline transition.
+	if !isOnline && h.userService != nil && !lastSeen.IsZero() {
+		if err := h.userService.UpdateLastSeen(ctx, userID, lastSeen); err != nil {
+			h.logger.Warn("failed to persist last seen",
+				zap.Error(err),
+				zap.Uint("user_id", userID),
+			)
+		}
+	}
+
 	chats, err := h.chatService.GetUserChats(ctx, userID, false)
 	if err != nil {
 		h.logger.Error("failed to get chats for presence broadcast",
@@ -642,6 +663,7 @@ func (h *webSocketHandler) broadcastPresenceChange(userID uint, isOnline bool) {
 		"action":    "presence_changed",
 		"user_id":   userID,
 		"is_online": isOnline,
+		"last_seen": lastSeen.Format(time.RFC3339),
 	}
 	msgJSON, err := json.Marshal(presenceData)
 	if err != nil {
@@ -863,6 +885,10 @@ func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 		if unread.Message.ReplyToID != nil {
 			replyToIDVal = *unread.Message.ReplyToID
 		}
+		forwardedFromVal := uint(0)
+		if unread.Message.ForwardedFromUserID != nil {
+			forwardedFromVal = *unread.Message.ForwardedFromUserID
+		}
 
 		// For group scheme=2 messages the row carries no ciphertext — we need to
 		// substitute the envelope addressed to this user. If there's no envelope
@@ -903,15 +929,17 @@ func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 		}
 
 		broadcastData := map[string]any{
-			"action":      "new",
-			"chat_id":     unread.ChatID,
-			"user_id":     msgCopy.UserID,
-			"text":        text,
-			"reply_to_id": replyToIDVal,
-			"id":          msgCopy.ID,
-			"created_at":  msgCopy.CreatedAt,
-			"is_deleted":  msgCopy.IsDeleted,
-			"attachments": attachmentsList,
+			"action":                 "new",
+			"chat_id":                unread.ChatID,
+			"user_id":                msgCopy.UserID,
+			"text":                   text,
+			"type":                   string(msgCopy.Type),
+			"reply_to_id":            replyToIDVal,
+			"forwarded_from_user_id": forwardedFromVal,
+			"id":                     msgCopy.ID,
+			"created_at":             msgCopy.CreatedAt,
+			"is_deleted":             msgCopy.IsDeleted,
+			"attachments":            attachmentsList,
 		}
 		// Replay treats the resolved-envelope form as a 1-on-1-shaped scheme=2
 		// payload (text + iv populated, no envelopes array) — receiving client
@@ -1058,10 +1086,19 @@ func (h *webSocketHandler) GetUserPresenceAPI(c *gin.Context) {
 
 	status := h.presenceService.GetUserStatus(targetUserID)
 
+	// If the user was evicted from the in-memory presence map (offline > 1h),
+	// status.LastSeen is the zero time — fall back to the persisted column.
+	lastSeen := status.LastSeen
+	if lastSeen.IsZero() && h.userService != nil {
+		if user, err := h.userService.GetUserByID(c.Request.Context(), targetUserID); err == nil && user.LastSeenAt != nil {
+			lastSeen = *user.LastSeenAt
+		}
+	}
+
 	sendSuccess(c, gin.H{
 		"user_id":   status.UserID,
 		"is_online": status.IsOnline,
-		"last_seen": status.LastSeen,
+		"last_seen": lastSeen,
 	})
 }
 

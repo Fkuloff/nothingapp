@@ -44,7 +44,7 @@ export default function AppLayout() {
     acceptCall()
   }, [callState.chatId, acceptCall])
 
-  const hasActiveCall = callState.status === 'outgoing' || callState.status === 'active'
+  const hasActiveCall = callState.status === 'outgoing' || callState.status === 'active' || callState.status === 'connecting'
 
   return (
     <>
@@ -54,7 +54,7 @@ export default function AppLayout() {
           otherAvatar={callState.otherAvatar}
           duration={callState.callDuration}
           isMuted={callState.isMuted}
-          status={callState.status as 'outgoing' | 'active'}
+          status={callState.status as 'outgoing' | 'active' | 'connecting'}
           onToggleMute={toggleMute}
           onHangup={hangup}
         />
