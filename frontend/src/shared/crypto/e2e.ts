@@ -509,10 +509,14 @@ export async function wrapFileKey(
  * unwraps. The result is the same AES-GCM CryptoKey the sender used to encrypt
  * the file body.
  */
+// `extractable` defaults to false (the read path only decrypts the body with
+// this key). Pass true when forwarding: re-wrapping the file_key for another
+// chat's recipients needs to exportKey it, which requires an extractable key.
 export async function unwrapFileKey(
   encryptedFileKey: string,
   envelopeIvB64: string,
   chatKey: CryptoKey,
+  extractable = false,
 ): Promise<CryptoKey> {
   const ct = b64decode(encryptedFileKey)
   const iv = b64decode(envelopeIvB64)
@@ -521,7 +525,7 @@ export async function unwrapFileKey(
     chatKey,
     asBuffer(ct),
   )
-  return crypto.subtle.importKey('raw', rawBuffer, { name: 'AES-GCM' }, false, ['decrypt'])
+  return crypto.subtle.importKey('raw', rawBuffer, { name: 'AES-GCM' }, extractable, ['decrypt'])
 }
 
 // ---------- key persistence ----------

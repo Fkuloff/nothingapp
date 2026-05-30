@@ -231,7 +231,8 @@ export async function rewrapAttachmentEnvelopes(args: {
 }): Promise<AttachmentEnvelopeWire[]> {
   const sourceChatKey = await getChatKey(args.accountKey, args.sourceSenderUserId)
   if (!sourceChatKey) throw new Error('rewrap: cannot derive source chat_key')
-  const fileKey = await unwrapFileKey(args.ownEncryptedFileKey, args.ownEnvelopeIv, sourceChatKey)
+  // extractable=true: we need to exportKey it below to re-wrap for the destination.
+  const fileKey = await unwrapFileKey(args.ownEncryptedFileKey, args.ownEnvelopeIv, sourceChatKey, true)
   const out: AttachmentEnvelopeWire[] = []
   for (const r of args.recipients) {
     if (!r.publicKey) throw new Error(`rewrap: recipient ${r.userID} has no public_key`)
