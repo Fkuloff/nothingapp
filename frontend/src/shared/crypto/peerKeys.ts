@@ -196,6 +196,13 @@ export async function resolveAttachmentRecipients(args: {
   const peerKey = await getPeerPublicKey(args.peerUserId)
   if (!peerKey) return null
   const selfKey = await publicKeyBase64(args.senderAccountKey)
+  // Saved Messages (self-chat): sender == peer, so a single envelope covers the
+  // only recipient. The server's expected recipient set is {me} (user1_id ==
+  // user2_id), so emitting both sender+peer would duplicate recipient_id and the
+  // upload is rejected ("duplicate envelope for recipient N").
+  if (args.peerUserId === args.senderUserId) {
+    return [{ userID: args.senderUserId, publicKey: selfKey }]
+  }
   return [
     { userID: args.senderUserId, publicKey: selfKey },
     { userID: args.peerUserId, publicKey: peerKey },
