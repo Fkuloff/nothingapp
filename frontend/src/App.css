@@ -928,6 +928,9 @@ textarea::placeholder,
   border-radius: 50%;
   display: inline-block;
   background: var(--text-tertiary);
+  /* Online/offline indicator — keep it a circle even when the subtitle next to
+     it overflows the header row on narrow screens. */
+  flex-shrink: 0;
 }
 
 .dot.online {
@@ -1579,6 +1582,9 @@ textarea::placeholder,
   border-radius: 50%;
   overflow: hidden;
   background: var(--bg-tertiary);
+  /* Fixed-size circle — never let a flex row (e.g. the chat header with a long
+     "был(а) в сети …" subtitle) compress it into an ellipse. */
+  flex-shrink: 0;
 }
 
 .avatar-sm {
