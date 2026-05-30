@@ -403,8 +403,13 @@ function MessageItemInner({
 
   const emojiOnly = !message.is_deleted && isEmojiOnly(message.text)
 
-  const forwardedFromId = message.forwarded_from_user_id ?? null
-  const isForwardedFromSelf = forwardedFromId != null && forwardedFromId === currentUserId
+  // The WS broadcast carries 0 (not null) for non-forwarded messages — the same
+  // "none" sentinel reply_to_id uses — so treat any non-positive value as
+  // "not forwarded". `?? null` / `!= null` would wrongly accept 0.
+  const forwardedFromId = message.forwarded_from_user_id && message.forwarded_from_user_id > 0
+    ? message.forwarded_from_user_id
+    : null
+  const isForwardedFromSelf = forwardedFromId !== null && forwardedFromId === currentUserId
   const forwardedFromName = useForwardedFromName(forwardedFromId, isForwardedFromSelf)
 
   return (

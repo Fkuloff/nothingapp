@@ -647,8 +647,10 @@ export function ChatWindow({
       return
     }
     // Preserve the original author across re-forwards (chains collapse to the
-    // first author, like Telegram).
-    const forwardedFrom = forwardingMessage.forwarded_from_user_id ?? forwardingMessage.user_id
+    // first author, like Telegram). `||` not `??`: the wire's 0 sentinel must
+    // fall through to user_id, otherwise re-forwarding a regular message would
+    // drop its attribution.
+    const forwardedFrom = forwardingMessage.forwarded_from_user_id || forwardingMessage.user_id
     setForwarding(true)
     try {
       let outgoing: WSMessageAction

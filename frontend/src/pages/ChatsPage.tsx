@@ -362,7 +362,10 @@ export default function ChatsPage() {
               // Preserve scheme so EditMessage knows whether to re-encrypt or not.
               scheme: event.scheme,
               reply_to_id: event.reply_to_id ?? null,
-              forwarded_from_user_id: event.forwarded_from_user_id ?? null,
+              // The WS wire uses 0 (not null) for "not forwarded"; normalize it
+              // so the bubble doesn't render a spurious "Переслано от …" label
+              // and re-forwarding keeps the original author.
+              forwarded_from_user_id: event.forwarded_from_user_id || null,
               edited_at: event.edited_at ?? null,
               is_deleted: event.is_deleted,
               created_at: event.created_at,
