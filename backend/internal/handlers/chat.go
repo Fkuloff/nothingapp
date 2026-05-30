@@ -88,16 +88,17 @@ type attachmentResponse struct {
 }
 
 type messageResponse struct {
-	ID          uint                 `json:"id"`
-	ChatID      uint                 `json:"chat_id"`
-	UserID      uint                 `json:"user_id"`
-	Text        string               `json:"text"`
-	Type        string               `json:"type"`
-	IsDeleted   bool                 `json:"is_deleted"`
-	CreatedAt   time.Time            `json:"created_at"`
-	ReplyToID   *uint                `json:"reply_to_id"`
-	EditedAt    *time.Time           `json:"edited_at"`
-	Attachments []attachmentResponse `json:"attachments"`
+	ID                  uint                 `json:"id"`
+	ChatID              uint                 `json:"chat_id"`
+	UserID              uint                 `json:"user_id"`
+	Text                string               `json:"text"`
+	Type                string               `json:"type"`
+	IsDeleted           bool                 `json:"is_deleted"`
+	CreatedAt           time.Time            `json:"created_at"`
+	ReplyToID           *uint                `json:"reply_to_id"`
+	ForwardedFromUserID *uint                `json:"forwarded_from_user_id"`
+	EditedAt            *time.Time           `json:"edited_at"`
+	Attachments         []attachmentResponse `json:"attachments"`
 	// Scheme + IV are emitted only for client-side encrypted messages (scheme=2).
 	// Legacy scheme=1 rows keep the previous JSON shape so existing clients keep
 	// working unchanged.
@@ -152,16 +153,17 @@ func (h *chatHandler) toMessageResponses(ctx context.Context, messages []models.
 		}
 
 		out := messageResponse{
-			ID:          msg.ID,
-			ChatID:      msg.ChatID,
-			UserID:      msg.UserID,
-			Text:        msg.Text,
-			Type:        msgType,
-			ReplyToID:   msg.ReplyToID,
-			EditedAt:    msg.EditedAt,
-			IsDeleted:   msg.IsDeleted,
-			CreatedAt:   msg.CreatedAt,
-			Attachments: atts,
+			ID:                  msg.ID,
+			ChatID:              msg.ChatID,
+			UserID:              msg.UserID,
+			Text:                msg.Text,
+			Type:                msgType,
+			ReplyToID:           msg.ReplyToID,
+			ForwardedFromUserID: msg.ForwardedFromUserID,
+			EditedAt:            msg.EditedAt,
+			IsDeleted:           msg.IsDeleted,
+			CreatedAt:           msg.CreatedAt,
+			Attachments:         atts,
 		}
 		// For client-side encrypted (E2E) messages, ChatService leaves IV populated
 		// because the server can't decrypt. Propagate both scheme + IV so the
@@ -272,6 +274,12 @@ func formatLastMessage(lastMsg *models.Message, err error) string {
 	}
 
 	if lastMsg.Scheme == models.SchemeClientSide {
+		// Server can't decrypt scheme=2 text. If the message carries files, hint
+		// that with a generic attachment label instead of the lock placeholder;
+		// the client overrides it with the decrypted text when there is text.
+		if len(lastMsg.Attachments) > 0 {
+			return "📎 Вложение"
+		}
 		return "🔒 Зашифрованное сообщение"
 	}
 
@@ -599,7 +607,21 @@ func (h *chatHandler) GetChatMessagesAPI(c *gin.Context) {
 		return
 	}
 
-	sendSuccess(c, gin.H{
+	resp := gin.H{
 		"messages": h.toMessageResponses(c.Request.Context(), messages, userID),
-	})
+	}
+	// 1-on-1 read receipts: surface the peer's delivered/read pointers so the
+	// sender's checkmarks render correctly on chat open, not only after a live
+	// message_status event. Groups get nothing for v1.
+	if !chat.IsGroup {
+		otherUserID := chat.GetUser1ID()
+		if otherUserID == userID {
+			otherUserID = chat.GetUser2ID()
+		}
+		if receipt, rErr := h.chatService.GetPeerReceipt(c.Request.Context(), chatID, otherUserID); rErr == nil && receipt != nil {
+			resp["last_delivered"] = receipt.LastDeliveredMessageID
+			resp["last_read"] = receipt.LastReadMessageID
+		}
+	}
+	sendSuccess(c, resp)
 }

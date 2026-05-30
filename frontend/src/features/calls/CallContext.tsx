@@ -2,7 +2,9 @@ import { createContext, useContext } from 'react'
 
 import type { WSEvent, WSMessageAction } from '../../shared/api/types'
 
-export type CallStatus = 'idle' | 'outgoing' | 'incoming' | 'active'
+// 'connecting' = callee tapped a doorbell push and is waiting for the caller's
+// fresh offer (the re-offer handshake) before the call goes active.
+export type CallStatus = 'idle' | 'outgoing' | 'incoming' | 'active' | 'connecting'
 
 export type CallState = {
   status: CallStatus

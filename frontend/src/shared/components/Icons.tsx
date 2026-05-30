@@ -58,11 +58,21 @@ export function SearchIcon({ className, size = 24 }: IconProps) {
   )
 }
 
-/** Checkmark icon — used in multi-select checkboxes */
+/** Checkmark icon — used in multi-select checkboxes + the "sent" read receipt */
 export function CheckIcon({ className, size = 14 }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="3">
       <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+/** Double checkmark — read receipts: ✓✓ grey = delivered, ✓✓ blue = read */
+export function DoubleCheckIcon({ className, size = 16 }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="2 12 6.5 16.5 15 8" />
+      <polyline points="9.5 13.5 12 16 21 6.5" />
     </svg>
   )
 }

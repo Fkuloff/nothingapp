@@ -201,6 +201,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.Attachment{},
 		&models.AttachmentEnvelope{},
 		&models.UnreadMessage{},
+		&models.MessageReceipt{},
 		&models.PushSubscription{},
 		&models.ChatParticipant{},
 		&models.PinnedMessage{},

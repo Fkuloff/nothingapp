@@ -151,6 +151,37 @@ func (s *S3Storage) Get(key string) (io.ReadCloser, error) {
 	return result.Body, nil
 }
 
+// Copy server-side-duplicates an object into a fresh date-based key and returns
+// the new key. Uses S3 CopyObject so the (potentially large) ciphertext is
+// copied within the storage backend — it never streams through this process.
+func (s *S3Storage) Copy(sourceKey string) (string, error) {
+	ctx := context.Background()
+
+	ext := filepath.Ext(sourceKey)
+	uniqueFileName := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+	now := time.Now()
+	newKey := filepath.ToSlash(filepath.Join(
+		"files",
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", now.Month()),
+		fmt.Sprintf("%02d", now.Day()),
+		uniqueFileName,
+	))
+
+	// CopySource is "<bucket>/<key>". Our keys are uuid/date segments only
+	// (no characters needing percent-encoding), so a plain join is safe.
+	copySource := fmt.Sprintf("%s/%s", s.bucket, sourceKey)
+	if _, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(s.bucket),
+		CopySource: aws.String(copySource),
+		Key:        aws.String(newKey),
+	}); err != nil {
+		return "", fmt.Errorf("failed to copy object in S3: %w", err)
+	}
+
+	return newKey, nil
+}
+
 // Delete removes a file from S3
 func (s *S3Storage) Delete(key string) error {
 	ctx := context.Background()

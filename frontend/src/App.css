@@ -1061,6 +1061,25 @@ textarea::placeholder,
   color: rgba(255, 255, 255, 0.75);
 }
 
+.message .forwarded-label {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+  opacity: 0.85;
+}
+
+.message-self .forwarded-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Original author's name inside the "Переслано от …" label — emphasised like
+   the forwarded-from header in Telegram. */
+.message .forwarded-label .forwarded-from-name {
+  font-weight: 600;
+  font-style: normal;
+}
+
 .message__header {
   display: flex;
   align-items: center;
@@ -1079,6 +1098,38 @@ textarea::placeholder,
   color: var(--text-tertiary);
 }
 
+/* Read-receipt ticks on our own sent bubbles (1-on-1). ✓ sent, ✓✓ delivered
+   (muted), ✓✓ read (bright accent). Inherits currentColor from the class. */
+.message-receipt {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  line-height: 1;
+}
+
+/* Dark theme: blue self-bubble. Muted white for sent/delivered, bright cyan for
+   read so the "read" state is unmistakable (the old light-blue was too close to
+   the bubble's blue). */
+.message-receipt--sent,
+.message-receipt--delivered {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.message-receipt--read {
+  color: #6ffcff;
+}
+
+/* Light theme: light-green self-bubble with dark text — white ticks were almost
+   invisible. Use a muted dark for sent/delivered and a saturated blue for read. */
+[data-theme="light"] .message-receipt--sent,
+[data-theme="light"] .message-receipt--delivered {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .message-receipt--read {
+  color: #1f6feb;
+}
+
 .message__content {
   line-height: 1.5;
 }
@@ -1088,6 +1139,18 @@ textarea::placeholder,
   line-height: 1.45;
   font-size: 1rem;
   word-break: break-word;
+}
+
+/* Inline links inside message bubbles */
+.message-text a {
+  color: var(--accent-primary, #2481cc);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+/* Self-bubble text is light on an accent background — match it, keep underline */
+.message-self .message-text a {
+  color: inherit;
 }
 
 /* Emoji-only messages (stickers) — no bubble, large emoji */

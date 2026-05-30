@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // User represents a registered user account.
 //
@@ -27,6 +31,11 @@ type User struct {
 	VaultSalt           *string `gorm:"type:varchar(64)"`
 	EncryptedAccountKey *string `gorm:"type:text"`
 	PublicKey           *string `gorm:"type:varchar(64)"`
+	// LastSeenAt is the last time the user went offline. Persisted so "last seen"
+	// survives a server restart or presence-cache eviction (in-memory presence
+	// only retains an hour of history). Nullable: a user who has never connected
+	// since this column existed has no value yet.
+	LastSeenAt *time.Time `gorm:"type:timestamptz"`
 }
 
 // GetDisplayName returns the display name for the user (Name if set, otherwise Username)

@@ -6,9 +6,17 @@ type Props = {
   otherAvatar?: string | null
   duration: number
   isMuted: boolean
-  status: 'outgoing' | 'active'
+  status: 'outgoing' | 'active' | 'connecting'
   onToggleMute: () => void
   onHangup: () => void
+}
+
+// Sub-line under the peer name: the live timer once connected, otherwise a
+// short status word for the ringing / doorbell-wait phases.
+function statusLabel(status: Props['status'], duration: number): string {
+  if (status === 'active') return formatDuration(duration)
+  if (status === 'connecting') return 'Соединение...'
+  return 'Вызов...'
 }
 
 function formatDuration(seconds: number): string {
@@ -29,7 +37,7 @@ export function ActiveCallOverlay({ otherUsername, otherAvatar, duration, isMute
         <div className="active-call-overlay__text">
           <span className="active-call-overlay__name">{otherUsername}</span>
           <span className="active-call-overlay__status">
-            {status === 'outgoing' ? 'Вызов...' : formatDuration(duration)}
+            {statusLabel(status, duration)}
           </span>
         </div>
       </div>

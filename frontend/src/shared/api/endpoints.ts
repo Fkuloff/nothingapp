@@ -13,6 +13,7 @@ export const endpoints = {
     create: '/api/chats',
     delete: (chatId: number | string) => `/api/chats/${chatId}`,
     clear: (chatId: number | string) => `/api/chats/${chatId}/clear`,
+    forward: (chatId: number | string) => `/api/chats/${chatId}/forward`,
     messages: (chatId: number | string) => `/api/chats/${chatId}/messages`,
     pin: (chatId: number | string, messageId: number | string) =>
       `/api/chats/${chatId}/messages/${messageId}/pin`,

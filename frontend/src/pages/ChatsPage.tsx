@@ -12,7 +12,7 @@ import { UpdateBanner } from '../features/updates/UpdateBanner'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
-import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEnvelope, WSEvent } from '../shared/api/types'
+import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEnvelope, WSEvent, WSMessageAction } from '../shared/api/types'
 import { decryptIncomingText } from '../shared/crypto/decryptIncoming'
 import { publicKeyBase64 } from '../shared/crypto/e2e'
 import { getChatKey, seedPeerPublicKey } from '../shared/crypto/peerKeys'
@@ -111,6 +111,15 @@ export default function ChatsPage() {
   const [messagesError, setMessagesError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set())
+  // Last-seen timestamps (RFC3339) keyed by user id, populated from presence
+  // events and the per-chat presence fetch. Shown in the 1-on-1 header when the
+  // peer is offline.
+  const [lastSeen, setLastSeen] = useState<Map<number, string>>(new Map())
+  // Read-receipt pointers per chat: the highest message id the peer has been
+  // delivered / has read. Drives ✓ (sent) → ✓✓ grey (delivered) → ✓✓ blue (read)
+  // on our own sent bubbles. 1-on-1 only. Updated by message_status events and
+  // seeded from the per-chat fetch on open.
+  const [messageReceipts, setMessageReceipts] = useState<Map<number, { delivered: number; read: number }>>(new Map())
   const [searchQuery, setSearchQuery] = useState('')
   const [groupInfo, setGroupInfo] = useState<GroupInfoResponse | null>(null)
   const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([])
@@ -120,6 +129,13 @@ export default function ChatsPage() {
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
   const messageCacheRef = useRef<Map<number, Message[]>>(new Map())
   const handleCallEventRef = useRef(callContext.handleCallEvent)
+  // Stable handle to the WS send fn for callers defined before `send` exists
+  // (the WS message handler) — assigned just after useGlobalWebSocket below.
+  const sendRef = useRef<(data: WSMessageAction) => boolean>(() => false)
+  // Debounced delivery acks: highest pending message id per background chat +
+  // its flush timer. Coalesces a burst of incoming messages into one ack.
+  const pendingDeliveredRef = useRef<Map<number, number>>(new Map())
+  const deliveredTimerRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
 
   // Keep refs in sync for use in WS handler
   useEffect(() => {
@@ -143,6 +159,32 @@ export default function ChatsPage() {
     computeIsMobile()
     window.addEventListener('resize', computeIsMobile)
     return () => window.removeEventListener('resize', computeIsMobile)
+  }, [])
+
+  // Debounced delivery ack for messages arriving in a non-active chat. Tracks
+  // the highest id per chat and flushes a single `delivered` after 400ms of
+  // quiet, so a burst of replayed offline messages costs one WS frame.
+  const scheduleDeliveredAck = useCallback((chatId: number, messageId: number) => {
+    const cur = pendingDeliveredRef.current.get(chatId) ?? 0
+    if (messageId <= cur) return
+    pendingDeliveredRef.current.set(chatId, messageId)
+    const existing = deliveredTimerRef.current.get(chatId)
+    if (existing) clearTimeout(existing)
+    deliveredTimerRef.current.set(
+      chatId,
+      setTimeout(() => {
+        const maxId = pendingDeliveredRef.current.get(chatId) ?? 0
+        pendingDeliveredRef.current.delete(chatId)
+        deliveredTimerRef.current.delete(chatId)
+        if (maxId > 0) sendRef.current({ action: 'delivered', chat_id: chatId, message_id: maxId })
+      }, 400),
+    )
+  }, [])
+
+  // Flush all pending delivery-ack timers on unmount.
+  useEffect(() => {
+    const timers = deliveredTimerRef.current
+    return () => { timers.forEach((t) => clearTimeout(t)) }
   }, [])
 
   // Handle WebSocket messages globally
@@ -174,6 +216,25 @@ export default function ChatsPage() {
             next.delete(event.user_id)
           }
           return next
+        })
+        if (!event.is_online && event.last_seen) {
+          setLastSeen((prev) => new Map(prev).set(event.user_id, event.last_seen as string))
+        }
+        return
+      }
+
+      // Read-receipt update: the peer delivered/read our messages up to N.
+      if (event.action === 'message_status') {
+        setMessageReceipts((prev) => {
+          const cur = prev.get(event.chat_id) ?? { delivered: 0, read: 0 }
+          const next = { ...cur }
+          // Read implies delivered, so a read event bumps both pointers.
+          next.delivered = Math.max(next.delivered, event.up_to_message_id)
+          if (event.status === 'read') {
+            next.read = Math.max(next.read, event.up_to_message_id)
+          }
+          if (next.delivered === cur.delivered && next.read === cur.read) return prev
+          return new Map(prev).set(event.chat_id, next)
         })
         return
       }
@@ -237,6 +298,18 @@ export default function ChatsPage() {
           ? event.user_id
           : (chat?.other_user_id ?? null)
 
+        // Read receipts (1-on-1): ack an incoming peer message. If we're viewing
+        // the chat, mark it read (the server treats read as delivered too);
+        // otherwise debounce a delivery ack so the sender's bubble shows ✓✓.
+        // System messages (e.g. missed-call) carry no receipt.
+        if (!isGroup && event.user_id !== user?.id && event.type !== 'system') {
+          if (chatId === activeChatId) {
+            sendRef.current({ action: 'mark_read', chat_id: chatId, up_to_message_id: event.id })
+          } else {
+            scheduleDeliveredAck(chatId, event.id)
+          }
+        }
+
         const payload = event.scheme === 2
           ? selectScheme2Payload(event.envelopes, event.text, event.iv, user?.id)
           : { text: event.text, iv: event.iv }
@@ -262,10 +335,16 @@ export default function ChatsPage() {
 
             const updatedChats = [...prevChats]
             const chat = { ...updatedChats[chatIndex] }
-            chat.last_message = text.trim() || '[Вложение]'
+            chat.last_message = text.trim() || '📎 Вложение'
             chat.updated_at = event.created_at
 
-            if (chatId !== activeChatId && event.user_id !== user?.id) {
+            // Don't bump unread for system messages (e.g. missed-call): the
+            // caller would otherwise get a red badge on their own unanswered
+            // outgoing call. The offline callee still gets the server-queued
+            // unread, which surfaces via GetUnreadCounts on their next load.
+            // Skip offline-replay too — loadChats already counted those via the
+            // server's unread_count, so bumping here would double the badge.
+            if (chatId !== activeChatId && event.user_id !== user?.id && event.type !== 'system' && !event.replayed) {
               chat.unread_count = (chat.unread_count || 0) + 1
             }
 
@@ -280,9 +359,15 @@ export default function ChatsPage() {
               chat_id: event.chat_id,
               user_id: event.user_id,
               text,
+              // System messages (missed-call) render via SystemMessage, not a bubble.
+              type: event.type,
               // Preserve scheme so EditMessage knows whether to re-encrypt or not.
               scheme: event.scheme,
               reply_to_id: event.reply_to_id ?? null,
+              // The WS wire uses 0 (not null) for "not forwarded"; normalize it
+              // so the bubble doesn't render a spurious "Переслано от …" label
+              // and re-forwarding keeps the original author.
+              forwarded_from_user_id: event.forwarded_from_user_id || null,
               edited_at: event.edited_at ?? null,
               is_deleted: event.is_deleted,
               created_at: event.created_at,
@@ -415,13 +500,14 @@ export default function ChatsPage() {
         return
       }
     },
-    [activeChatId, user?.id]
+    [activeChatId, user?.id, scheduleDeliveredAck]
   )
 
   const { isConnected, send } = useGlobalWebSocket({
     onMessage: handleWebSocketMessage,
     enabled: Boolean(user),
   })
+  sendRef.current = send
 
   // Register WS send function with CallContext so it can send signaling messages
   useEffect(() => {
@@ -521,7 +607,8 @@ export default function ChatsPage() {
     // Always fetch fresh data in background
     try {
       setMessagesError(null)
-      const raw = await getChatMessages(chatId)
+      const result = await getChatMessages(chatId)
+      const raw = result.messages
       // For 1-on-1: derive one chat_key from the peer's public_key and decrypt
       // every scheme=2 message with it. For groups: server already resolved
       // each row's per-user envelope into text/iv, but each message may have a
@@ -548,6 +635,26 @@ export default function ChatsPage() {
       }
       messageCacheRef.current.set(chatId, data)
       setMessages(data)
+
+      // Seed the peer's read-receipt pointers from the server so our sent
+      // bubbles show the right ticks on open, before any live event arrives.
+      if (result.lastDelivered > 0 || result.lastRead > 0) {
+        setMessageReceipts((prev) => {
+          const cur = prev.get(chatId) ?? { delivered: 0, read: 0 }
+          const next = {
+            delivered: Math.max(cur.delivered, result.lastDelivered),
+            read: Math.max(cur.read, result.lastRead),
+          }
+          if (next.delivered === cur.delivered && next.read === cur.read) return prev
+          return new Map(prev).set(chatId, next)
+        })
+      }
+
+      // Advance our own read pointer to the newest loaded message (chat-open
+      // read receipt). The server ignores up_to for groups. Best-effort: if the
+      // socket is down, send() no-ops and the next open re-sends.
+      const newestId = data.reduce((max, m) => (m.id > max ? m.id : max), 0)
+      if (newestId > 0) sendRef.current({ action: 'mark_read', chat_id: chatId, up_to_message_id: newestId })
     } catch (err) {
       console.error('Ошибка загрузки сообщений', err)
       if (!cached) {
@@ -636,18 +743,16 @@ export default function ChatsPage() {
     }
   }, [activeChatId, loadMessages])
 
-  // Notify server about read status (separate effect to avoid reloading on WS reconnect).
-  // Also immediately clears any local tray notifications for this chat — the
-  // backend dispatch of dismiss-pushes (triggered by the mark_read action) will
-  // handle OTHER devices, but doing it locally too avoids the user staring at
-  // their own tray entry for a second after they've already opened the chat.
+  // Clear local tray notifications for the chat the user just opened. The
+  // server-side mark_read (which also dispatches dismiss-pushes to OTHER
+  // devices and advances the read-receipt pointer) is sent by loadMessages once
+  // the message list is loaded, so it can carry an accurate up_to_message_id.
+  // Doing the local dismiss here avoids the user staring at their own tray entry
+  // for a moment after opening the chat.
   useEffect(() => {
     if (!activeChatId) return
-    if (isConnected) {
-      send({ action: 'mark_read', chat_id: activeChatId })
-    }
     void dismissChatNotifications(activeChatId)
-  }, [activeChatId, isConnected, send])
+  }, [activeChatId])
 
   const handleClearChat = useCallback(async (chatId: number) => {
     try {
@@ -745,6 +850,9 @@ export default function ChatsPage() {
             }
             return next
           })
+          if (!presence.is_online && presence.last_seen) {
+            setLastSeen((prev) => new Map(prev).set(presence.user_id, presence.last_seen))
+          }
         })
         .catch((err) => {
           console.error('Failed to load user presence:', err)
@@ -755,6 +863,17 @@ export default function ChatsPage() {
   const isOtherUserOnline = useMemo(
     () => (activeChat && !activeChat.is_group && activeChat.other_user_id ? onlineUsers.has(activeChat.other_user_id) : false),
     [activeChat, onlineUsers]
+  )
+
+  const otherUserLastSeen = useMemo(
+    () => (activeChat && !activeChat.is_group && activeChat.other_user_id ? lastSeen.get(activeChat.other_user_id) : undefined),
+    [activeChat, lastSeen]
+  )
+
+  // Peer's read-receipt pointers for the open chat → ✓/✓✓ on our sent bubbles.
+  const activeChatReceipt = useMemo(
+    () => (activeChatId ? messageReceipts.get(activeChatId) : undefined),
+    [activeChatId, messageReceipts]
   )
 
   const canPin = useMemo(() => {
@@ -821,6 +940,9 @@ export default function ChatsPage() {
           error={messagesError}
           isConnected={isConnected}
           isOtherUserOnline={isOtherUserOnline}
+          otherUserLastSeen={otherUserLastSeen}
+          deliveredUpTo={activeChatReceipt?.delivered ?? 0}
+          readUpTo={activeChatReceipt?.read ?? 0}
           send={send}
           isMobile={isMobile}
           onBackToList={() => setActiveChatId(null)}

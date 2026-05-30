@@ -13,14 +13,19 @@ import "time"
 // this struct are empty by convention; the real ciphertexts live inside each
 // envelope, addressed to a specific RecipientID.
 type messageAction struct {
-	Action    string                  `json:"action"`
-	Text      string                  `json:"text"`
-	ChatID    uint                    `json:"chat_id"`
-	ReplyToID uint                    `json:"reply_to_id"`
-	MessageID uint                    `json:"message_id"`
-	Scheme    uint8                   `json:"scheme,omitempty"`
-	IV        string                  `json:"iv,omitempty"`
-	Envelopes []messageEnvelopeAction `json:"envelopes,omitempty"`
+	Action              string `json:"action"`
+	Text                string `json:"text"`
+	ChatID              uint   `json:"chat_id"`
+	ReplyToID           uint   `json:"reply_to_id"`
+	ForwardedFromUserID uint   `json:"forwarded_from_user_id"`
+	MessageID           uint   `json:"message_id"`
+	// UpToMessageID is the highest message id the client has read, sent with
+	// `mark_read` so the read receipt pointer can advance to it. The `delivered`
+	// ack uses MessageID instead.
+	UpToMessageID uint                    `json:"up_to_message_id"`
+	Scheme        uint8                   `json:"scheme,omitempty"`
+	IV            string                  `json:"iv,omitempty"`
+	Envelopes     []messageEnvelopeAction `json:"envelopes,omitempty"`
 }
 
 // messageEnvelopeAction is the WS-layer mirror of services.MessageEnvelopeInput.

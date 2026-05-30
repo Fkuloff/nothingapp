@@ -38,6 +38,24 @@ type dismissPayload struct {
 	Tag    string `json:"tag"`
 }
 
+// callPayload is the wire shape for the "incoming call" doorbell on the web
+// (VAPID) channel. The service worker branches on type=="call" and shows a
+// notification tagged call-<callID> (excluded from the dismiss sweep); clicking
+// it opens the chat. Carries no SDP — it only wakes the callee.
+type callPayload struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	ChatID   uint   `json:"chat_id"`
+	CallID   string `json:"call_id"`
+	CallerID uint   `json:"caller_id"`
+	Tag      string `json:"tag"`
+}
+
+// callPushTTLSeconds caps how long the web push provider keeps an undelivered
+// call doorbell queued — short, matching the caller's ring window.
+const callPushTTLSeconds = 30
+
 // PushNotificationService fans push notifications out to Web Push (VAPID) and FCM (mobile).
 type PushNotificationService struct {
 	logger          *zap.Logger
@@ -220,6 +238,56 @@ func (s *PushNotificationService) SendDismiss(ctx context.Context, recipientUser
 		// has been offline more than a minute — see dismissPushTTL above
 		// for the race condition this avoids.
 		go s.sendToSubscriptionTTL(bgCtx, sub, payloadJSON, dismissPushTTL) //nolint:contextcheck // intentionally detached from caller context
+	}
+	return nil
+}
+
+// SendCallPush fans an "incoming call" doorbell out to all of recipientUserID's
+// FCM tokens (mobile) and Web Push subscriptions (web fallback). Best-effort:
+// the caller's ring window is the authority on timeout. Carries no SDP — the
+// fresh offer is minted over WebSocket once the callee's app is open.
+func (s *PushNotificationService) SendCallPush(ctx context.Context, recipientUserID uint, callerName, callID string, chatID, callerID uint) error {
+	// FCM fan-out (mobile) runs in parallel to VAPID (web).
+	if s.fcm != nil && s.fcm.IsEnabled() {
+		if err := s.fcm.SendCallPush(ctx, recipientUserID, callerName, callID, chatID, callerID); err != nil {
+			s.logger.Warn("FCM call fan-out failed", zap.Error(err), zap.Uint("user_id", recipientUserID))
+		}
+	}
+
+	if !s.enabled {
+		return nil
+	}
+
+	subs, err := s.pushSubRepo.GetByUser(ctx, recipientUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get push subscriptions: %w", err)
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+
+	payloadJSON, err := json.Marshal(callPayload{
+		Type:     "call",
+		Title:    "Входящий звонок",
+		Body:     callerName,
+		ChatID:   chatID,
+		CallID:   callID,
+		CallerID: callerID,
+		Tag:      fmt.Sprintf("call-%s", callID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal call payload: %w", err)
+	}
+
+	s.logger.Debug("sending call push (web)",
+		zap.Uint("recipient_id", recipientUserID),
+		zap.String("call_id", callID),
+		zap.Int("subscription_count", len(subs)),
+	)
+
+	bgCtx := context.Background()
+	for _, sub := range subs {
+		go s.sendToSubscriptionTTL(bgCtx, sub, payloadJSON, callPushTTLSeconds) //nolint:contextcheck // intentionally detached from caller context
 	}
 	return nil
 }

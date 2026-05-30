@@ -1,15 +1,50 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 
-import type { Attachment, Message } from '../../shared/api/types'
+import { endpoints } from '../../shared/api/endpoints'
+import { httpGet } from '../../shared/api/httpClient'
+import type { Attachment, Message, UserProfile } from '../../shared/api/types'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
+import { CheckIcon, DoubleCheckIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { decryptFile, decryptMetadata, unwrapFileKey } from '../../shared/crypto/e2e'
 import { getChatKey } from '../../shared/crypto/peerKeys'
 import { downloadAttachmentNative } from '../../shared/downloadAttachment'
 import { isNative } from '../../shared/platform'
-import { formatFileSize, formatMessageTime } from '../../shared/utils'
+import { formatFileSize, formatMessageTime, linkify } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
 import { ImageLightbox } from './ImageLightbox'
+
+// Module-level cache of resolved display names for forwarded-message authors.
+// A forwarded original can come from a chat/user not present in the current
+// chat (the whole point of forwarding), so member maps can't always resolve it.
+// We fetch the profile lazily and memoise by id across all message bubbles.
+const forwardedNameCache = new Map<number, string>()
+
+function useForwardedFromName(userId: number | null, isSelf: boolean): string | null {
+  const [name, setName] = useState<string | null>(() =>
+    userId ? forwardedNameCache.get(userId) ?? null : null,
+  )
+  useEffect(() => {
+    if (!userId || isSelf) return
+    let cancelled = false
+    const resolve = async () => {
+      const cached = forwardedNameCache.get(userId)
+      if (cached) {
+        if (!cancelled) setName(cached)
+        return
+      }
+      try {
+        const p = await httpGet<UserProfile>(endpoints.profile(userId))
+        const resolved = p.name || p.username || `User #${userId}`
+        forwardedNameCache.set(userId, resolved)
+        if (!cancelled) setName(resolved)
+      } catch { /* leave null → generic placeholder in the label */ }
+    }
+    void resolve()
+    return () => { cancelled = true }
+  }, [userId, isSelf])
+  return name
+}
 
 // Detect messages containing only 1–3 emojis (sticker-style)
 const EMOJI_REGEX = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F){1,3}$/u
@@ -22,12 +57,16 @@ type Props = {
   isOwn: boolean
   senderName: string
   senderColor?: string
+  currentUserId?: number
+  // Read-receipt state for our own 1-on-1 messages (undefined = no tick shown).
+  receiptStatus?: 'sent' | 'delivered' | 'read'
   replyToMessage?: Message | null
   isPinned?: boolean
   canPin?: boolean
   onReply: (msgId: number) => void
   onEdit: (msgId: number, text: string) => void
   onDelete: (msgId: number) => void
+  onForward: (msgId: number) => void
   onPin?: (msgId: number) => void
   onUnpin?: (msgId: number) => void
 }
@@ -260,12 +299,15 @@ function MessageItemInner({
   isOwn,
   senderName,
   senderColor,
+  currentUserId,
+  receiptStatus,
   replyToMessage,
   isPinned,
   canPin,
   onReply,
   onEdit,
   onDelete,
+  onForward,
   onPin,
   onUnpin,
 }: Props) {
@@ -328,6 +370,11 @@ function MessageItemInner({
     closeContextMenu()
   }, [message.text, closeContextMenu])
 
+  const handleForward = useCallback(() => {
+    onForward(message.id)
+    closeContextMenu()
+  }, [message.id, onForward, closeContextMenu])
+
   const handlePin = useCallback(() => {
     onPin?.(message.id)
     closeContextMenu()
@@ -356,6 +403,15 @@ function MessageItemInner({
 
   const emojiOnly = !message.is_deleted && isEmojiOnly(message.text)
 
+  // The WS broadcast carries 0 (not null) for non-forwarded messages — the same
+  // "none" sentinel reply_to_id uses — so treat any non-positive value as
+  // "not forwarded". `?? null` / `!= null` would wrongly accept 0.
+  const forwardedFromId = message.forwarded_from_user_id && message.forwarded_from_user_id > 0
+    ? message.forwarded_from_user_id
+    : null
+  const isForwardedFromSelf = forwardedFromId !== null && forwardedFromId === currentUserId
+  const forwardedFromName = useForwardedFromName(forwardedFromId, isForwardedFromSelf)
+
   return (
     <>
       <div
@@ -367,6 +423,14 @@ function MessageItemInner({
       >
         {isPinned && (
           <span className="message-pin-indicator" title="Закреплено">📌</span>
+        )}
+        {forwardedFromId != null && !message.is_deleted && (
+          <div className="forwarded-label">
+            ↪ Переслано от{' '}
+            <span className="forwarded-from-name">
+              {isForwardedFromSelf ? 'вас' : (forwardedFromName || 'пользователя')}
+            </span>
+          </div>
         )}
         {replyToMessage && (
           <div className="reply-preview">
@@ -380,8 +444,21 @@ function MessageItemInner({
         )}
 
         <div className="message__header">
-          <span className="message-sender" style={senderColor ? { color: senderColor } : undefined}>{senderName}</span>
+          {/* For forwarded messages the "↪ Переслано от X" label above carries the
+              attribution (the original author), so the sender name ("Вы"/forwarder)
+              would be redundant — hide it, Telegram-style. */}
+          {forwardedFromId === null && (
+            <span className="message-sender" style={senderColor ? { color: senderColor } : undefined}>{senderName}</span>
+          )}
           <span className="message-time">{formatMessageTime(message.created_at)}</span>
+          {receiptStatus && (
+            <span
+              className={`message-receipt message-receipt--${receiptStatus}`}
+              aria-label={receiptStatus === 'read' ? 'Прочитано' : receiptStatus === 'delivered' ? 'Доставлено' : 'Отправлено'}
+            >
+              {receiptStatus === 'sent' ? <CheckIcon size={14} /> : <DoubleCheckIcon size={15} />}
+            </span>
+          )}
         </div>
 
         <div className="message__content">
@@ -393,7 +470,7 @@ function MessageItemInner({
             <>
               {(message.text.trim() || !(message.attachments && message.attachments.length > 0)) && (
                 <span className={`message-text${emojiOnly ? ' message-text--emoji-only' : ''}`}>
-                  {message.text.trim() || '[Пустое сообщение]'}
+                  {message.text.trim() ? linkify(message.text.trim()) : '[Пустое сообщение]'}
                   {message.edited_at && <span className="edited-indicator"> (ред.)</span>}
                 </span>
               )}
@@ -426,6 +503,9 @@ function MessageItemInner({
         >
           <div className="context-menu-item" onClick={handleReply}>
             ↩ Ответить
+          </div>
+          <div className="context-menu-item" onClick={handleForward}>
+            ↪ Переслать
           </div>
           <div className="context-menu-item" onClick={handleCopyText}>
             📋 Копировать
