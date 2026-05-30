@@ -1073,6 +1073,13 @@ textarea::placeholder,
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Original author's name inside the "Переслано от …" label — emphasised like
+   the forwarded-from header in Telegram. */
+.message .forwarded-label .forwarded-from-name {
+  font-weight: 600;
+  font-style: normal;
+}
+
 .message__header {
   display: flex;
   align-items: center;

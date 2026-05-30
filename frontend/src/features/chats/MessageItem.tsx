@@ -426,7 +426,10 @@ function MessageItemInner({
         )}
         {forwardedFromId != null && !message.is_deleted && (
           <div className="forwarded-label">
-            ↪ Переслано от {isForwardedFromSelf ? 'вас' : (forwardedFromName || 'пользователя')}
+            ↪ Переслано от{' '}
+            <span className="forwarded-from-name">
+              {isForwardedFromSelf ? 'вас' : (forwardedFromName || 'пользователя')}
+            </span>
           </div>
         )}
         {replyToMessage && (
@@ -441,7 +444,12 @@ function MessageItemInner({
         )}
 
         <div className="message__header">
-          <span className="message-sender" style={senderColor ? { color: senderColor } : undefined}>{senderName}</span>
+          {/* For forwarded messages the "↪ Переслано от X" label above carries the
+              attribution (the original author), so the sender name ("Вы"/forwarder)
+              would be redundant — hide it, Telegram-style. */}
+          {forwardedFromId === null && (
+            <span className="message-sender" style={senderColor ? { color: senderColor } : undefined}>{senderName}</span>
+          )}
           <span className="message-time">{formatMessageTime(message.created_at)}</span>
           {receiptStatus && (
             <span
