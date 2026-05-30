@@ -146,14 +146,21 @@ jobs:
           echo "renamed=$RENAMED" >> "$GITHUB_OUTPUT"
           echo "Built $RENAMED ($SIZE bytes, sha256=$SHA)"
 
-      - name: Generate changelog from commits since last tag
+      - name: Generate changelog
         id: changelog
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            LOG=$(git log --pretty=format:"- %s" --no-merges "$PREV_TAG"..HEAD)
-          else
-            LOG=$(git log --pretty=format:"- %s" --no-merges HEAD | head -30)
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Prefer the annotated tag's message — curated, user-facing release
+          # notes (git tag -a vX.Y.Z -m "..."). Fall back to the commit log for
+          # lightweight tags.
+          LOG=$(git tag -l --format='%(contents)' "$TAG")
+          if [ -z "$LOG" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              LOG=$(git log --pretty=format:"- %s" --no-merges "$PREV_TAG"..HEAD)
+            else
+              LOG=$(git log --pretty=format:"- %s" --no-merges HEAD | head -30)
+            fi
           fi
           # Bound to 7 KB — backend cap is 8 KB on the changelog field.
           LOG=$(echo "$LOG" | head -c 7000)
@@ -181,18 +188,25 @@ jobs:
           # if you want an optional release (e.g. min_supported=1).
           MIN_SUPPORTED_INPUT: ${{ github.event.inputs.min_supported }}
           VERSION_CODE: ${{ steps.ver.outputs.code }}
+          # Pass arbitrary-text values via env (not ${{ }} inlined into the
+          # script) so embedded quotes/newlines in the changelog can't break the
+          # shell/jq parse — that's what sank the first v1.5.3 run.
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          APK_SHA: ${{ steps.apk.outputs.sha }}
+          APK_SIZE: ${{ steps.apk.outputs.size }}
+          CHANGELOG: ${{ steps.changelog.outputs.log }}
           APK_URL: https://github.com/${{ github.repository }}/releases/download/v${{ steps.ver.outputs.name }}/${{ steps.apk.outputs.renamed }}
         run: |
           MIN_SUPPORTED="${MIN_SUPPORTED_INPUT:-$VERSION_CODE}"
           echo "version_code=$VERSION_CODE  min_supported=$MIN_SUPPORTED"
           PAYLOAD=$(jq -n \
-            --arg vn "${{ steps.ver.outputs.name }}" \
+            --arg vn "$VERSION_NAME" \
             --argjson vc "$VERSION_CODE" \
             --argjson ms "$MIN_SUPPORTED" \
             --arg url "$APK_URL" \
-            --arg sha "${{ steps.apk.outputs.sha }}" \
-            --argjson sz ${{ steps.apk.outputs.size }} \
-            --arg cl "${{ steps.changelog.outputs.log }}" \
+            --arg sha "$APK_SHA" \
+            --argjson sz "$APK_SIZE" \
+            --arg cl "$CHANGELOG" \
             '{platform:"android", version_name:$vn, version_code:$vc, min_supported_version_code:$ms, url:$url, sha256:$sha, size_bytes:$sz, changelog:$cl}')
           echo "Posting to $BACKEND_URL/api/admin/releases"
           curl -fsSL -X POST "$BACKEND_URL/api/admin/releases" \
