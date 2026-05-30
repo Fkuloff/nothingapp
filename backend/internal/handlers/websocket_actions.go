@@ -86,6 +86,13 @@ func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 		return err
 	}
 
+	h.broadcastNewMessage(ctx, userID, msgData, message)
+	return nil
+}
+
+// broadcastNewMessage builds and fans out the `new` event for a freshly created
+// message. Shared by the WS send path and the HTTP forward endpoint.
+func (h *webSocketHandler) broadcastNewMessage(ctx context.Context, userID uint, msgData messageAction, message *models.Message) {
 	replyToIDVal := uint(0)
 	if message.ReplyToID != nil {
 		replyToIDVal = *message.ReplyToID
@@ -109,22 +116,12 @@ func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	addE2EFieldsToBroadcast(broadcastData, message.Scheme, message.IV, msgData.Envelopes)
 	msgJSON, err := json.Marshal(broadcastData)
 	if err != nil {
-		h.logger.Error("json marshal error",
-			zap.Error(err),
-			zap.Uint("message_id", message.ID),
-		)
-		return &wsError{message: "Server error"}
+		h.logger.Error("json marshal error", zap.Error(err), zap.Uint("message_id", message.ID))
+		return
 	}
-
-	// Broadcast to all participants (online users will receive it immediately)
 	if err := h.broadcastToChat(ctx, msgData.ChatID, msgJSON); err != nil {
-		h.logger.Error("failed to broadcast message",
-			zap.Error(err),
-			zap.Uint("chat_id", msgData.ChatID),
-		)
+		h.logger.Error("failed to broadcast message", zap.Error(err), zap.Uint("chat_id", msgData.ChatID))
 	}
-
-	return nil
 }
 
 // handleSendDirectMessage handles sending a message in a 1-on-1 chat.

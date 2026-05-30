@@ -231,8 +231,18 @@ func validateAttachmentMeta(meta AttachmentMetaInput, expected map[uint]struct{}
 	if meta.EncryptedMetadata == "" || meta.MetadataIV == "" {
 		return errors.New("encrypted_metadata and metadata_iv are required")
 	}
-	seen := make(map[uint]struct{}, len(meta.Envelopes))
-	for _, e := range meta.Envelopes {
+	return validateEnvelopeSet(meta.Envelopes, expected)
+}
+
+// validateEnvelopeSet checks a per-recipient envelope set covers every expected
+// recipient exactly once, each with a non-empty wrapped file_key + iv. Shared by
+// the upload and forward paths.
+func validateEnvelopeSet(envelopes []AttachmentEnvelopeInput, expected map[uint]struct{}) error {
+	if len(envelopes) == 0 {
+		return ErrAttachmentMetaFields
+	}
+	seen := make(map[uint]struct{}, len(envelopes))
+	for _, e := range envelopes {
 		if e.EncryptedFileKey == "" || e.IV == "" {
 			return errors.New("envelope encrypted_file_key and iv must be non-empty")
 		}
@@ -248,6 +258,75 @@ func validateAttachmentMeta(meta AttachmentMetaInput, expected map[uint]struct{}
 		return fmt.Errorf("envelopes cover %d of %d recipients", len(seen), len(expected))
 	}
 	return nil
+}
+
+// ForwardAttachment copies an existing attachment's encrypted body into a new
+// (forwarded) message, reusing the body + metadata blobs and attaching
+// client-supplied per-recipient envelopes (the file_key re-wrapped for the
+// destination chat). E2E-preserving: the server copies opaque ciphertext and
+// stores opaque envelopes — it never sees the file_key or plaintext, and the
+// file is never re-uploaded (server-side S3 copy).
+//
+// userID (the forwarder) must be a participant of the SOURCE attachment's chat;
+// the envelopes must cover the DESTINATION chat's recipient set exactly once.
+func (s *AttachmentService) ForwardAttachment(
+	ctx context.Context,
+	sourceAttachmentID, newMessageID, destChatID, userID uint,
+	envelopes []AttachmentEnvelopeInput,
+) (*models.Attachment, error) {
+	source, err := s.attachmentRepo.FindByIDWithMessage(ctx, sourceAttachmentID)
+	if err != nil || source.Message == nil {
+		return nil, ErrAttachmentNotFound
+	}
+	// Access: the forwarder must be a participant of the source chat
+	// (chatRecipientSet asserts membership and errors otherwise).
+	if _, err := s.chatRecipientSet(ctx, source.Message.ChatID, userID); err != nil {
+		return nil, err
+	}
+	// Envelopes must cover the destination chat's recipients exactly once.
+	expected, err := s.chatRecipientSet(ctx, destChatID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateEnvelopeSet(envelopes, expected); err != nil {
+		return nil, err
+	}
+
+	// Server-side copy of the (encrypted) body — no re-upload, no plaintext.
+	newKey, err := s.storage.Copy(source.StorageKey)
+	if err != nil {
+		return nil, fmt.Errorf("copy attachment body: %w", err)
+	}
+
+	att := &models.Attachment{
+		MessageID:         newMessageID,
+		StorageKey:        newKey,
+		FileSize:          source.FileSize,
+		FileIV:            source.FileIV,            // body IV is reusable (same ciphertext)
+		EncryptedMetadata: source.EncryptedMetadata, // wrapped under file_key, not chat_key
+		MetadataIV:        source.MetadataIV,
+	}
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if createErr := tx.Create(att).Error; createErr != nil {
+			return fmt.Errorf("save forwarded attachment: %w", createErr)
+		}
+		rows := make([]models.AttachmentEnvelope, 0, len(envelopes))
+		for _, e := range envelopes {
+			rows = append(rows, models.AttachmentEnvelope{
+				AttachmentID:     att.ID,
+				RecipientID:      e.RecipientID,
+				EncryptedFileKey: e.EncryptedFileKey,
+				IV:               e.IV,
+			})
+		}
+		return s.envelopeRepo.WithTx(tx).CreateBatch(ctx, rows)
+	}); err != nil {
+		// Roll back the copied object so a failed DB tx doesn't orphan it.
+		s.rollbackUploads([]string{newKey})
+		return nil, err
+	}
+
+	return att, nil
 }
 
 // processEncryptedFileUpload writes one encrypted blob to S3 and returns the

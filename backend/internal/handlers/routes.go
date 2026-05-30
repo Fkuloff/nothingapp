@@ -132,7 +132,7 @@ func SetupRoutes(
 	api := router.Group("/api")
 	api.Use(jwtMiddleware(secret, logger, tokenTTL))
 	registerAuthRoutes(api, authH)
-	registerChatRoutes(api, chatH, attachH, pinH)
+	registerChatRoutes(api, chatH, attachH, pinH, wsH)
 	registerProfileRoutes(api, profileH)
 	registerUserRoutes(api, userH, wsH, fileH)
 	registerPushRoutes(api, pushH)
@@ -150,13 +150,14 @@ func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {
 }
 
 //nolint:dupl // Chat and group routes share structure but different handlers; merging hurts readability.
-func registerChatRoutes(api *gin.RouterGroup, ch *chatHandler, ah *attachmentHandler, ph *pinHandler) {
+func registerChatRoutes(api *gin.RouterGroup, ch *chatHandler, ah *attachmentHandler, ph *pinHandler, wh *webSocketHandler) {
 	chats := api.Group("/chats")
 	chats.GET("", ch.ListChatsAPI)
 	chats.POST("", ch.CreateChatAPI)
 	chats.GET("/:id", ch.GetChatData)
 	chats.DELETE("/:id", ch.DeleteChatAPI)
 	chats.POST("/:id/clear", ch.ClearChatAPI)
+	chats.POST("/:id/forward", wh.ForwardMessageAPI)
 	chats.GET("/:id/messages", ch.GetChatMessagesAPI)
 	chats.POST("/:id/messages/:message_id/attachments", ah.UploadAttachments)
 	chats.POST("/:id/messages/:message_id/pin", ph.PinMessageAPI)

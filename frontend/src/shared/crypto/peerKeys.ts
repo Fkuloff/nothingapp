@@ -8,6 +8,7 @@ import {
   encryptMetadata,
   generateFileKey,
   publicKeyBase64,
+  unwrapFileKey,
   wrapFileKey,
 } from './e2e'
 
@@ -207,6 +208,38 @@ export async function resolveAttachmentRecipients(args: {
     { userID: args.senderUserId, publicKey: selfKey },
     { userID: args.peerUserId, publicKey: peerKey },
   ]
+}
+
+/**
+ * Re-wrap an existing attachment's file_key for a different chat's recipients —
+ * the crypto half of forwarding a file. The body ciphertext is untouched (the
+ * server copies it); we only unwrap the 32-byte file_key from our own envelope
+ * in the source chat and re-wrap it under each destination recipient's chat_key.
+ * E2E preserved: the file_key never leaves the client, the server sees only
+ * opaque envelopes.
+ *
+ * ownEncryptedFileKey / ownEnvelopeIv: the requesting user's envelope on the
+ * source attachment (server pre-resolves these). sourceSenderUserId: the source
+ * message's author, used to derive the source chat_key that wrapped it.
+ */
+export async function rewrapAttachmentEnvelopes(args: {
+  ownEncryptedFileKey: string
+  ownEnvelopeIv: string
+  sourceSenderUserId: number
+  recipients: GroupRecipientKey[]
+  accountKey: CryptoKey
+}): Promise<AttachmentEnvelopeWire[]> {
+  const sourceChatKey = await getChatKey(args.accountKey, args.sourceSenderUserId)
+  if (!sourceChatKey) throw new Error('rewrap: cannot derive source chat_key')
+  const fileKey = await unwrapFileKey(args.ownEncryptedFileKey, args.ownEnvelopeIv, sourceChatKey)
+  const out: AttachmentEnvelopeWire[] = []
+  for (const r of args.recipients) {
+    if (!r.publicKey) throw new Error(`rewrap: recipient ${r.userID} has no public_key`)
+    const destChatKey = await deriveChatKey(args.accountKey, r.publicKey)
+    const wrapped = await wrapFileKey(fileKey, destChatKey)
+    out.push({ recipient_id: r.userID, encrypted_file_key: wrapped.encryptedFileKey, iv: wrapped.iv })
+  }
+  return out
 }
 
 /**

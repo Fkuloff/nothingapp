@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { forwardMessage,type ForwardPayload } from '../../shared/api/chatsApi'
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { ChatItem, GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { BookmarkIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
-import { encryptMessage } from '../../shared/crypto/e2e'
+import { encryptMessage, type GroupRecipientKey } from '../../shared/crypto/e2e'
 import type { GroupKeyStatus } from '../../shared/crypto/peerKeys'
 import {
   encryptGroupMessage,
@@ -15,6 +16,7 @@ import {
   getPeerPublicKey,
   prepareAttachmentForUpload,
   resolveAttachmentRecipients,
+  rewrapAttachmentEnvelopes,
 } from '../../shared/crypto/peerKeys'
 import { formatLastSeen } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
@@ -629,79 +631,96 @@ export function ChatWindow({
     if (msg) setForwardingMessage(msg)
   }, [])
 
-  // Re-encrypt the forwarded message's plaintext for the destination chat and
-  // send it as a normal scheme=2 message tagged with the original author. E2E
-  // means the server has no plaintext: the body the user sees in state is
-  // already decrypted, so forwarding = decrypt-here → encrypt-for-there.
+  // Forward a message (text and/or attachments) into the destination chat via
+  // the /forward endpoint. E2E: the body the user sees in state is already
+  // decrypted, so text is re-encrypted for the destination; attachment bodies
+  // stay in S3 (server-copied) and only their file_key is re-wrapped for the
+  // destination recipients (rewrapAttachmentEnvelopes). The server never sees
+  // plaintext or any file_key.
   const handleForwardToChat = useCallback(async (dest: ChatItem) => {
     if (!forwardingMessage) return
-    const text = forwardingMessage.text.trim()
-    if (!text) {
-      showToast('Пока можно пересылать только текстовые сообщения.', 'warning')
-      return
-    }
     const accountKey =
       accountKeyCtx.state.status === 'ready' ? accountKeyCtx.state.key : null
     if (!accountKey || !currentUserId) {
       showToast('Шифрование не настроено. Перелогиньтесь, чтобы активировать.', 'error')
       return
     }
+    // Only attachments we hold our own envelope for can be re-wrapped.
+    const sourceAttachments = (forwardingMessage.attachments ?? []).filter(
+      (a) => a.id && a.encrypted_file_key && a.envelope_iv,
+    )
+    const hasAttachments = sourceAttachments.length > 0
+    // Re-encrypt the source's plaintext; for an attachment-only message use a
+    // single space (the send path's empty-text placeholder).
+    const rawText = forwardingMessage.text.trim() || (hasAttachments ? ' ' : '')
+    if (!rawText) {
+      showToast('Нечего пересылать.', 'warning')
+      return
+    }
     // Preserve the original author across re-forwards (chains collapse to the
     // first author, like Telegram). `||` not `??`: the wire's 0 sentinel must
-    // fall through to user_id, otherwise re-forwarding a regular message would
-    // drop its attribution.
+    // fall through to user_id.
     const forwardedFrom = forwardingMessage.forwarded_from_user_id || forwardingMessage.user_id
     setForwarding(true)
     try {
-      let outgoing: WSMessageAction
+      const payload: ForwardPayload = { text: '', scheme: 2, forwarded_from_user_id: forwardedFrom }
+      // Destination recipients — needed to re-wrap attachment file_keys.
+      let recipients: GroupRecipientKey[] | null = null
+
       if (dest.is_group) {
         const status = await getGroupKeyStatus(dest.id)
         if (!status || status.missingUserIds.length > 0) {
           showToast('Нельзя переслать — не все участники настроили шифрование.', 'warning')
           return
         }
-        const envelopes = await encryptGroupMessage(text, status, accountKey, currentUserId)
-        outgoing = {
-          action: 'send',
-          chat_id: dest.id,
-          text: '',
-          scheme: 2,
-          envelopes,
-          forwarded_from_user_id: forwardedFrom,
-        }
+        recipients = status.recipients
+        payload.envelopes = await encryptGroupMessage(rawText, status, accountKey, currentUserId)
       } else if (dest.other_user_id) {
         const chatKey = await getChatKey(accountKey, dest.other_user_id)
         if (!chatKey) {
           showToast('Получатель не настроил шифрование. Нельзя переслать.', 'warning')
           return
         }
-        const { ciphertext, iv } = await encryptMessage(text, chatKey)
-        outgoing = {
-          action: 'send',
-          chat_id: dest.id,
-          text: ciphertext,
-          iv,
-          scheme: 2,
-          forwarded_from_user_id: forwardedFrom,
-        }
+        const encrypted = await encryptMessage(rawText, chatKey)
+        payload.text = encrypted.ciphertext
+        payload.iv = encrypted.iv
+        recipients = await resolveAttachmentRecipients({
+          isGroup: false,
+          peerUserId: dest.other_user_id,
+          senderUserId: currentUserId,
+          senderAccountKey: accountKey,
+        })
       } else {
         showToast('Не удалось определить получателя.', 'error')
         return
       }
-      const success = send(outgoing)
-      if (success) {
-        setForwardingMessage(null)
-        showToast('Переслано', 'success')
-      } else {
-        showToast('Не удалось переслать сообщение, повторите.', 'error')
+
+      if (hasAttachments && recipients) {
+        const recips = recipients
+        payload.attachments = await Promise.all(
+          sourceAttachments.map(async (att) => ({
+            source_attachment_id: att.id as number,
+            envelopes: await rewrapAttachmentEnvelopes({
+              ownEncryptedFileKey: att.encrypted_file_key as string,
+              ownEnvelopeIv: att.envelope_iv as string,
+              sourceSenderUserId: forwardingMessage.user_id,
+              recipients: recips,
+              accountKey,
+            }),
+          })),
+        )
       }
+
+      await forwardMessage(dest.id, payload)
+      setForwardingMessage(null)
+      showToast('Переслано', 'success')
     } catch (err) {
       console.error('Forward failed:', err)
-      showToast('Не удалось зашифровать сообщение для пересылки.', 'error')
+      showToast('Не удалось переслать сообщение, повторите.', 'error')
     } finally {
       setForwarding(false)
     }
-  }, [forwardingMessage, accountKeyCtx.state, currentUserId, send, showToast])
+  }, [forwardingMessage, accountKeyCtx.state, currentUserId, showToast])
 
   const handleCancelDraft = () => {
     setReplyToId(null)
