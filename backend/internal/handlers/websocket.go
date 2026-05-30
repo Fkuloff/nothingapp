@@ -940,6 +940,10 @@ func (h *webSocketHandler) sendPendingMessages(client *wsClient, userID uint) {
 			"created_at":             msgCopy.CreatedAt,
 			"is_deleted":             msgCopy.IsDeleted,
 			"attachments":            attachmentsList,
+			// Mark as an offline-replay so the client doesn't re-increment the
+			// unread badge: loadChats already reflects these via the server's
+			// unread_count, and bumping again here double-counts them.
+			"replayed": true,
 		}
 		// Replay treats the resolved-envelope form as a 1-on-1-shaped scheme=2
 		// payload (text + iv populated, no envelopes array) — receiving client

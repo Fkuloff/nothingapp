@@ -342,7 +342,9 @@ export default function ChatsPage() {
             // caller would otherwise get a red badge on their own unanswered
             // outgoing call. The offline callee still gets the server-queued
             // unread, which surfaces via GetUnreadCounts on their next load.
-            if (chatId !== activeChatId && event.user_id !== user?.id && event.type !== 'system') {
+            // Skip offline-replay too — loadChats already counted those via the
+            // server's unread_count, so bumping here would double the badge.
+            if (chatId !== activeChatId && event.user_id !== user?.id && event.type !== 'system' && !event.replayed) {
               chat.unread_count = (chat.unread_count || 0) + 1
             }
 

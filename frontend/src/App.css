@@ -1107,13 +1107,27 @@ textarea::placeholder,
   line-height: 1;
 }
 
+/* Dark theme: blue self-bubble. Muted white for sent/delivered, bright cyan for
+   read so the "read" state is unmistakable (the old light-blue was too close to
+   the bubble's blue). */
 .message-receipt--sent,
 .message-receipt--delivered {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .message-receipt--read {
-  color: #4fc3f7;
+  color: #6ffcff;
+}
+
+/* Light theme: light-green self-bubble with dark text — white ticks were almost
+   invisible. Use a muted dark for sent/delivered and a saturated blue for read. */
+[data-theme="light"] .message-receipt--sent,
+[data-theme="light"] .message-receipt--delivered {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .message-receipt--read {
+  color: #1f6feb;
 }
 
 .message__content {

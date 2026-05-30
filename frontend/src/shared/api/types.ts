@@ -326,6 +326,10 @@ export type WSEventNew = {
   // instead of (or in addition to) top-level text/iv. Each client picks the
   // envelope addressed to its own user_id and decrypts that.
   envelopes?: WSEnvelope[]
+  // True when this is an offline-replay on reconnect (server drained the unread
+  // queue). The client must NOT re-bump the unread badge for these — loadChats
+  // already counts them via the server's unread_count.
+  replayed?: boolean
 }
 
 export type WSEventAttachmentsAdded = {
