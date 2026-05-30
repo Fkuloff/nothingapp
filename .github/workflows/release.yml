@@ -150,10 +150,17 @@ jobs:
         id: changelog
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # Prefer the annotated tag's message — curated, user-facing release
-          # notes (git tag -a vX.Y.Z -m "..."). Fall back to the commit log for
-          # lightweight tags.
-          LOG=$(git tag -l --format='%(contents)' "$TAG")
+          # actions/checkout can land the tag as a lightweight ref (annotation
+          # dropped) — then %(contents) returns the tagged COMMIT's message, not
+          # the tag notes. Re-fetch the tag object and read its message only if
+          # it's truly annotated. Curated notes (git tag -a vX.Y.Z -m "...") then
+          # flow to both the GitHub Release body and the in-app changelog; for a
+          # lightweight tag we fall back to the commit log.
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
+          LOG=""
+          if [ "$(git cat-file -t "$TAG" 2>/dev/null)" = "tag" ]; then
+            LOG=$(git for-each-ref "refs/tags/${TAG}" --format='%(contents)')
+          fi
           if [ -z "$LOG" ]; then
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
             if [ -n "$PREV_TAG" ]; then
