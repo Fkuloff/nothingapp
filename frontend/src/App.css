@@ -2279,24 +2279,6 @@ textarea::placeholder,
   position: relative;
 }
 
-.user-profile-modal__status-dot {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-full);
-  border: 3px solid var(--bg-secondary);
-}
-
-.user-profile-modal__status-dot.online {
-  background: var(--accent-success);
-}
-
-.user-profile-modal__status-dot.offline {
-  background: var(--text-tertiary);
-}
-
 .user-profile-modal__status {
   display: flex;
   align-items: center;

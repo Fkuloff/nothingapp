@@ -103,9 +103,6 @@ export function UserProfileModal({ isOpen, onClose, userId, username, avatarUrl,
                 alt="avatar"
                 className="profile-modal__avatar"
               />
-              {isOnline !== undefined && (
-                <span className={`user-profile-modal__status-dot ${isOnline ? 'online' : 'offline'}`} />
-              )}
             </div>
 
             <div className="profile-modal__info">
