@@ -110,6 +110,8 @@ export default function ChatsPage() {
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
   // Text shared in via the Android share-sheet; non-null opens the picker.
   const [shareText, setShareText] = useState<string | null>(null)
+  // Bumped to make ChatWindow re-read a draft when sharing into the open chat.
+  const [draftReloadKey, setDraftReloadKey] = useState(0)
   const [loadingChats, setLoadingChats] = useState(() => readCachedChats().length === 0)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [chatsError, setChatsError] = useState<string | null>(null)
@@ -762,8 +764,14 @@ export default function ChatsPage() {
       localStorage.setItem(key, existing ? `${existing}\n${shareText}` : shareText)
     } catch { /* quota / private mode — proceed without a draft */ }
     setShareText(null)
-    setActiveChatId(chat.id)
-  }, [shareText])
+    if (chat.id === activeChatId) {
+      // Same chat already open: activeChatId won't change, so nudge ChatWindow
+      // to re-read the freshly written draft instead of relying on a chat switch.
+      setDraftReloadKey((k) => k + 1)
+    } else {
+      setActiveChatId(chat.id)
+    }
+  }, [shareText, activeChatId])
 
   // Web browser path: ?chat= in the actual URL (BrowserRouter)
   useEffect(() => {
@@ -1020,6 +1028,7 @@ export default function ChatsPage() {
           canPin={canPin}
           onPinMessage={handlePinMessage}
           onUnpinMessage={handleUnpinMessage}
+          draftReloadKey={draftReloadKey}
         />
       </div>
       </div>

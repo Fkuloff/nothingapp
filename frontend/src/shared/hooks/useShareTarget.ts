@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
 import { setPendingShare } from '../pendingShare'
-import { isNative } from '../platform'
+import { getPlatform } from '../platform'
 import { ShareTarget } from '../shareTarget'
 
 /**
@@ -10,7 +10,8 @@ import { ShareTarget } from '../shareTarget'
  */
 export function useShareTarget() {
   useEffect(() => {
-    if (!isNative()) return
+    // Android-only: the ShareTarget plugin is unregistered on web/iOS.
+    if (getPlatform() !== 'android') return
     let cancelled = false
     let handle: { remove: () => void } | undefined
 

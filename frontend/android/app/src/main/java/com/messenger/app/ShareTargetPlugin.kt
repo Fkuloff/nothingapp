@@ -32,6 +32,11 @@ class ShareTargetPlugin : Plugin() {
     fun handleIntent(intent: Intent?) {
         consumeIntent(intent)
         val text = pendingText ?: return
+        // Only drain via the event if the JS side is actually listening. If the
+        // share arrived before useShareTarget mounted (e.g. app warm-started onto
+        // the login screen), keep it buffered so getSharedItem() can deliver it
+        // once the UI comes up — otherwise the share would be lost.
+        if (!hasListeners("shareReceived")) return
         pendingText = null
         notifyListeners("shareReceived", JSObject().apply { put("text", text) })
     }
