@@ -108,8 +108,7 @@ export default function ChatsPage() {
   const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
-  // Text shared into the app via the Android share-sheet, awaiting a chat
-  // pick. Non-null → the "Поделиться в…" modal is open. See useShareTarget.
+  // Text shared in via the Android share-sheet; non-null opens the picker.
   const [shareText, setShareText] = useState<string | null>(null)
   const [loadingChats, setLoadingChats] = useState(() => readCachedChats().length === 0)
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -709,16 +708,12 @@ export default function ChatsPage() {
     loadChatsRef.current()
   }), [])
 
-  // "Share to Messenger" (Android share-sheet): the native hook funnels shared
-  // text into pendingShare; we subscribe and open the chat-picker. Same
-  // router-free pub/sub as pendingChat; replays a cold-start share set before
-  // ChatsPage mounted. No-op on web (useShareTarget guards with isNative).
+  // "Share to Messenger": the native hook feeds pendingShare, we open the picker.
   useShareTarget()
   useEffect(() => subscribePendingShare((text) => setShareText(text)), [])
 
-  // Destination picked in the share modal: pre-fill that chat's composer draft
-  // (so the user can add a comment before sending, like Telegram) and open it.
-  // ChatWindow restores chat_draft_<id> on enter.
+  // Pre-fill the picked chat's draft so the user can add a comment before
+  // sending (ChatWindow restores chat_draft_<id> on enter), then open it.
   const handleShareToChat = useCallback((chat: ChatItem) => {
     if (shareText === null) return
     try {
@@ -989,8 +984,7 @@ export default function ChatsPage() {
       </div>
       </div>
 
-      {/* Chat-picker for content shared into the app via the Android
-          share-sheet (ACTION_SEND). Reuses ForwardModal's UI with share copy. */}
+      {/* Chat-picker for content shared in via the Android share-sheet. */}
       <ForwardModal
         isOpen={shareText !== null}
         onClose={() => setShareText(null)}

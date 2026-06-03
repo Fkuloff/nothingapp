@@ -15,8 +15,7 @@ type Props = {
   // True while the parent is encrypting + sending the forward; disables the button.
   busy?: boolean
   onSelect: (chat: ChatItem) => void
-  // Header / button copy. Defaults to the "forward" wording; the share-to-app
-  // flow (ChatsPage) overrides them with "Поделиться в…".
+  // Header / button copy; defaults to the "forward" wording.
   title?: string
   confirmLabel?: string
   busyLabel?: string

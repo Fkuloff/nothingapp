@@ -9,42 +9,26 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 
 /**
- * Receives ACTION_SEND (text/plain) intents from the system share-sheet and
- * surfaces them to the JS layer — "Share to Messenger" from YouTube, a
- * browser, etc.
+ * Receives ACTION_SEND (text/plain) intents from the system share-sheet —
+ * "Share to Messenger". Capacitor has no share-RECEIVE plugin, so this is custom.
  *
- * Two delivery paths, because launchMode=singleTask:
- *   - cold start: the share Intent IS the launch Intent. JS calls
- *     getSharedItem() once the WebView is up and drains it (one-shot).
- *   - warm start (app already running): Android routes the new Intent to
- *     MainActivity.onNewIntent(), which forwards it here and we emit
- *     "shareReceived" so the already-mounted UI reacts immediately.
- *
- * One-shot semantics mirror the JS pendingShare pub/sub: a given shared text
- * is handed out exactly once, so re-opening the app doesn't re-trigger it.
- *
- * Why a custom plugin?  Capacitor has no share-RECEIVE plugin (@capacitor/share
- * only sends). Reading the launch Intent + handling onNewIntent for singleTask
- * needs native code regardless.
+ * Two paths (launchMode=singleTask):
+ *   - cold start: the share Intent is the launch Intent; JS drains it via
+ *     getSharedItem() once the WebView is up.
+ *   - warm start: MainActivity.onNewIntent forwards the Intent here and we emit
+ *     "shareReceived". Either way the text is handed out exactly once.
  */
 @CapacitorPlugin(name = "ShareTarget")
 class ShareTargetPlugin : Plugin() {
 
-    // Buffered shared text waiting for the JS layer to drain it. Survives the
-    // cold-start gap between activity launch and the WebView calling
-    // getSharedItem().
+    // Buffered until the JS layer drains it; bridges the cold-start gap.
     private var pendingText: String? = null
 
     override fun load() {
-        // Capture the Intent that cold-started the activity (if it's a share).
         consumeIntent(activity?.intent)
     }
 
-    /**
-     * Called by MainActivity.onNewIntent for warm starts. Buffers the text and,
-     * since the bridge is necessarily live (app already running), drains it
-     * immediately via a "shareReceived" event.
-     */
+    /** Warm-start entry point (from MainActivity.onNewIntent). */
     fun handleIntent(intent: Intent?) {
         consumeIntent(intent)
         val text = pendingText ?: return
@@ -60,11 +44,7 @@ class ShareTargetPlugin : Plugin() {
         pendingText = text
     }
 
-    /**
-     * Drains the buffered cold-start share text (one-shot). Resolves with
-     * {text: null} when nothing is pending — the JS bridge treats that as
-     * "no share to handle".
-     */
+    /** Cold-start drain (one-shot); resolves {text: null} when nothing pending. */
     @PluginMethod
     fun getSharedItem(call: PluginCall) {
         val text = pendingText

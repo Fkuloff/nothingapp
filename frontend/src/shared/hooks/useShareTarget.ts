@@ -5,13 +5,8 @@ import { isNative } from '../platform'
 import { ShareTarget } from '../shareTarget'
 
 /**
- * Wires the native Android Share Target into the app. On mount:
- *   - drains any cold-start share intent (getSharedItem),
- *   - subscribes to warm-start "shareReceived" events.
- * Both funnel into setPendingShare, which ChatsPage turns into a chat-picker.
- *
- * No-op on web / iOS — the ShareTarget plugin isn't registered there, so we
- * never touch it. Mirrors the shape of useFCMNotifications.
+ * Drains the cold-start share intent and subscribes to warm-start shares,
+ * funneling both into setPendingShare. No-op on web/iOS. Call once after login.
  */
 export function useShareTarget() {
   useEffect(() => {
@@ -19,8 +14,7 @@ export function useShareTarget() {
     let cancelled = false
     let handle: { remove: () => void } | undefined
 
-    // Cold start: the share intent launched the app. Drain it once the WebView
-    // (and this hook) is up.
+    // Cold start: the share intent launched the app.
     ShareTarget.getSharedItem()
       .then(({ text }) => { if (!cancelled && text) setPendingShare(text) })
       .catch(() => { /* plugin missing / no share — ignore */ })

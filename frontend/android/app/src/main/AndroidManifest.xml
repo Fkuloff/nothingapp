@@ -19,13 +19,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!--
-                Share Target: makes Messenger appear in the system share-sheet
-                for plain text / links. E.g. tap "Share" on a YouTube link or
-                a browser page → pick Messenger → choose a chat. Handled by
-                ShareTargetPlugin; warm-start shares arrive via onNewIntent
-                (launchMode=singleTask).
-            -->
+            <!-- Share Target: appear in the system share-sheet for text/links.
+                 Handled by ShareTargetPlugin. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

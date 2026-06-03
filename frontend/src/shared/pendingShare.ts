@@ -1,11 +1,6 @@
-// Tiny one-shot pub/sub for "the user shared this text into the app" — bridges
-// an Android ACTION_SEND (system share-sheet) into ChatsPage, which opens a
-// chat-picker. Mirrors pendingChat / pendingCall.
-//
-// useShareTarget (driven by the native ShareTarget plugin) calls
-// setPendingShare(text); ChatsPage subscribes and opens the "Поделиться в…"
-// modal. One-shot: reading it clears it, so a single share is offered exactly
-// once even if ChatsPage subscribes after the share already arrived (cold start).
+// One-shot pub/sub bridging an Android share into ChatsPage's chat-picker.
+// Mirrors pendingChat: reading clears it, so a cold-start share set before
+// ChatsPage subscribes is still delivered exactly once.
 
 type Listener = (text: string) => void
 
@@ -17,10 +12,7 @@ export function setPendingShare(text: string) {
   for (const l of listeners) l(text)
 }
 
-/**
- * Subscribe to pending shared text. If a share was set before subscription, it
- * is delivered immediately and then cleared. Returns an unsubscribe function.
- */
+/** A share set before subscription is replayed once, then cleared. */
 export function subscribePendingShare(cb: Listener): () => void {
   listeners.add(cb)
   if (pending !== null) {

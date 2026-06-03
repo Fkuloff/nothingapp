@@ -17,9 +17,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
     }
 
-    // launchMode=singleTask: a share that arrives while the app is already
-    // running is delivered here, not via a fresh onCreate. Forward it to
-    // ShareTargetPlugin so it can emit "shareReceived" to the live WebView.
+    // singleTask: shares arriving while running come here, not via onCreate.
     @Override
     public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
