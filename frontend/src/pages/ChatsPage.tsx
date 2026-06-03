@@ -7,6 +7,7 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { useCallContext } from '../features/calls/CallContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
+import { ForwardModal } from '../features/chats/ForwardModal'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { UpdateBanner } from '../features/updates/UpdateBanner'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
@@ -39,7 +40,9 @@ function selectScheme2Payload(
 }
 import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
+import { useShareTarget } from '../shared/hooks/useShareTarget'
 import { subscribePendingChat } from '../shared/pendingChat'
+import { subscribePendingShare } from '../shared/pendingShare'
 
 const CACHED_CHATS_KEY = 'cached_chats_list'
 
@@ -105,6 +108,9 @@ export default function ChatsPage() {
   const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
+  // Text shared into the app via the Android share-sheet, awaiting a chat
+  // pick. Non-null → the "Поделиться в…" modal is open. See useShareTarget.
+  const [shareText, setShareText] = useState<string | null>(null)
   const [loadingChats, setLoadingChats] = useState(() => readCachedChats().length === 0)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [chatsError, setChatsError] = useState<string | null>(null)
@@ -703,6 +709,27 @@ export default function ChatsPage() {
     loadChatsRef.current()
   }), [])
 
+  // "Share to Messenger" (Android share-sheet): the native hook funnels shared
+  // text into pendingShare; we subscribe and open the chat-picker. Same
+  // router-free pub/sub as pendingChat; replays a cold-start share set before
+  // ChatsPage mounted. No-op on web (useShareTarget guards with isNative).
+  useShareTarget()
+  useEffect(() => subscribePendingShare((text) => setShareText(text)), [])
+
+  // Destination picked in the share modal: pre-fill that chat's composer draft
+  // (so the user can add a comment before sending, like Telegram) and open it.
+  // ChatWindow restores chat_draft_<id> on enter.
+  const handleShareToChat = useCallback((chat: ChatItem) => {
+    if (shareText === null) return
+    try {
+      const key = `chat_draft_${chat.id}`
+      const existing = localStorage.getItem(key)
+      localStorage.setItem(key, existing ? `${existing}\n${shareText}` : shareText)
+    } catch { /* quota / private mode — proceed without a draft */ }
+    setShareText(null)
+    setActiveChatId(chat.id)
+  }, [shareText])
+
   // Web browser path: ?chat= in the actual URL (BrowserRouter)
   useEffect(() => {
     const chatId = searchParams.get('chat')
@@ -961,6 +988,16 @@ export default function ChatsPage() {
         />
       </div>
       </div>
+
+      {/* Chat-picker for content shared into the app via the Android
+          share-sheet (ACTION_SEND). Reuses ForwardModal's UI with share copy. */}
+      <ForwardModal
+        isOpen={shareText !== null}
+        onClose={() => setShareText(null)}
+        onSelect={handleShareToChat}
+        title="Поделиться в…"
+        confirmLabel="Поделиться"
+      />
     </div>
   )
 }
