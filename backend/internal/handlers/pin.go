@@ -175,6 +175,10 @@ func (h *pinHandler) GetPinnedMessagesAPI(c *gin.Context) {
 				ReplyToID:   msg.ReplyToID,
 				EditedAt:    msg.EditedAt,
 				Attachments: atts,
+				// Scheme + IV are required for the client to E2E-decrypt the
+				// pinned text; without them it renders raw ciphertext.
+				Scheme: msg.Scheme,
+				IV:     msg.IV,
 			},
 		})
 	}

@@ -15,6 +15,10 @@ type Props = {
   // True while the parent is encrypting + sending the forward; disables the button.
   busy?: boolean
   onSelect: (chat: ChatItem) => void
+  // Header / button copy; defaults to the "forward" wording.
+  title?: string
+  confirmLabel?: string
+  busyLabel?: string
 }
 
 function getChatDisplayName(chat: ChatItem): string {
@@ -23,7 +27,16 @@ function getChatDisplayName(chat: ChatItem): string {
   return chat.other_user_name || 'Чат'
 }
 
-export function ForwardModal({ isOpen, onClose, currentChatId, busy, onSelect }: Props) {
+export function ForwardModal({
+  isOpen,
+  onClose,
+  currentChatId,
+  busy,
+  onSelect,
+  title = 'Переслать в…',
+  confirmLabel = 'Переслать',
+  busyLabel = 'Пересылаем...',
+}: Props) {
   const [chats, setChats] = useState<ChatItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -79,7 +92,7 @@ export function ForwardModal({ isOpen, onClose, currentChatId, busy, onSelect }:
     <div className="contacts-modal-backdrop" onClick={handleBackdropClick}>
       <div className="contacts-modal" role="dialog" aria-modal="true">
         <div className="contacts-modal__header">
-          <h2 className="contacts-modal__title">Переслать в…</h2>
+          <h2 className="contacts-modal__title">{title}</h2>
           <button className="contacts-modal__close" onClick={onClose} aria-label="Закрыть">
             <CloseIcon />
           </button>
@@ -158,7 +171,7 @@ export function ForwardModal({ isOpen, onClose, currentChatId, busy, onSelect }:
             onClick={handleConfirm}
             disabled={selectedId === null || busy}
           >
-            {busy ? 'Пересылаем...' : 'Переслать'}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

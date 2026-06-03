@@ -73,6 +73,10 @@ type Props = {
   canPin?: boolean
   onPinMessage?: (chatId: number, msgId: number) => void
   onUnpinMessage?: (chatId: number, msgId: number) => void
+  // Bumped by the parent to make the composer re-read the persisted draft for
+  // the current chat without a chat switch (used when sharing into the chat
+  // that's already open).
+  draftReloadKey?: number
 }
 
 export function ChatWindow({
@@ -105,6 +109,7 @@ export function ChatWindow({
   canPin = false,
   onPinMessage,
   onUnpinMessage,
+  draftReloadKey = 0,
 }: Props) {
   const [messageText, setMessageText] = useState('')
   const [replyToId, setReplyToId] = useState<number | null>(null)
@@ -203,6 +208,16 @@ export function ChatWindow({
       persistDraft(leavingChatId, messageTextRef.current)
     }
   }, [chatId, draftKey, persistDraft])
+
+  // On-demand draft re-read (parent bumps draftReloadKey) — used when content is
+  // shared into the chat that's already open, so the chatId effect above doesn't
+  // fire. No cleanup here, so it never overwrites the freshly-written draft.
+  useEffect(() => {
+    if (!chatId || draftReloadKey === 0) return
+    try {
+      setMessageText(localStorage.getItem(draftKey(chatId)) ?? '')
+    } catch { /* quota / private mode */ }
+  }, [draftReloadKey, chatId, draftKey])
 
   // Debounced proactive save on every keystroke. 400 ms is a good balance:
   // small enough that "type → swipe to background" rarely loses anything,

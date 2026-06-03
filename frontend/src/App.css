@@ -336,6 +336,10 @@ textarea::placeholder,
   min-width: 150px;
   padding: var(--space-xs) 0;
   animation: contextMenuIn 0.15s ease-out;
+  /* Fallback for menus taller than the viewport (small / Android screens):
+     scroll instead of clipping off-screen. JS clamps position separately. */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 
 @keyframes contextMenuIn {
@@ -2273,24 +2277,6 @@ textarea::placeholder,
 .user-profile-modal__avatar-wrapper {
   cursor: default;
   position: relative;
-}
-
-.user-profile-modal__status-dot {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-full);
-  border: 3px solid var(--bg-secondary);
-}
-
-.user-profile-modal__status-dot.online {
-  background: var(--accent-success);
-}
-
-.user-profile-modal__status-dot.offline {
-  background: var(--text-tertiary);
 }
 
 .user-profile-modal__status {

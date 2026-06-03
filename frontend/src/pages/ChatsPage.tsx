@@ -7,6 +7,7 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { useCallContext } from '../features/calls/CallContext'
 import { ChatList } from '../features/chats/ChatList'
 import { ChatWindow } from '../features/chats/ChatWindow'
+import { ForwardModal } from '../features/chats/ForwardModal'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { UpdateBanner } from '../features/updates/UpdateBanner'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
@@ -39,7 +40,9 @@ function selectScheme2Payload(
 }
 import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
+import { useShareTarget } from '../shared/hooks/useShareTarget'
 import { subscribePendingChat } from '../shared/pendingChat'
+import { subscribePendingShare } from '../shared/pendingShare'
 
 const CACHED_CHATS_KEY = 'cached_chats_list'
 
@@ -105,6 +108,10 @@ export default function ChatsPage() {
   const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
+  // Text shared in via the Android share-sheet; non-null opens the picker.
+  const [shareText, setShareText] = useState<string | null>(null)
+  // Bumped to make ChatWindow re-read a draft when sharing into the open chat.
+  const [draftReloadKey, setDraftReloadKey] = useState(0)
   const [loadingChats, setLoadingChats] = useState(() => readCachedChats().length === 0)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [chatsError, setChatsError] = useState<string | null>(null)
@@ -127,6 +134,7 @@ export default function ChatsPage() {
   const messagesRef = useRef<Message[]>([])
   const loadChatsRef = useRef<() => void>(() => {})
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
+  const loadPinnedRef = useRef<(chatId: number) => void>(() => {})
   const messageCacheRef = useRef<Map<number, Message[]>>(new Map())
   const handleCallEventRef = useRef(callContext.handleCallEvent)
   // Stable handle to the WS send fn for callers defined before `send` exists
@@ -272,7 +280,7 @@ export default function ChatsPage() {
       // Handle pin/unpin events
       if (event.action === 'message_pinned' || event.action === 'message_unpinned') {
         if (event.chat_id === activeChatId) {
-          getPinnedMessages(event.chat_id).then(setPinnedMessages).catch(console.error)
+          loadPinnedRef.current(event.chat_id)
           loadMessagesRef.current(event.chat_id)
         }
         return
@@ -667,6 +675,45 @@ export default function ChatsPage() {
   }, [])
   loadMessagesRef.current = loadMessages
 
+  // Fetch + decrypt pinned messages. The pin endpoint returns each pin's inner
+  // message as ciphertext (group envelopes already resolved server-side), so we
+  // decrypt it the same way loadMessages does before showing it in the bar.
+  const loadPinned = useCallback(async (chatId: number) => {
+    try {
+      const pins = await getPinnedMessages(chatId)
+      const chat = chatsRef.current.find((c) => c.id === chatId)
+      const accountKey = accountKeyRef.current
+      let decrypted: PinnedMessage[]
+      if (chat?.is_group) {
+        const senderKeys = new Map<number, CryptoKey | null>()
+        const uniqueSenders = Array.from(
+          new Set(pins.filter((p) => p.message.scheme === 2).map((p) => p.message.user_id)),
+        )
+        await Promise.all(
+          uniqueSenders.map(async (id) => senderKeys.set(id, await getChatKey(accountKey, id))),
+        )
+        decrypted = await Promise.all(
+          pins.map(async (p) => ({
+            ...p,
+            message: await decryptIncomingText(
+              p.message,
+              p.message.scheme === 2 ? (senderKeys.get(p.message.user_id) ?? null) : null,
+            ),
+          })),
+        )
+      } else {
+        const chatKey = await getChatKey(accountKey, chat?.other_user_id ?? null)
+        decrypted = await Promise.all(
+          pins.map(async (p) => ({ ...p, message: await decryptIncomingText(p.message, chatKey) })),
+        )
+      }
+      setPinnedMessages(decrypted)
+    } catch (err) {
+      console.error('Ошибка загрузки закреплённых', err)
+    }
+  }, [])
+  loadPinnedRef.current = loadPinned
+
   // Handle notification click (from service worker)
   useEffect(() => {
     const handleSWMessage = (event: MessageEvent) => {
@@ -703,6 +750,29 @@ export default function ChatsPage() {
     loadChatsRef.current()
   }), [])
 
+  // "Share to Messenger": the native hook feeds pendingShare, we open the picker.
+  useShareTarget()
+  useEffect(() => subscribePendingShare((text) => setShareText(text)), [])
+
+  // Pre-fill the picked chat's draft so the user can add a comment before
+  // sending (ChatWindow restores chat_draft_<id> on enter), then open it.
+  const handleShareToChat = useCallback((chat: ChatItem) => {
+    if (shareText === null) return
+    try {
+      const key = `chat_draft_${chat.id}`
+      const existing = localStorage.getItem(key)
+      localStorage.setItem(key, existing ? `${existing}\n${shareText}` : shareText)
+    } catch { /* quota / private mode — proceed without a draft */ }
+    setShareText(null)
+    if (chat.id === activeChatId) {
+      // Same chat already open: activeChatId won't change, so nudge ChatWindow
+      // to re-read the freshly written draft instead of relying on a chat switch.
+      setDraftReloadKey((k) => k + 1)
+    } else {
+      setActiveChatId(chat.id)
+    }
+  }, [shareText, activeChatId])
+
   // Web browser path: ?chat= in the actual URL (BrowserRouter)
   useEffect(() => {
     const chatId = searchParams.get('chat')
@@ -721,7 +791,7 @@ export default function ChatsPage() {
   useEffect(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
-      getPinnedMessages(activeChatId).then(setPinnedMessages).catch(console.error)
+      loadPinned(activeChatId)
 
       // Load group info if it's a group chat
       const chat = chatsRef.current.find((c) => c.id === activeChatId)
@@ -741,7 +811,7 @@ export default function ChatsPage() {
       setGroupInfo(null)
       setPinnedMessages([])
     }
-  }, [activeChatId, loadMessages])
+  }, [activeChatId, loadMessages, loadPinned])
 
   // Clear local tray notifications for the chat the user just opened. The
   // server-side mark_read (which also dispatches dismiss-pushes to OTHER
@@ -958,9 +1028,19 @@ export default function ChatsPage() {
           canPin={canPin}
           onPinMessage={handlePinMessage}
           onUnpinMessage={handleUnpinMessage}
+          draftReloadKey={draftReloadKey}
         />
       </div>
       </div>
+
+      {/* Chat-picker for content shared in via the Android share-sheet. */}
+      <ForwardModal
+        isOpen={shareText !== null}
+        onClose={() => setShareText(null)}
+        onSelect={handleShareToChat}
+        title="Поделиться в…"
+        confirmLabel="Поделиться"
+      />
     </div>
   )
 }
