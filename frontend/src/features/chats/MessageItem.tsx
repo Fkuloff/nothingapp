@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
 import { httpGet } from '../../shared/api/httpClient'
@@ -325,26 +325,27 @@ function MessageItemInner({
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     if (message.is_deleted) return
     e.preventDefault()
-
-    const menuWidth = 150
-    const menuHeight = 200
-    const padding = 8
-
-    let x = e.clientX
-    let y = e.clientY
-
-    // Prevent menu from going off-screen right
-    if (x + menuWidth + padding > window.innerWidth) {
-      x = window.innerWidth - menuWidth - padding
-    }
-
-    // Prevent menu from going off-screen bottom
-    if (y + menuHeight + padding > window.innerHeight) {
-      y = window.innerHeight - menuHeight - padding
-    }
-
-    setContextMenu({ visible: true, x, y })
+    // Open at the cursor; the layout effect below clamps to the viewport once
+    // the menu's real size is known (it varies with the visible item set).
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY })
   }, [message.is_deleted])
+
+  // Keep the menu fully on-screen. Measured after render (before paint, so no
+  // flicker) because the menu width/height depend on which items show — the
+  // old hardcoded 150×200 estimate let wide/tall menus overflow.
+  const menuRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!contextMenu.visible) return
+    const el = menuRef.current
+    if (!el) return
+    const padding = 8
+    const { width, height } = el.getBoundingClientRect()
+    const x = Math.max(padding, Math.min(contextMenu.x, window.innerWidth - width - padding))
+    const y = Math.max(padding, Math.min(contextMenu.y, window.innerHeight - height - padding))
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      setContextMenu((prev) => ({ ...prev, x, y }))
+    }
+  }, [contextMenu.visible, contextMenu.x, contextMenu.y])
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }))
@@ -497,6 +498,7 @@ function MessageItemInner({
 
       {contextMenu.visible && (
         <div
+          ref={menuRef}
           className="context-menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}

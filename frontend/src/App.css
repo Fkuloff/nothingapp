@@ -336,6 +336,10 @@ textarea::placeholder,
   min-width: 150px;
   padding: var(--space-xs) 0;
   animation: contextMenuIn 0.15s ease-out;
+  /* Fallback for menus taller than the viewport (small / Android screens):
+     scroll instead of clipping off-screen. JS clamps position separately. */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 
 @keyframes contextMenuIn {
