@@ -77,6 +77,14 @@ type ContextMenuState = {
   y: number
 }
 
+// Only one message context menu may be open app-wide. Each MessageItem owns its
+// own `contextMenu` state, and the close-on-outside handler only fires on a left
+// `click` — so right-clicking a *second* bubble (a `contextmenu` event, not a
+// `click`) would leave the first menu open, stacking menus. This module-level
+// closer points at whichever menu is currently open; opening a new one closes the
+// previous via this handle first.
+let activeContextMenuCloser: (() => void) | null = null
+
 type AttachmentViewProps = {
   att: Attachment
   senderUserId: number
@@ -322,13 +330,24 @@ function MessageItemInner({
     setLightboxImage({ src, alt })
   }, [])
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => ({ ...prev, visible: false }))
+  }, [])
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     if (message.is_deleted) return
     e.preventDefault()
+    // A contextmenu event on another bubble doesn't fire the open menu's
+    // click-outside listener, so close whatever menu is still open before we
+    // claim the single app-wide open slot — otherwise menus stack up.
+    if (activeContextMenuCloser && activeContextMenuCloser !== closeContextMenu) {
+      activeContextMenuCloser()
+    }
+    activeContextMenuCloser = closeContextMenu
     // Open at the cursor; the layout effect below clamps to the viewport once
     // the menu's real size is known (it varies with the visible item set).
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY })
-  }, [message.is_deleted])
+  }, [message.is_deleted, closeContextMenu])
 
   // Keep the menu fully on-screen. Measured after render (before paint, so no
   // flicker) because the menu width/height depend on which items show — the
@@ -346,10 +365,6 @@ function MessageItemInner({
       setContextMenu((prev) => ({ ...prev, x, y }))
     }
   }, [contextMenu.visible, contextMenu.x, contextMenu.y])
-
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => ({ ...prev, visible: false }))
-  }, [])
 
   const handleReply = useCallback(() => {
     onReply(message.id)
@@ -399,6 +414,11 @@ function MessageItemInner({
     return () => {
       document.removeEventListener('click', handleClickOutside)
       document.removeEventListener('scroll', handleScroll, true)
+      // Release the single open slot if we still own it (don't clobber a menu
+      // another bubble just opened — it has already reclaimed the slot).
+      if (activeContextMenuCloser === closeContextMenu) {
+        activeContextMenuCloser = null
+      }
     }
   }, [contextMenu.visible, closeContextMenu])
 
