@@ -3,6 +3,14 @@ import { useEffect, useRef } from 'react'
 import type { Message } from '../../shared/api/types'
 import { formatFileSize,getFileIcon } from '../../shared/utils'
 
+// Clipboard images (e.g. screenshots) often arrive without a usable filename.
+// Synthesize one from the mime type so the attachment shows something sensible
+// (the real name is what ends up encrypted in the attachment metadata).
+function renameClipboardFile(file: File): File {
+  const ext = (file.type.split('/')[1] || 'bin').split(';')[0]
+  return new File([file], `pasted-${Date.now()}.${ext}`, { type: file.type || 'application/octet-stream' })
+}
+
 type Props = {
   messages: Message[]
   replyToId: number | null
@@ -60,6 +68,25 @@ export function MessageComposer({
     const files = Array.from(event.target.files || [])
     if (files.length > 0) {
       onFileSelect(files)
+    }
+  }
+
+  // Paste images/files (Ctrl+V) straight into the composer — pull any "file"
+  // items out of the clipboard and attach them. preventDefault only when we
+  // actually consumed files, so pasting plain text still works normally.
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (disabled || uploading) return
+    const items = event.clipboardData?.items
+    if (!items) return
+    const pasted: File[] = []
+    for (const item of Array.from(items)) {
+      if (item.kind !== 'file') continue
+      const file = item.getAsFile()
+      if (file) pasted.push(file.name ? file : renameClipboardFile(file))
+    }
+    if (pasted.length > 0) {
+      event.preventDefault()
+      onFileSelect(pasted)
     }
   }
 
@@ -124,6 +151,7 @@ export function MessageComposer({
           rows={1}
           value={messageText}
           onChange={(e) => onMessageTextChange(e.target.value)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             // Enter sends; Shift+Enter inserts a newline (default textarea behavior).
             // Skip the send shortcut on mobile Android Capacitor WebView where
