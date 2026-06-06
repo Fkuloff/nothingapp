@@ -18,6 +18,7 @@ import { decryptIncomingText } from '../shared/crypto/decryptIncoming'
 import { publicKeyBase64 } from '../shared/crypto/e2e'
 import { getChatKey, seedPeerPublicKey } from '../shared/crypto/peerKeys'
 import { dismissChatNotifications } from '../shared/dismissChatNotifications'
+import { loadCachedMessages, removeCachedMessages, saveCachedMessages } from '../shared/messageCache'
 
 // selectScheme2Payload picks (ciphertext, iv) for a scheme=2 WS broadcast. For
 // 1-on-1 it's just the top-level text/iv. For group pairwise (envelopes set)
@@ -267,6 +268,7 @@ export default function ChatsPage() {
 
       if (event.action === 'group_deleted') {
         messageCacheRef.current.delete(event.chat_id)
+        removeCachedMessages(event.chat_id)
         setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
         if (event.chat_id === activeChatId) {
           setActiveChatId(null)
@@ -389,6 +391,7 @@ export default function ChatsPage() {
               if (prev.some((m) => m.id === newMessage.id)) return prev
               const next = [...prev, newMessage]
               messageCacheRef.current.set(chatId, next)
+              saveCachedMessages(chatId, next)
               return next
             })
           }
@@ -421,6 +424,7 @@ export default function ChatsPage() {
             msg.id === event.message_id ? { ...msg, attachments: projected } : msg
           )
           messageCacheRef.current.set(chatId, next)
+          saveCachedMessages(chatId, next)
           return next
         })
         return
@@ -463,6 +467,7 @@ export default function ChatsPage() {
                 : msg,
             )
             messageCacheRef.current.set(chatId, next)
+            saveCachedMessages(chatId, next)
             return next
           })
         }).catch((err) => console.error('decrypt edit failed:', err))
@@ -474,6 +479,7 @@ export default function ChatsPage() {
           setMessages((prev) => {
             const next = prev.map((msg) => (msg.id === event.id ? { ...msg, is_deleted: event.is_deleted } : msg))
             messageCacheRef.current.set(chatId, next)
+            saveCachedMessages(chatId, next)
             return next
           })
         }
@@ -485,6 +491,7 @@ export default function ChatsPage() {
 
       if (event.action === 'chat_cleared') {
         messageCacheRef.current.delete(event.chat_id)
+        removeCachedMessages(event.chat_id)
         if (event.chat_id === activeChatId) {
           setMessages([])
           setPinnedMessages([])
@@ -499,6 +506,7 @@ export default function ChatsPage() {
 
       if (event.action === 'chat_deleted') {
         messageCacheRef.current.delete(event.chat_id)
+        removeCachedMessages(event.chat_id)
         setChats((prev) => prev.filter((c) => c.id !== event.chat_id))
         if (event.chat_id === activeChatId) {
           setActiveChatId(null)
@@ -604,7 +612,16 @@ export default function ChatsPage() {
 
   const loadMessages = useCallback(async (chatId: number) => {
     // Serve from cache instantly if available
-    const cached = messageCacheRef.current.get(chatId)
+    let cached = messageCacheRef.current.get(chatId)
+    if (!cached) {
+      // Cold start / offline: fall back to the persisted cache so previously
+      // loaded messages render without a network round-trip.
+      const stored = loadCachedMessages(chatId)
+      if (stored && stored.length > 0) {
+        cached = stored
+        messageCacheRef.current.set(chatId, stored)
+      }
+    }
     if (cached) {
       setMessages(cached)
       setLoadingMessages(false)
@@ -642,6 +659,7 @@ export default function ChatsPage() {
         data = await Promise.all(raw.map((m) => decryptIncomingText(m, chatKey)))
       }
       messageCacheRef.current.set(chatId, data)
+      saveCachedMessages(chatId, data)
       setMessages(data)
 
       // Seed the peer's read-receipt pointers from the server so our sent
@@ -828,6 +846,7 @@ export default function ChatsPage() {
     try {
       await clearChat(chatId)
       messageCacheRef.current.delete(chatId)
+      removeCachedMessages(chatId)
       if (activeChatId === chatId) {
         setMessages([])
       }
@@ -843,6 +862,7 @@ export default function ChatsPage() {
     try {
       await deleteChat(chatId)
       messageCacheRef.current.delete(chatId)
+      removeCachedMessages(chatId)
       setChats((prev) => prev.filter((c) => c.id !== chatId))
       if (activeChatId === chatId) {
         setActiveChatId(null)
@@ -864,6 +884,7 @@ export default function ChatsPage() {
   const handleGroupDeleted = useCallback(() => {
     if (activeChatId) {
       messageCacheRef.current.delete(activeChatId)
+      removeCachedMessages(activeChatId)
       setChats((prev) => prev.filter((c) => c.id !== activeChatId))
       setActiveChatId(null)
       setMessages([])
@@ -875,6 +896,7 @@ export default function ChatsPage() {
   const handleGroupLeft = useCallback(() => {
     if (activeChatId) {
       messageCacheRef.current.delete(activeChatId)
+      removeCachedMessages(activeChatId)
       setChats((prev) => prev.filter((c) => c.id !== activeChatId))
       setActiveChatId(null)
       setMessages([])
