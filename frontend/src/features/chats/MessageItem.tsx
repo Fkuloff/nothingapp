@@ -69,6 +69,8 @@ type Props = {
   onForward: (msgId: number) => void
   onPin?: (msgId: number) => void
   onUnpin?: (msgId: number) => void
+  /** Scroll to a message — used when the reply-quote is tapped. */
+  onJumpToMessage?: (msgId: number) => void
 }
 
 type ContextMenuState = {
@@ -318,6 +320,7 @@ function MessageItemInner({
   onForward,
   onPin,
   onUnpin,
+  onJumpToMessage,
 }: Props) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -454,12 +457,24 @@ function MessageItemInner({
           </div>
         )}
         {replyToMessage && (
-          <div className="reply-preview">
+          <div
+            className="reply-preview"
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation()
+              onJumpToMessage?.(replyToMessage.id)
+            }}
+          >
             <span className="reply-tag">↩</span>{' '}
             {replyToMessage.is_deleted ? (
               <i>Сообщение удалено</i>
+            ) : replyToMessage.text.trim() ? (
+              replyToMessage.text.trim().substring(0, 64)
+            ) : replyToMessage.attachments && replyToMessage.attachments.length > 0 ? (
+              '📎 Вложение'
             ) : (
-              (replyToMessage.text || '[Пустое сообщение]').substring(0, 64)
+              '[Пустое сообщение]'
             )}
           </div>
         )}

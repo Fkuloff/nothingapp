@@ -961,6 +961,7 @@ export function ChatWindow({
           canPin={canPin}
           onPin={handlePin}
           onUnpin={handleUnpin}
+          onJumpToMessage={scrollToMessage}
         />
 
         {e2eStatus.kind === 'not-ready' && (

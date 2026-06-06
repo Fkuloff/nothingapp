@@ -25,6 +25,7 @@ type Props = {
   onForward: (msgId: number) => void
   onPin?: (msgId: number) => void
   onUnpin?: (msgId: number) => void
+  onJumpToMessage?: (msgId: number) => void
 }
 
 // Deterministic color palette for group sender names
@@ -72,6 +73,7 @@ export function MessageList({
   onForward,
   onPin,
   onUnpin,
+  onJumpToMessage,
 }: Props) {
   // Build a lookup map for group members
   const membersMap = new Map(groupMembers.map((m) => [m.user_id, m]))
@@ -153,6 +155,7 @@ export function MessageList({
           onForward={onForward}
           onPin={onPin}
           onUnpin={onUnpin}
+          onJumpToMessage={onJumpToMessage}
         />
       )
     })
