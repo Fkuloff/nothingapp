@@ -872,16 +872,6 @@ export function ChatWindow({
                 <PhoneIcon size={20} />
               </button>
             )}
-            <button
-              className="chat-header__search-btn"
-              onClick={() => setIsSearchOpen(!isSearchOpen)}
-              aria-label="Поиск по сообщениям"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-            </button>
             <div className="chat-menu" ref={menuRef}>
               <button
                 className="chat-header__menu-btn"
@@ -896,6 +886,19 @@ export function ChatWindow({
               </button>
               {isMenuOpen && (
                 <div className="chat-menu__dropdown">
+                  <button
+                    className="chat-menu__item"
+                    onClick={() => {
+                      setIsSearchOpen(true)
+                      setIsMenuOpen(false)
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.35-4.35" />
+                    </svg>
+                    Поиск
+                  </button>
                   <button className="chat-menu__item" onClick={handleClearChat}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                       <path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24" />
@@ -922,7 +925,7 @@ export function ChatWindow({
 
         {isSearchOpen && (
           <ChatSearch
-            chatId={chatId}
+            messages={messages}
             onResultClick={(messageId) => {
               setIsSearchOpen(false)
               scrollToMessage(messageId)
