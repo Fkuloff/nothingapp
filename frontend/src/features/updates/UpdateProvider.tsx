@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
-import { fetchLatestRelease } from '../../shared/api/updatesApi'
+import { type AppRelease, fetchLatestRelease } from '../../shared/api/updatesApi'
 import { Updater } from '../../shared/nativeUpdater'
 import { isNative } from '../../shared/platform'
 import { UpdateContext, type UpdateState } from './UpdateContext'
@@ -147,58 +147,79 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   }, [performCheck])
 
   const dismiss = useCallback(async () => {
-    if (state.status !== 'available' || state.mandatory) return
-    const code = state.release.version_code
-    dismissedVersionRef.current = code
-    const { Preferences } = await import('@capacitor/preferences')
-    await Preferences.set({ key: PREFS_DISMISSED_CODE, value: String(code) })
-    setState({ status: 'up_to_date', currentVersionCode: state.currentVersionCode })
+    // Soft update offered but not started: remember the version so it doesn't nag.
+    if (state.status === 'available' && !state.mandatory) {
+      const code = state.release.version_code
+      dismissedVersionRef.current = code
+      const { Preferences } = await import('@capacitor/preferences')
+      await Preferences.set({ key: PREFS_DISMISSED_CODE, value: String(code) })
+      setState({ status: 'up_to_date', currentVersionCode: state.currentVersionCode })
+      return
+    }
+    // Download/install/check failed: let the user fall back to the running
+    // version for this session instead of being trapped on a dead-end screen.
+    // Deliberately NOT persisted — the next cold start re-checks and re-prompts
+    // (including a mandatory update) once the download works again.
+    if (state.status === 'error') {
+      setState({ status: 'up_to_date', currentVersionCode: state.currentVersionCode ?? 0 })
+    }
   }, [state])
+
+  // Core download routine, parameterised so both the initial "Обновить" tap
+  // (from `available`) and a "Повторить" tap (from `error`, which still holds
+  // the release) can drive it without re-polling.
+  const runDownload = useCallback(
+    async (release: AppRelease, currentVersionCode: number, mandatory: boolean): Promise<void> => {
+      if (!isNative()) return
+      setState({
+        status: 'downloading',
+        release,
+        currentVersionCode,
+        mandatory,
+        progress: { loaded: 0, total: release.size_bytes },
+      })
+
+      const handle = await Updater.addListener('download_progress', (ev) => {
+        setState((prev) =>
+          prev.status === 'downloading'
+            ? { ...prev, progress: { loaded: ev.bytes_loaded, total: ev.bytes_total } }
+            : prev,
+        )
+      })
+
+      try {
+        const result = await Updater.downloadApk({
+          url: release.url,
+          sha256: release.sha256,
+          fileName: `messenger-v${release.version_code}.apk`,
+        })
+        await handle.remove()
+        setState({
+          status: 'ready_to_install',
+          release,
+          path: result.path,
+          currentVersionCode,
+          mandatory,
+        })
+      } catch (err) {
+        await handle.remove()
+        setState({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+          currentVersionCode,
+          mandatory,
+          // Keep the release so "Повторить" can re-download without re-polling.
+          release,
+        })
+      }
+    },
+    [],
+  )
 
   const startDownload = useCallback(async () => {
     if (state.status !== 'available') return
-    if (!isNative()) return
-    const release = state.release
-    setState({
-      status: 'downloading',
-      release,
-      currentVersionCode: state.currentVersionCode,
-      mandatory: state.mandatory,
-      progress: { loaded: 0, total: release.size_bytes },
-    })
-
-    const handle = await Updater.addListener('download_progress', (ev) => {
-      setState((prev) =>
-        prev.status === 'downloading'
-          ? { ...prev, progress: { loaded: ev.bytes_loaded, total: ev.bytes_total } }
-          : prev,
-      )
-    })
-
-    try {
-      const result = await Updater.downloadApk({
-        url: release.url,
-        sha256: release.sha256,
-        fileName: `messenger-v${release.version_code}.apk`,
-      })
-      await handle.remove()
-      setState({
-        status: 'ready_to_install',
-        release,
-        path: result.path,
-        currentVersionCode: state.currentVersionCode,
-        mandatory: state.mandatory,
-      })
-    } catch (err) {
-      await handle.remove()
-      setState({
-        status: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        currentVersionCode: state.currentVersionCode,
-        mandatory: state.mandatory,
-      })
-    }
-  }, [state])
+    await runDownload(state.release, state.currentVersionCode, state.mandatory)
+  }, [state, runDownload])
 
   const install = useCallback(async () => {
     if (state.status !== 'ready_to_install') return
@@ -218,12 +239,23 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         message: err instanceof Error ? err.message : String(err),
         currentVersionCode: state.currentVersionCode,
         mandatory: state.mandatory,
+        release: state.release,
       })
     }
   }, [state])
 
+  // Retry from an error: re-download if we still hold the release (a failed
+  // download/install), otherwise re-run the version check.
+  const retry = useCallback(async () => {
+    if (state.status === 'error' && state.release) {
+      await runDownload(state.release, state.currentVersionCode ?? 0, state.mandatory)
+      return
+    }
+    await checkNow()
+  }, [state, runDownload, checkNow])
+
   return (
-    <UpdateContext.Provider value={{ state, checkNow, dismiss, startDownload, install }}>
+    <UpdateContext.Provider value={{ state, checkNow, dismiss, startDownload, install, retry }}>
       {children}
     </UpdateContext.Provider>
   )

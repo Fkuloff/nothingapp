@@ -12,7 +12,7 @@ import { useUpdate } from './UpdateContext'
  * Click "Обновить" → starts the download flow; banner becomes progress bar.
  */
 export function UpdateBanner() {
-  const { state, startDownload, install, dismiss } = useUpdate()
+  const { state, startDownload, install, dismiss, retry } = useUpdate()
   const [expanded, setExpanded] = useState(false)
 
   // Render error state inline so the user can actually see what failed
@@ -31,6 +31,22 @@ export function UpdateBanner() {
                 {state.message || 'неизвестная ошибка'}
               </span>
             </div>
+          </div>
+          <div className="update-banner__actions">
+            <button
+              type="button"
+              className="update-banner__btn update-banner__btn--ghost"
+              onClick={() => void dismiss()}
+            >
+              Скрыть
+            </button>
+            <button
+              type="button"
+              className="update-banner__btn update-banner__btn--primary"
+              onClick={() => void retry()}
+            >
+              Повторить
+            </button>
           </div>
         </div>
       </div>

@@ -11,7 +11,7 @@ import { useUpdate } from './UpdateContext'
  * which kills our process and Android brings up the new version.
  */
 export function UpdateMandatoryScreen({ children }: { children: ReactNode }) {
-  const { state, startDownload, install, checkNow } = useUpdate()
+  const { state, startDownload, install, retry, dismiss } = useUpdate()
 
   // Error state also has a `mandatory` flag — if a mandatory download fails,
   // we still need to keep blocking the rest of the UI. Previously this state
@@ -52,9 +52,16 @@ export function UpdateMandatoryScreen({ children }: { children: ReactNode }) {
             <button
               type="button"
               className="update-mandatory__btn"
-              onClick={() => void checkNow()}
+              onClick={() => void retry()}
             >
               Повторить
+            </button>
+            <button
+              type="button"
+              className="update-mandatory__btn update-mandatory__btn--ghost"
+              onClick={() => void dismiss()}
+            >
+              Остаться на текущей версии
             </button>
           </div>
         </div>
