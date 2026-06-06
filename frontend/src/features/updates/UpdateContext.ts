@@ -39,21 +39,37 @@ export type UpdateState =
       currentVersionCode: number
       mandatory: boolean
     }
-  | { status: 'error'; message: string; currentVersionCode: number | null; mandatory: boolean }
+  | {
+      status: 'error'
+      message: string
+      currentVersionCode: number | null
+      mandatory: boolean
+      // Preserved across a failed download/install so the user can retry
+      // without re-polling. Absent when the failure was the version check itself.
+      release?: AppRelease
+    }
 
 export type UpdateContextValue = {
   state: UpdateState
   /** Force-fetch /api/updates/latest, ignoring the 24h debounce. */
   checkNow: () => Promise<void>
   /**
-   * Mark the currently-offered version as dismissed; the banner won't show
-   * again until a newer release ships. No-op for mandatory updates.
+   * From a soft `available` update: mark the version dismissed so the banner
+   * won't reappear until a newer release ships. From an `error` state: fall
+   * back to the running version for this session (escape a dead-end update,
+   * including a failed mandatory one) — not persisted, so the next cold start
+   * re-checks. No-op for a not-yet-attempted mandatory update.
    */
   dismiss: () => Promise<void>
   /** Kick off the download → install flow. No-op outside 'available'/'mandatory'. */
   startDownload: () => Promise<void>
   /** Hand the downloaded APK to the system PackageInstaller. */
   install: () => Promise<void>
+  /**
+   * Re-attempt from an `error` state: re-download if we still hold the release
+   * (a failed download/install), otherwise re-run the version check.
+   */
+  retry: () => Promise<void>
 }
 
 export const UpdateContext = createContext<UpdateContextValue | null>(null)

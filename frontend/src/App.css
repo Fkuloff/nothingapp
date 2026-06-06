@@ -4807,7 +4807,9 @@ textarea::placeholder,
 
 .update-mandatory__action {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
 }
 
 .update-mandatory__btn {
@@ -4824,6 +4826,14 @@ textarea::placeholder,
 
 .update-mandatory__btn:hover {
   filter: brightness(1.05);
+}
+
+/* Secondary "stay on current version" escape shown only after a failed update. */
+.update-mandatory__btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--text-tertiary);
+  font-weight: 500;
 }
 
 .update-mandatory__progress {
