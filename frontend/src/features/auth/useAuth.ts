@@ -6,6 +6,7 @@ import type { UserProfile } from '../../shared/api/types'
 import { clearStoredAccountKey } from '../../shared/crypto/e2e'
 import { clearPeerKeyCache } from '../../shared/crypto/peerKeys'
 import { unregisterFCMDevice } from '../../shared/hooks/useFCMNotifications'
+import { clearAllCachedMessages } from '../../shared/messageCache'
 
 const CACHED_PROFILE_KEY = 'cached_user_profile'
 
@@ -81,6 +82,9 @@ export function useAuth() {
       } catch {
         // ignore
       }
+      // Drop the offline message cache so the next user on this device doesn't
+      // see the previous user's messages.
+      clearAllCachedMessages()
       // Drop the E2E account_key from disk too — otherwise a new user signing in on
       // the same device could end up using the previous user's key to encrypt their
       // first messages (race between login and AccountKeyProvider's rehydrate).
