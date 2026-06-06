@@ -91,6 +91,15 @@ export function MessageComposer({
   }
 
   const replyToMessage = replyToId ? messages.find((m) => m.id === replyToId) : null
+  // Attachment-only messages have empty text — show a marker so the reply
+  // banner isn't blank.
+  const replyPreviewText = replyToMessage
+    ? replyToMessage.text?.trim()
+      ? replyToMessage.text.trim().slice(0, 50)
+      : replyToMessage.attachments?.length
+        ? '📎 Вложение'
+        : ''
+    : ''
 
   return (
     <form id="chat-form" className="chat-composer" onSubmit={onSubmit}>
@@ -99,7 +108,7 @@ export function MessageComposer({
           <span>
             {editingMessageId
               ? 'Редактирование сообщения'
-              : `Ответ на: ${replyToMessage?.text?.substring(0, 50) ?? ''}`}
+              : `Ответ на: ${replyPreviewText}`}
           </span>
           <button type="button" className="btn btn-sm btn-secondary" onClick={onCancelDraft}>
             Отмена
