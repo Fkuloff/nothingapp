@@ -19,6 +19,16 @@ const path = require('node:path')
 const APP_ORIGIN = 'https://localhost'
 const DIST_DIR = path.join(__dirname, 'dist')
 
+// Strict origin comparison — a prefix check would also match
+// https://localhost.evil.com and let it hijack the app window.
+function isAppUrl(url) {
+  try {
+    return new URL(url).origin === APP_ORIGIN
+  } catch {
+    return false
+  }
+}
+
 const MIME_TYPES = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -36,7 +46,12 @@ const MIME_TYPES = {
 }
 
 async function serveFromDist(request) {
-  const pathname = decodeURIComponent(new URL(request.url).pathname)
+  let pathname
+  try {
+    pathname = decodeURIComponent(new URL(request.url).pathname)
+  } catch {
+    return new Response('bad request', { status: 400 })
+  }
   let filePath = path.normalize(path.join(DIST_DIR, pathname))
 
   // Path traversal guard: never serve anything outside dist/.
@@ -45,16 +60,23 @@ async function serveFromDist(request) {
   }
 
   // SPA fallback: router paths (/login, /chats, …) have no extension and no
-  // file on disk — they all resolve to index.html.
+  // file on disk — they resolve to index.html. A missing path WITH an
+  // extension is a genuine 404 (e.g. a stale hashed asset) — masking it
+  // with index.html would surface as a baffling JS parse error instead.
+  let ext = path.extname(filePath).toLowerCase()
   try {
     const stat = await fs.stat(filePath)
-    if (stat.isDirectory()) filePath = path.join(DIST_DIR, 'index.html')
+    if (stat.isDirectory()) {
+      filePath = path.join(DIST_DIR, 'index.html')
+      ext = '.html'
+    }
   } catch {
+    if (ext) return new Response('not found', { status: 404 })
     filePath = path.join(DIST_DIR, 'index.html')
+    ext = '.html'
   }
 
   const body = await fs.readFile(filePath)
-  const ext = path.extname(filePath).toLowerCase()
   return new Response(body, {
     headers: {
       'content-type': MIME_TYPES[ext] ?? 'application/octet-stream',
@@ -134,7 +156,7 @@ function createWindow() {
 
   // Links with target=_blank (and window.open) go to the system browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url) && !url.startsWith(APP_ORIGIN)) {
+    if (/^https?:/.test(url) && !isAppUrl(url)) {
       void shell.openExternal(url)
     }
     return { action: 'deny' }
@@ -142,10 +164,9 @@ function createWindow() {
 
   // The shell must never navigate away from the bundled app.
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(APP_ORIGIN)) {
-      event.preventDefault()
-      if (/^https?:/.test(url)) void shell.openExternal(url)
-    }
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    if (/^https?:/.test(url)) void shell.openExternal(url)
   })
 
   void win.loadURL(APP_ORIGIN + '/')
@@ -176,9 +197,15 @@ if (!gotLock) {
       return net.fetch(request, { bypassCustomProtocolHandlers: true })
     })
 
-    // getUserMedia for WebRTC audio calls; everything else is denied.
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(['media', 'notifications', 'clipboard-read'].includes(permission))
+    // getUserMedia for WebRTC calls; the app only does audio, so camera
+    // capture stays denied even if a compromised page asks for it.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+      if (permission === 'media') {
+        const types = details.mediaTypes ?? []
+        callback(types.length > 0 && types.every((t) => t === 'audio'))
+        return
+      }
+      callback(['notifications', 'clipboard-read'].includes(permission))
     })
 
     const win = createWindow()

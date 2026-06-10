@@ -5,6 +5,11 @@
 // Tab must not crawl focus across buttons and links like in a browser.
 // Field-to-field traversal inside forms (login, register, settings) still
 // works: there the keydown target is the input itself.
+//
+// Deliberate product decision (not an oversight): review suggested allowing
+// Tab from any focusable element for keyboard-only users, but that re-enables
+// exactly the browser-style focus crawl this exists to remove. Revisit if
+// desktop keyboard navigation ever becomes a requirement.
 window.addEventListener(
   'keydown',
   (event) => {

@@ -14,7 +14,7 @@
     "sync:android": "npm run build:android && cap sync android",
     "open:android": "cap open android",
     "build:desktop": "tsc -b && vite build --mode desktop",
-    "sync:desktop": "npm run build:desktop && rm -rf electron/dist && cp -R dist electron/dist",
+    "sync:desktop": "npm run build:desktop && node -e \"fs.rmSync('electron/dist',{recursive:true,force:true});fs.cpSync('dist','electron/dist',{recursive:true})\"",
     "open:desktop": "npm --prefix electron start",
     "dist:desktop": "npm run sync:desktop && npm --prefix electron run dist:mac-arm64",
     "lint": "eslint .",
