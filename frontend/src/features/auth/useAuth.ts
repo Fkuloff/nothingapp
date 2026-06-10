@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { endpoints } from '../../shared/api/endpoints'
 import { getAuthToken, httpGet, setAuthToken } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
+import { clearAppLockOnLogout } from '../../shared/appLock'
 import { clearStoredAccountKey } from '../../shared/crypto/e2e'
 import { clearPeerKeyCache } from '../../shared/crypto/peerKeys'
 import { unregisterFCMDevice } from '../../shared/hooks/useFCMNotifications'
@@ -92,6 +93,9 @@ export function useAuth() {
       // Drop the in-memory peer public_key cache so a new user doesn't accidentally
       // see "trusted" entries left over from the previous session.
       clearPeerKeyCache()
+      // App-lock is per-account device state: the previous owner's biometrics
+      // must not unlock the next login, and the next login re-gets the offer.
+      clearAppLockOnLogout()
       setUser(null)
       setLoading(false)
       initializedRef.current = false
