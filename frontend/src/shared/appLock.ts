@@ -68,7 +68,8 @@ export async function hydrateAppLockPrefs(): Promise<void> {
     const { Preferences } = await import('@capacitor/preferences')
     for (const key of MIRRORED_KEYS) {
       const { value } = await Preferences.get({ key })
-      if (value !== null) localStorage.setItem(key, value)
+      if (value === null) localStorage.removeItem(key)
+      else localStorage.setItem(key, value)
     }
   } catch (err) {
     console.warn('appLock: hydrate failed:', err)
