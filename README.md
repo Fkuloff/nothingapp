@@ -28,6 +28,8 @@ Real-time messenger with a React frontend and a Go backend.
 
 **Mobile:** Capacitor Android (WebView) · FCM push
 
+**Desktop:** Electron (macOS arm64) — same web bundle, served from the `https://localhost` origin
+
 **Infrastructure:** Docker · MinIO · Nginx · Certbot · GitHub Actions · GHCR · Distroless
 
 ## Quick start
@@ -65,7 +67,8 @@ messenger/
 │   └── internal/             # Handlers, services, repos, models, secrets
 ├── frontend/                 # React 19 (TypeScript + Vite + Bootstrap)
 │   ├── src/                  # Pages, features (auth/chats/calls/...), shared/crypto
-│   └── android/              # Capacitor Android wrapper (debug + release APK)
+│   ├── android/              # Capacitor Android wrapper (debug + release APK)
+│   └── electron/             # Electron desktop shell (macOS arm64 DMG)
 ├── nginx-proxy/              # Production nginx config
 ├── ops/                      # SECRETS.md + E2E.md runbooks
 ├── .github/workflows/        # CI/CD pipeline
@@ -192,12 +195,17 @@ npm run dev                            # Vite dev server
 npm run build                          # Web production build
 npm run build:android                  # Android-mode build (uses .env.android)
 npm run sync:android                   # build:android + cap sync android
+npm run sync:desktop                   # Desktop-mode build (.env.desktop) + copy into electron/dist
+npm run open:desktop                   # Launch the Electron shell (run sync:desktop first)
+npm run dist:desktop                   # Build macOS arm64 DMG (electron/release/)
 npm run lint                           # ESLint
 npm run knip                           # Find unused exports / dead code
 npm test                               # Vitest (includes E2E crypto roundtrip suite)
 ```
 
 **Android APK:** always run `npm run sync:android` before `gradlew assembleDebug` / `assembleRelease`. The plain `npm run build` script bakes in an empty `VITE_API_BASE_URL`, which silently routes API calls back at the WebView itself.
+
+**Desktop (macOS, Apple Silicon):** `cd frontend/electron && npm install` once, then `npm run dist:desktop` from `frontend/` produces `electron/release/Messenger-<version>-mac-arm64.dmg`. The shell serves the bundled web app from the `https://localhost` origin (same one the Android WebView reports), so the backend CORS allow-list needs no changes; API/WS traffic goes to the host baked in via `.env.desktop`. Without a Developer ID certificate the app is ad-hoc signed — on another Mac use right-click → Open on first launch (no notarization).
 
 **Backend linting (CI parity):** run `golangci-lint` v1.64.8 inside Docker — the native Windows binary peaks past 7 GB RAM and trashes the host. See `CLAUDE.md` for the exact command.
 
@@ -226,6 +234,10 @@ No deploy here — pushing to `main` does not touch production.
    Docker images to GHCR (plus `latest`)
 7. `scp docker-compose.prod.yml + nginx-proxy/` to the production VM,
    then SSH-deploy: `docker compose pull && up -d && nginx -s reload`
+8. A second job on an Apple Silicon runner builds the desktop client
+   (`Messenger-<version>-mac-arm64.dmg`, ad-hoc signed) and attaches it to
+   the same GitHub Release. Not registered in `/api/admin/releases` — the
+   desktop client has no self-updater
 
 Default policy: `min_supported_version_code = version_code` for the new release,
 making every release a mandatory upgrade for older installs. Override for an

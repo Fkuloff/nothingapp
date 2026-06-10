@@ -41,6 +41,11 @@ frontend/logs/
 frontend/*.log
 frontend/npm-debug.log*
 
+# Desktop (Electron) build artifacts (electron source itself is committed)
+frontend/electron/node_modules/
+frontend/electron/dist/
+frontend/electron/release/
+
 # Root level artifacts
 *.exe
 uploads/
