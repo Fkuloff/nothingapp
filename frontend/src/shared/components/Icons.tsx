@@ -183,6 +183,14 @@ export function BookmarkIcon({ className, size = 24 }: IconProps) {
 }
 
 /** Arrow-left icon — used for back navigation */
+export function ChevronDownIcon({ className, size = 24 }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
 export function ArrowLeftIcon({ className, size = 24 }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

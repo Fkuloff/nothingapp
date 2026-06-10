@@ -3026,6 +3026,96 @@ textarea::placeholder,
   font-size: 0.95rem;
 }
 
+.settings-modal__option-hint {
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.settings-modal__group-title {
+  margin: 0 0 var(--space-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.settings-modal__divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: var(--space-lg) 0;
+}
+
+/* Custom autolock picker — the native <select> opens an OS dialog that
+   ignores the app theme, so the options expand inline instead. */
+.applock-picker {
+  margin-top: var(--space-xs);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.applock-picker__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-md);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.applock-picker__trigger:hover {
+  background: var(--bg-hover);
+}
+
+.applock-picker__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.applock-picker__chevron {
+  transition: var(--transition);
+}
+
+.applock-picker__chevron--open {
+  transform: rotate(180deg);
+}
+
+.applock-picker__options {
+  border-top: 1px solid var(--border-color);
+}
+
+.applock-picker__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-md);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+
+.applock-picker__option:hover {
+  background: var(--bg-hover);
+}
+
+.applock-picker__option--selected {
+  color: var(--accent-primary);
+}
+
 /* ============================================
    IMAGE LIGHTBOX
    ============================================ */

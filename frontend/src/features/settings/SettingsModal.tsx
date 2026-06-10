@@ -99,7 +99,14 @@ export function SettingsModal({ isOpen, onClose }: Props) {
 
           {activeView === 'security' && (
             <div className="settings-modal__section">
-              {getPlatform() === 'android' && <AppLockSettings />}
+              {getPlatform() === 'android' && (
+                <>
+                  <h3 className="settings-modal__group-title">Блокировка приложения</h3>
+                  <AppLockSettings />
+                  <div className="settings-modal__divider" />
+                </>
+              )}
+              <h3 className="settings-modal__group-title">Смена пароля</h3>
               <ChangePasswordForm />
             </div>
           )}
