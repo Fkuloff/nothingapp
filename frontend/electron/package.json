@@ -1,0 +1,46 @@
+{
+  "name": "messenger-desktop",
+  "private": true,
+  "version": "1.5.5",
+  "description": "Messenger desktop client — Electron shell around the web bundle",
+  "license": "AGPL-3.0-or-later",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac-arm64": "electron-builder --mac dmg --arm64"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.messenger.app",
+    "productName": "Messenger",
+    "afterPack": "scripts/adhoc-sign.js",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "dist/**"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.png",
+      "artifactName": "Messenger-${version}-mac-arm64.${ext}",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Микрофон используется для аудиозвонков."
+      }
+    }
+  }
+}

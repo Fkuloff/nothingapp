@@ -8,7 +8,7 @@ import simpleImportSort from 'eslint-plugin-simple-import-sort'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'android/**']),
+  globalIgnores(['dist', 'android/**', 'electron/**']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

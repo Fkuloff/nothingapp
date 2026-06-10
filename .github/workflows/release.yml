@@ -8,6 +8,10 @@
 #      will see the update banner on their next cold start.
 #   5. Builds + pushes backend and frontend Docker images to GHCR.
 #   6. SSHes to the production VM and pulls + restarts both services.
+#   7. A second job (Apple Silicon runner) builds the macOS arm64 desktop DMG
+#      and attaches it to the same GitHub Release. Not registered in
+#      /api/admin/releases — the desktop client has no self-updater; it runs
+#      the web bundle in "always up to date" mode.
 #
 # Required secrets (Settings → Secrets and variables → Actions):
 #   ANDROID_KEYSTORE_BASE64   — `base64 -w0 release.jks` of your keystore file
@@ -47,6 +51,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version_name: ${{ steps.ver.outputs.name }}
 
     steps:
       - name: Checkout
@@ -283,3 +289,52 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d backend frontend
             docker compose -f docker-compose.prod.yml exec -T nginx-proxy nginx -s reload || true
             docker image prune -f
+
+  # macOS desktop client (arm64 DMG). A separate job because the DMG must be
+  # built on an Apple Silicon runner; `needs: release` both hands us the parsed
+  # version and guarantees the GitHub Release already exists, so two jobs never
+  # race to create it. No Developer ID secrets are configured — the bundle is
+  # ad-hoc signed by electron/scripts/adhoc-sign.js, so first launch on another
+  # Mac is right-click → Open (no notarization).
+  desktop-macos:
+    needs: release
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            frontend/electron/package-lock.json
+
+      - name: Build desktop web bundle
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm run sync:desktop
+
+      - name: Build DMG
+        working-directory: frontend/electron
+        run: |
+          # --ignore-scripts skips electron's binary-download postinstall; that's
+          # fine — electron-builder fetches its own Electron dist for packaging,
+          # and CI never runs `electron .`.
+          npm ci --no-audit --no-fund --ignore-scripts
+          # Mirror of the Android versionCode/versionName bump: the committed
+          # version is a baseline, the tag is the source of truth.
+          npm version "${{ needs.release.outputs.version_name }}" --no-git-tag-version --allow-same-version
+          npx electron-builder --mac dmg --arm64
+
+      - name: Upload DMG to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.release.outputs.version_name }}
+          files: frontend/electron/release/Messenger-${{ needs.release.outputs.version_name }}-mac-arm64.dmg
+          fail_on_unmatched_files: true
