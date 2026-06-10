@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Register our custom plugins BEFORE super.onCreate so the Capacitor
         // bridge sees them during boot.
+        registerPlugin(BiometricPlugin.class);
         registerPlugin(DownloadsPlugin.class);
         registerPlugin(UpdaterPlugin.class);
         registerPlugin(ShareTargetPlugin.class);

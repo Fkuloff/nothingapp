@@ -4,6 +4,8 @@ import { ArrowLeftIcon, BellIcon, CloseIcon, LockIcon } from '../../shared/compo
 import { PushToggle } from '../../shared/components/PushToggle'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { getPlatform } from '../../shared/platform'
+import { AppLockSettings } from '../applock/AppLockSettings'
 import { ChangePasswordForm } from './ChangePasswordForm'
 
 type SettingsView = 'main' | 'notifications' | 'security'
@@ -97,6 +99,7 @@ export function SettingsModal({ isOpen, onClose }: Props) {
 
           {activeView === 'security' && (
             <div className="settings-modal__section">
+              {getPlatform() === 'android' && <AppLockSettings />}
               <ChangePasswordForm />
             </div>
           )}
