@@ -43,6 +43,7 @@ type AttachmentMetaInput struct {
 	FileIV            string
 	EncryptedMetadata string
 	MetadataIV        string
+	Duration          *int
 	Envelopes         []AttachmentEnvelopeInput
 }
 
@@ -305,6 +306,7 @@ func (s *AttachmentService) ForwardAttachment(
 		FileIV:            source.FileIV,            // body IV is reusable (same ciphertext)
 		EncryptedMetadata: source.EncryptedMetadata, // wrapped under file_key, not chat_key
 		MetadataIV:        source.MetadataIV,
+		Duration:          source.Duration,
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if createErr := tx.Create(att).Error; createErr != nil {
@@ -374,6 +376,7 @@ func (s *AttachmentService) processEncryptedFileUpload(
 		FileIV:            meta.FileIV,
 		EncryptedMetadata: meta.EncryptedMetadata,
 		MetadataIV:        meta.MetadataIV,
+		Duration:          meta.Duration,
 	}
 
 	return attachment, metadata.Key, nil

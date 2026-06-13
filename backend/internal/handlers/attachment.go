@@ -59,6 +59,7 @@ type wireAttachmentMeta struct {
 	FileIV            string                   `json:"file_iv"`
 	EncryptedMetadata string                   `json:"encrypted_metadata"`
 	MetadataIV        string                   `json:"metadata_iv"`
+	Duration          *int                     `json:"duration,omitempty"`
 	Envelopes         []wireAttachmentEnvelope `json:"envelopes"`
 }
 
@@ -143,6 +144,7 @@ func (h *attachmentHandler) UploadAttachments(c *gin.Context) {
 			FileIV:            m.FileIV,
 			EncryptedMetadata: m.EncryptedMetadata,
 			MetadataIV:        m.MetadataIV,
+			Duration:          m.Duration,
 			Envelopes:         envs,
 		}
 	}
@@ -287,6 +289,7 @@ func serializeAttachment(att *models.Attachment, s storage.Storage) map[string]a
 		"file_iv":            att.FileIV,
 		"encrypted_metadata": att.EncryptedMetadata,
 		"metadata_iv":        att.MetadataIV,
+		"duration":           att.Duration,
 	}
 }
 

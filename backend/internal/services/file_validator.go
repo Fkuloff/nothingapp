@@ -117,7 +117,8 @@ func (v *fileValidator) validateAvatar(fileHeader *multipart.FileHeader) error {
 
 // isAllowedMimeType checks if a MIME type is allowed for any attachment type
 func (v *fileValidator) isAllowedMimeType(mimeType string) bool {
-	return allowedImageTypes[mimeType] || allowedVideoTypes[mimeType] || allowedDocumentTypes[mimeType]
+	return strings.HasPrefix(mimeType, "audio/") ||
+		allowedImageTypes[mimeType] || allowedVideoTypes[mimeType] || allowedDocumentTypes[mimeType]
 }
 
 // validateFilename checks for path traversal and other security issues
