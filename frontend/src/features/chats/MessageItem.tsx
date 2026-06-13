@@ -97,10 +97,76 @@ type AttachmentViewProps = {
 // Used to live server-side as `determineFileType`; moved client-side because
 // the server no longer sees the real mime (it's encrypted under file_key
 // alongside the body).
-function bucketFromMime(mime: string): 'image' | 'video' | 'document' {
+function bucketFromMime(mime: string): 'image' | 'video' | 'audio' | 'document' {
   if (mime.startsWith('image/')) return 'image'
   if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('audio/')) return 'audio'
   return 'document'
+}
+
+function formatAudioTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
+}
+
+function VoiceAttachmentPlayer({ src, mimeType, duration }: { src: string; mimeType: string; duration?: number }) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [loadedDuration, setLoadedDuration] = useState(duration ?? 0)
+  const displayDuration = loadedDuration || duration || 0
+  const progress = displayDuration > 0 ? Math.min(100, (currentTime / displayDuration) * 100) : 0
+
+  const toggle = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) {
+      void audio.play()
+    } else {
+      audio.pause()
+    }
+  }
+
+  return (
+    <div className="voice-player">
+      <audio
+        ref={audioRef}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false)
+          setCurrentTime(0)
+        }}
+        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => {
+          if (Number.isFinite(e.currentTarget.duration)) setLoadedDuration(e.currentTarget.duration)
+        }}
+      >
+        <source src={src} type={mimeType} />
+      </audio>
+      <button type="button" className="voice-player__button" onClick={toggle} aria-label={playing ? 'Пауза' : 'Воспроизвести'}>
+        {playing ? (
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+      </button>
+      <div className="voice-player__body">
+        <div className="voice-player__meta">
+          <span>Голосовое сообщение</span>
+          <span>{formatAudioTime(displayDuration)}</span>
+        </div>
+        <div className="voice-player__progress" aria-hidden="true">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -279,6 +345,10 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
         <source src={blobUrl} type={mimeType} />
       </video>
     )
+  }
+
+  if (bucket === 'audio') {
+    return <VoiceAttachmentPlayer src={blobUrl} mimeType={mimeType} duration={att.duration} />
   }
 
   return (

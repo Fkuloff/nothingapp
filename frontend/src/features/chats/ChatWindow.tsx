@@ -148,7 +148,9 @@ export function ChatWindow({
     | { kind: 'not-ready'; missingMemberNames: string[] }
   const [e2eStatus, setE2EStatus] = useState<E2EStatus>({ kind: 'loading' })
   const menuRef = useRef<HTMLDivElement>(null)
-  const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
+  const pendingUploadRef = useRef<{ chatId: number; files: File[]; durations: Array<number | null> } | null>(null)
+  const voiceDurationByFileRef = useRef<WeakMap<File, number>>(new WeakMap())
+  const queuedVoiceRef = useRef<{ file: File; duration: number } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
   // Mirror of messageText for the cleanup-time save (closures otherwise see
   // the value at effect-run time, not the latest user input).
@@ -374,7 +376,7 @@ export function ChatWindow({
     const newMessage = messages[messages.length - 1]
     if (!newMessage || newMessage.user_id !== currentUserId) return
 
-    const { chatId: uploadChatId, files } = pendingUploadRef.current
+    const { chatId: uploadChatId, files, durations } = pendingUploadRef.current
     if (newMessage.chat_id !== uploadChatId || files.length === 0) return
 
     pendingUploadRef.current = null
@@ -407,10 +409,11 @@ export function ChatWindow({
           file_iv: string
           encrypted_metadata: string
           metadata_iv: string
+          duration?: number
           envelopes: Array<{ recipient_id: number; encrypted_file_key: string; iv: string }>
         }
         const metas: WireMeta[] = []
-        for (const file of files) {
+        for (const [index, file] of files.entries()) {
           const prepared = await prepareAttachmentForUpload(file, recipients, accountKey)
           // Append the encrypted blob with an opaque filename so the multipart
           // Content-Disposition header doesn't leak the original name. The
@@ -423,6 +426,7 @@ export function ChatWindow({
             file_iv: prepared.fileIv,
             encrypted_metadata: prepared.encryptedMetadata,
             metadata_iv: prepared.metadataIv,
+            ...(durations[index] ? { duration: durations[index] as number } : {}),
             envelopes: prepared.envelopes,
           })
         }
@@ -442,14 +446,16 @@ export function ChatWindow({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    const text = messageText.trim()
+    const queuedVoice = queuedVoiceRef.current
+    const text = queuedVoice ? '' : messageText.trim()
+    const filesForSubmit = queuedVoice ? [queuedVoice.file] : selectedFiles
 
     if (!chatId) {
       showToast('Выберите чат, чтобы отправлять сообщения', 'warning')
       return
     }
 
-    if (!text && selectedFiles.length === 0) {
+    if (!text && filesForSubmit.length === 0) {
       showToast('Введите сообщение или прикрепите файлы', 'warning')
       return
     }
@@ -552,8 +558,13 @@ export function ChatWindow({
     }
 
     // Store files for upload after message is created
-    if (selectedFiles.length > 0) {
-      pendingUploadRef.current = { chatId, files: [...selectedFiles] }
+    if (filesForSubmit.length > 0) {
+      const files = [...filesForSubmit]
+      pendingUploadRef.current = {
+        chatId,
+        files,
+        durations: files.map((file) => queuedVoice && file === queuedVoice.file ? queuedVoice.duration : voiceDurationByFileRef.current.get(file) ?? null),
+      }
     }
 
     setSending(true)
@@ -600,6 +611,7 @@ export function ChatWindow({
       setMessageText('')
       setReplyToId(null)
       setSelectedFiles([])
+      queuedVoiceRef.current = null
       if (chatId) {
         try { localStorage.removeItem(draftKey(chatId)) } catch { /* ignore */ }
       }
@@ -607,6 +619,7 @@ export function ChatWindow({
       setSending(false)
       showToast('Не удалось отправить сообщение, повторите.', 'error')
       pendingUploadRef.current = null
+      queuedVoiceRef.current = null
     }
   }
 
@@ -617,6 +630,14 @@ export function ChatWindow({
   const handleRemoveFile = (index: number) => {
     setSelectedFiles((prev) => prev.filter((_, idx) => idx !== index))
   }
+
+  const handleVoiceRecorded = useCallback((file: File, duration: number) => {
+    voiceDurationByFileRef.current.set(file, duration)
+    queuedVoiceRef.current = { file, duration }
+    window.setTimeout(() => {
+      document.getElementById('chat-form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    }, 0)
+  }, [])
 
   // Stable refs so the memoised MessageItem doesn't re-render the whole list on every
   // parent state change. Setters from useState are already stable; only chatId + send
@@ -996,6 +1017,7 @@ export function ChatWindow({
           onRemoveFile={handleRemoveFile}
           onCancelDraft={handleCancelDraft}
           onToggleEmoji={handleToggleEmoji}
+          onVoiceRecorded={handleVoiceRecorded}
           disabled={e2eStatus.kind !== 'ready'}
         />
       </div>

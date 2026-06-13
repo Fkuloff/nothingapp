@@ -43,6 +43,11 @@ func TestFileValidator_validateAttachment(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "valid OGG audio",
+			fh:      newFileHeader("voice.ogg", "audio/ogg", 1024),
+			wantErr: false,
+		},
+		{
 			name:      "unsupported MIME type",
 			fh:        newFileHeader("script.exe", "application/x-executable", 1024),
 			wantErr:   true,
